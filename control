@@ -1,0 +1,9 @@
+Package: org.openvk.legacy
+Name: OpenVK Legacy
+Depends: 
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: OpenVK client for Legacy iOS (iOS 5.0 - 10.x, 32-bit & 64-bit)
+Maintainer: OpenVK Team
+Author: OpenVK Team
+Section: Applications

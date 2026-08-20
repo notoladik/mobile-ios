@@ -2,3 +2,7 @@
 
 # Xcode user-specific data (breakpoints, schemes, UI state)
 xcuserdata/
+.theos/
+packages/
+*.ipa
+*.deb
