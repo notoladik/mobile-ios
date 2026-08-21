@@ -555,6 +555,7 @@
             VKPost *post = self.wallPosts[indexPath.row];
             [cell configureWithPost:post isRevealed:YES];
             
+            __weak typeof(self) weakSelf = self;
             cell.onLikeTapped = ^(VKPost *p) {
                 [[VKFeedService sharedService] likePost:p completion:nil];
             };
