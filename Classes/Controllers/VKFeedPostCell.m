@@ -311,6 +311,22 @@
     }
 }
 
+- (void)repostPhotoCellTapped:(UITapGestureRecognizer *)gesture {
+    if (self.currentPost.repostHistory.count == 0) return;
+    VKPost *rep = self.currentPost.repostHistory[0];
+    NSMutableArray<NSString *> *urls = [NSMutableArray array];
+    for (VKAttachment *att in rep.attachments) {
+        if (att.type == VKAttachmentTypePhoto && att.photoURL.length > 0) [urls addObject:att.photoURL];
+    }
+    NSInteger index = gesture.view.tag;
+    if (self.onPhotosGalleryTapped && urls.count > 0) {
+        self.onPhotosGalleryTapped(urls, index);
+    } else if (self.onPhotoTapped && index < (NSInteger)urls.count) {
+        UIImageView *iv = (UIImageView *)gesture.view;
+        self.onPhotoTapped(urls[index], iv.image);
+    }
+}
+
 - (void)audioAttachmentTapped:(UITapGestureRecognizer *)gesture {
     NSInteger index = gesture.view.tag - 6000;
     NSMutableArray *audios = [NSMutableArray array];
@@ -494,16 +510,25 @@
     }
     
     // Фотографии (сетка)
-    NSInteger photoCount = 0;
+    NSMutableArray *photos = [NSMutableArray array];
     for (VKAttachment *att in post.attachments) {
-        if (att.type == VKAttachmentTypePhoto && att.photoURL.length > 0) photoCount++;
+        if (att.type == VKAttachmentTypePhoto && att.photoURL.length > 0) [photos addObject:att];
     }
-    if (photoCount == 1) {
-        h += 240.0 + 10.0;
-    } else if (photoCount == 2 || photoCount == 3) {
+    if (photos.count == 1) {
+        VKAttachment *a = photos[0];
+        CGFloat photoH = 240.0;
+        if (a.photoWidth > 0 && a.photoHeight > 0) {
+            photoH = MAX(160.0, MIN(320.0, floorf(contentWidth * (a.photoHeight / a.photoWidth))));
+        }
+        h += photoH + 10.0;
+    } else if (photos.count == 2) {
         h += 170.0 + 10.0;
-    } else if (photoCount >= 4) {
-        h += 260.0 + 10.0;
+    } else if (photos.count == 3) {
+        h += 180.0 + 10.0;
+    } else if (photos.count == 4) {
+        h += 256.0 + 10.0;
+    } else if (photos.count >= 5) {
+        h += 230.0 + 10.0;
     }
     
     // Прочие вложения (Аудио, Видео, Опросы, Документы, GIF, Ссылки)
@@ -544,15 +569,22 @@
         }
         
         // Фотографии репоста
-        NSInteger repPhotoCount = 0;
+        NSMutableArray *repPhotos = [NSMutableArray array];
         for (VKAttachment *att in rep.attachments) {
-            if (att.type == VKAttachmentTypePhoto && att.photoURL.length > 0) repPhotoCount++;
+            if (att.type == VKAttachmentTypePhoto && att.photoURL.length > 0) [repPhotos addObject:att];
         }
-        if (repPhotoCount == 1) {
-            repH += 220.0 + 8.0;
-        } else if (repPhotoCount == 2 || repPhotoCount == 3) {
-            repH += 140.0 + 8.0;
-        } else if (repPhotoCount >= 4) {
+        if (repPhotos.count == 1) {
+            VKAttachment *a = repPhotos[0];
+            CGFloat photoH = 220.0;
+            if (a.photoWidth > 0 && a.photoHeight > 0) {
+                photoH = MAX(140.0, MIN(280.0, floorf(repContentW * (a.photoHeight / a.photoWidth))));
+            }
+            repH += photoH + 8.0;
+        } else if (repPhotos.count == 2) {
+            repH += 150.0 + 8.0;
+        } else if (repPhotos.count == 3) {
+            repH += 160.0 + 8.0;
+        } else if (repPhotos.count >= 4) {
             repH += 220.0 + 8.0;
         }
         
@@ -741,7 +773,11 @@
         CGFloat photoCorner = isSkeuomorph ? 3.0 : (isFlat ? 2.0 : 6.0);
         
         if (photos.count == 1) {
+            VKAttachment *a = photos[0];
             CGFloat photoH = 240.0;
+            if (a.photoWidth > 0 && a.photoHeight > 0) {
+                photoH = MAX(160.0, MIN(320.0, floorf(contentW * (a.photoHeight / a.photoWidth))));
+            }
             UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, contentW, photoH)];
             iv.contentMode = UIViewContentModeScaleAspectFill;
             iv.clipsToBounds = YES;
@@ -752,7 +788,6 @@
             UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(photoCellTapped:)];
             [iv addGestureRecognizer:tap];
             
-            VKAttachment *a = photos[0];
             [[VKImageLoader sharedLoader] loadImageWithURL:a.photoURL completion:^(UIImage *img) {
                 if (img) iv.image = img;
             }];
@@ -761,10 +796,12 @@
             currentY += photoH + 10.0;
         } else if (photos.count == 2) {
             CGFloat halfW = (contentW - 4.0) / 2.0;
+            CGFloat rowH = 170.0;
             for (NSInteger i = 0; i < 2; i++) {
-                UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(i * (halfW + 4.0), 0, halfW, 170.0)];
+                UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(i * (halfW + 4.0), 0, halfW, rowH)];
                 iv.contentMode = UIViewContentModeScaleAspectFill;
                 iv.clipsToBounds = YES;
+                iv.backgroundColor = [UIColor colorWithRed:235.0/255.0 green:237.0/255.0 blue:240.0/255.0 alpha:1.0];
                 iv.layer.cornerRadius = photoCorner;
                 iv.tag = i;
                 iv.userInteractionEnabled = YES;
@@ -777,16 +814,18 @@
                 }];
                 [self.photosContainerView addSubview:iv];
             }
-            self.photosContainerView.frame = CGRectMake(0, currentY, contentW, 170.0);
-            currentY += 170.0 + 10.0;
+            self.photosContainerView.frame = CGRectMake(0, currentY, contentW, rowH);
+            currentY += rowH + 10.0;
         } else if (photos.count == 3) {
-            CGFloat leftW = floorf(contentW * 0.65);
+            CGFloat leftW = floorf(contentW * 0.64);
             CGFloat rightW = contentW - leftW - 4.0;
-            CGFloat rightH = (170.0 - 4.0) / 2.0;
+            CGFloat totalH = 180.0;
+            CGFloat rightH = (totalH - 4.0) / 2.0;
             
-            UIImageView *iv1 = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, leftW, 170.0)];
+            UIImageView *iv1 = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, leftW, totalH)];
             iv1.contentMode = UIViewContentModeScaleAspectFill;
             iv1.clipsToBounds = YES;
+            iv1.backgroundColor = [UIColor colorWithRed:235.0/255.0 green:237.0/255.0 blue:240.0/255.0 alpha:1.0];
             iv1.layer.cornerRadius = photoCorner;
             iv1.tag = 0;
             iv1.userInteractionEnabled = YES;
@@ -798,6 +837,7 @@
                 UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(leftW + 4.0, (i - 1) * (rightH + 4.0), rightW, rightH)];
                 iv.contentMode = UIViewContentModeScaleAspectFill;
                 iv.clipsToBounds = YES;
+                iv.backgroundColor = [UIColor colorWithRed:235.0/255.0 green:237.0/255.0 blue:240.0/255.0 alpha:1.0];
                 iv.layer.cornerRadius = photoCorner;
                 iv.tag = i;
                 iv.userInteractionEnabled = YES;
@@ -805,18 +845,52 @@
                 [[VKImageLoader sharedLoader] loadImageWithURL:((VKAttachment *)photos[i]).photoURL completion:^(UIImage *img) { if (img) iv.image = img; }];
                 [self.photosContainerView addSubview:iv];
             }
-            self.photosContainerView.frame = CGRectMake(0, currentY, contentW, 170.0);
-            currentY += 170.0 + 10.0;
-        } else {
-            // 4 и более фото (сетка 2x2 или мозаика)
+            self.photosContainerView.frame = CGRectMake(0, currentY, contentW, totalH);
+            currentY += totalH + 10.0;
+        } else if (photos.count == 4) {
             CGFloat halfW = (contentW - 4.0) / 2.0;
             CGFloat rowH = 126.0;
-            for (NSInteger i = 0; i < MIN(4, (NSInteger)photos.count); i++) {
+            CGFloat totalH = rowH * 2.0 + 4.0;
+            for (NSInteger i = 0; i < 4; i++) {
                 CGFloat x = (i % 2) * (halfW + 4.0);
                 CGFloat y = (i / 2) * (rowH + 4.0);
                 UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(x, y, halfW, rowH)];
                 iv.contentMode = UIViewContentModeScaleAspectFill;
                 iv.clipsToBounds = YES;
+                iv.backgroundColor = [UIColor colorWithRed:235.0/255.0 green:237.0/255.0 blue:240.0/255.0 alpha:1.0];
+                iv.layer.cornerRadius = photoCorner;
+                iv.tag = i;
+                iv.userInteractionEnabled = YES;
+                [iv addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(photoCellTapped:)]];
+                
+                VKAttachment *a = photos[i];
+                [[VKImageLoader sharedLoader] loadImageWithURL:a.photoURL completion:^(UIImage *img) {
+                    if (img) iv.image = img;
+                }];
+                [self.photosContainerView addSubview:iv];
+            }
+            self.photosContainerView.frame = CGRectMake(0, currentY, contentW, totalH);
+            currentY += totalH + 10.0;
+        } else {
+            // 5+ фото: 2 сверху, 3 снизу
+            CGFloat row1W = (contentW - 4.0) / 2.0;
+            CGFloat row1H = 130.0;
+            CGFloat row2W = (contentW - 8.0) / 3.0;
+            CGFloat row2H = 96.0;
+            CGFloat totalH = row1H + 4.0 + row2H;
+            
+            for (NSInteger i = 0; i < MIN(5, (NSInteger)photos.count); i++) {
+                CGRect photoFrame;
+                if (i < 2) {
+                    photoFrame = CGRectMake(i * (row1W + 4.0), 0, row1W, row1H);
+                } else {
+                    photoFrame = CGRectMake((i - 2) * (row2W + 4.0), row1H + 4.0, row2W, row2H);
+                }
+                
+                UIImageView *iv = [[UIImageView alloc] initWithFrame:photoFrame];
+                iv.contentMode = UIViewContentModeScaleAspectFill;
+                iv.clipsToBounds = YES;
+                iv.backgroundColor = [UIColor colorWithRed:235.0/255.0 green:237.0/255.0 blue:240.0/255.0 alpha:1.0];
                 iv.layer.cornerRadius = photoCorner;
                 iv.tag = i;
                 iv.userInteractionEnabled = YES;
@@ -828,21 +902,21 @@
                 }];
                 [self.photosContainerView addSubview:iv];
                 
-                // Если фото больше 4, на 4-й пишем бейдж "+N"
-                if (i == 3 && photos.count > 4) {
+                // Бейдж "+N", если фото больше 5
+                if (i == 4 && photos.count > 5) {
                     UIView *overlay = [[UIView alloc] initWithFrame:iv.bounds];
-                    overlay.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.5];
+                    overlay.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.55];
                     UILabel *moreLbl = [[UILabel alloc] initWithFrame:overlay.bounds];
-                    moreLbl.text = [NSString stringWithFormat:@"+%lu", (unsigned long)(photos.count - 3)];
+                    moreLbl.text = [NSString stringWithFormat:@"+%lu", (unsigned long)(photos.count - 4)];
                     moreLbl.textColor = [UIColor whiteColor];
-                    moreLbl.font = [UIFont boldSystemFontOfSize:20];
+                    moreLbl.font = [UIFont boldSystemFontOfSize:18];
                     moreLbl.textAlignment = NSTextAlignmentCenter;
                     [overlay addSubview:moreLbl];
                     [iv addSubview:overlay];
                 }
             }
-            self.photosContainerView.frame = CGRectMake(0, currentY, contentW, 260.0);
-            currentY += 260.0 + 10.0;
+            self.photosContainerView.frame = CGRectMake(0, currentY, contentW, totalH);
+            currentY += totalH + 10.0;
         }
     } else {
         self.photosContainerView.hidden = YES;
@@ -1296,15 +1370,21 @@
         }
         
         if (repPhotos.count == 1) {
+            VKAttachment *a = repPhotos[0];
             CGFloat photoH = 220.0;
+            if (a.photoWidth > 0 && a.photoHeight > 0) {
+                photoH = MAX(140.0, MIN(280.0, floorf(repInnerW * (a.photoHeight / a.photoWidth))));
+            }
             UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(8, repCurY, repInnerW, photoH)];
             iv.contentMode = UIViewContentModeScaleAspectFill;
             iv.clipsToBounds = YES;
             iv.backgroundColor = [UIColor colorWithRed:235.0/255.0 green:237.0/255.0 blue:240.0/255.0 alpha:1.0];
             iv.layer.cornerRadius = 4.0;
+            iv.tag = 0;
             iv.userInteractionEnabled = YES;
+            UITapGestureRecognizer *repTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(repostPhotoCellTapped:)];
+            [iv addGestureRecognizer:repTap];
             
-            VKAttachment *a = repPhotos[0];
             [[VKImageLoader sharedLoader] loadImageWithURL:a.photoURL completion:^(UIImage *img) { if (img) iv.image = img; }];
             [self.repostContainerView addSubview:iv];
             repCurY += photoH + 8.0;
@@ -1318,6 +1398,12 @@
                 iv.contentMode = UIViewContentModeScaleAspectFill;
                 iv.clipsToBounds = YES;
                 iv.layer.cornerRadius = 4.0;
+                iv.backgroundColor = [UIColor colorWithRed:235.0/255.0 green:237.0/255.0 blue:240.0/255.0 alpha:1.0];
+                iv.tag = i;
+                iv.userInteractionEnabled = YES;
+                UITapGestureRecognizer *repTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(repostPhotoCellTapped:)];
+                [iv addGestureRecognizer:repTap];
+                
                 VKAttachment *a = repPhotos[i];
                 [[VKImageLoader sharedLoader] loadImageWithURL:a.photoURL completion:^(UIImage *img) { if (img) iv.image = img; }];
                 [self.repostContainerView addSubview:iv];

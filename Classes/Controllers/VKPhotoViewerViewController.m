@@ -1,7 +1,9 @@
 #import "VKPhotoViewerViewController.h"
+#import "VKPhotoEditorViewController.h"
 #import "VKImageLoader.h"
+#import <QuartzCore/QuartzCore.h>
 
-@interface VKPhotoViewerViewController () <UIScrollViewDelegate>
+@interface VKPhotoViewerViewController () <UIScrollViewDelegate, UIActionSheetDelegate>
 @property (nonatomic, strong) NSArray<NSString *> *photoURLs;
 @property (nonatomic, assign) NSInteger currentIndex;
 @property (nonatomic, strong) UIImage *initialSingleImage;
@@ -12,9 +14,16 @@
 
 @property (nonatomic, strong) UIView *topBarView;
 @property (nonatomic, strong) UILabel *titleLabel;
-@property (nonatomic, strong) UIButton *saveButton;
 @property (nonatomic, strong) UIButton *closeButton;
+@property (nonatomic, strong) UIButton *moreButton;
+
+@property (nonatomic, strong) UIView *bottomBarView;
+@property (nonatomic, strong) UIButton *saveButton;
+@property (nonatomic, strong) UIButton *shareButton;
+
 @property (nonatomic, assign) BOOL isBarsHidden;
+@property (nonatomic, assign) CGPoint dragStartPoint;
+@property (nonatomic, assign) BOOL isDraggingDown;
 @end
 
 @implementation VKPhotoViewerViewController
@@ -25,6 +34,7 @@
         _photoURLs = imageURL.length > 0 ? @[imageURL] : @[];
         _currentIndex = 0;
         _initialSingleImage = initialImage;
+        self.modalPresentationStyle = UIModalPresentationFullScreen;
     }
     return self;
 }
@@ -34,6 +44,7 @@
     if (self) {
         _photoURLs = (photoURLs.count > 0) ? [photoURLs copy] : @[];
         _currentIndex = (initialIndex >= 0 && initialIndex < (NSInteger)_photoURLs.count) ? initialIndex : 0;
+        self.modalPresentationStyle = UIModalPresentationFullScreen;
     }
     return self;
 }
@@ -65,27 +76,33 @@
         UIScrollView *zoomScroll = [[UIScrollView alloc] initWithFrame:pageFrame];
         zoomScroll.delegate = self;
         zoomScroll.minimumZoomScale = 1.0;
-        zoomScroll.maximumZoomScale = 3.5;
+        zoomScroll.maximumZoomScale = 4.0;
         zoomScroll.showsHorizontalScrollIndicator = NO;
         zoomScroll.showsVerticalScrollIndicator = NO;
         zoomScroll.tag = 1000 + i;
+        zoomScroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         
         UIImageView *imgView = [[UIImageView alloc] initWithFrame:zoomScroll.bounds];
         imgView.contentMode = UIViewContentModeScaleAspectFit;
         imgView.clipsToBounds = YES;
         imgView.userInteractionEnabled = YES;
         imgView.tag = 2000 + i;
+        imgView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         
-        // Двойной тап для зума
+        // Двойной тап для быстрого зума
         UITapGestureRecognizer *doubleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleDoubleTap:)];
         doubleTap.numberOfTapsRequired = 2;
         [zoomScroll addGestureRecognizer:doubleTap];
         
-        // Одиночный тап для скрытия/показа панелей
+        // Одиночный тап для скрытия/показа контролов
         UITapGestureRecognizer *singleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(toggleBarsAction)];
         singleTap.numberOfTapsRequired = 1;
         [singleTap requireGestureRecognizerToFail:doubleTap];
         [zoomScroll addGestureRecognizer:singleTap];
+        
+        // Свайп вниз для закрытия
+        UIPanGestureRecognizer *panDismiss = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePanDismiss:)];
+        [zoomScroll addGestureRecognizer:panDismiss];
         
         [zoomScroll addSubview:imgView];
         [self.pagingScrollView addSubview:zoomScroll];
@@ -99,17 +116,20 @@
                 imgView.image = self.initialSingleImage;
             }
             [[VKImageLoader sharedLoader] loadImageWithURL:url completion:^(UIImage *img) {
-                if (img) imgView.image = img;
+                if (img) {
+                    imgView.image = img;
+                    [self centerImageInScrollView:zoomScroll];
+                }
             }];
         }
     }
     
-    // Прокручиваем к текущему индексу
+    // Прокручиваем к начальному индексу
     if (self.currentIndex > 0) {
         [self.pagingScrollView setContentOffset:CGPointMake(self.currentIndex * bounds.size.width, 0) animated:NO];
     }
     
-    // Верхняя панель
+    // Верхняя панель управления
     self.topBarView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, bounds.size.width, 64)];
     self.topBarView.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.65];
     self.topBarView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleBottomMargin;
@@ -130,13 +150,39 @@
     self.titleLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [self.topBarView addSubview:self.titleLabel];
     
+    self.moreButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.moreButton.frame = CGRectMake(bounds.size.width - 54, 20, 44, 44);
+    [self.moreButton setTitle:@"•••" forState:UIControlStateNormal];
+    [self.moreButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    self.moreButton.titleLabel.font = [UIFont boldSystemFontOfSize:18];
+    self.moreButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [self.moreButton addTarget:self action:@selector(moreOptionsAction) forControlEvents:UIControlEventTouchUpInside];
+    [self.topBarView addSubview:self.moreButton];
+    
+    // Нижняя панель действий (Сохранить, Поделиться)
+    self.bottomBarView = [[UIView alloc] initWithFrame:CGRectMake(0, bounds.size.height - 48, bounds.size.width, 48)];
+    self.bottomBarView.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.65];
+    self.bottomBarView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+    [self.view addSubview:self.bottomBarView];
+    
     self.saveButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.saveButton.frame = CGRectMake(bounds.size.width - 54, 20, 44, 44);
-    [self.saveButton setTitle:@"💾" forState:UIControlStateNormal];
-    self.saveButton.titleLabel.font = [UIFont systemFontOfSize:20];
-    self.saveButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    self.saveButton.frame = CGRectMake(16, 4, 120, 40);
+    [self.saveButton setTitle:@"💾 Сохранить" forState:UIControlStateNormal];
+    [self.saveButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    self.saveButton.titleLabel.font = [UIFont systemFontOfSize:14];
+    self.saveButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
     [self.saveButton addTarget:self action:@selector(savePhotoAction) forControlEvents:UIControlEventTouchUpInside];
-    [self.topBarView addSubview:self.saveButton];
+    [self.bottomBarView addSubview:self.saveButton];
+    
+    self.shareButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.shareButton.frame = CGRectMake(bounds.size.width - 136, 4, 120, 40);
+    self.shareButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [self.shareButton setTitle:@"Поделиться ↗" forState:UIControlStateNormal];
+    [self.shareButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    self.shareButton.titleLabel.font = [UIFont systemFontOfSize:14];
+    self.shareButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentRight;
+    [self.shareButton addTarget:self action:@selector(sharePhotoAction) forControlEvents:UIControlEventTouchUpInside];
+    [self.bottomBarView addSubview:self.shareButton];
     
     [self updateTitleForIndex:self.currentIndex];
 }
@@ -153,6 +199,7 @@
     self.isBarsHidden = !self.isBarsHidden;
     [UIView animateWithDuration:0.25 animations:^{
         self.topBarView.alpha = self.isBarsHidden ? 0.0 : 1.0;
+        self.bottomBarView.alpha = self.isBarsHidden ? 0.0 : 1.0;
     }];
 }
 
@@ -162,8 +209,62 @@
         [zoomScroll setZoomScale:1.0 animated:YES];
     } else {
         CGPoint point = [gesture locationInView:zoomScroll];
-        CGRect zoomRect = CGRectMake(point.x - 40, point.y - 40, 80, 80);
+        CGFloat newScale = 2.5;
+        CGSize scrollSize = zoomScroll.bounds.size;
+        CGFloat w = scrollSize.width / newScale;
+        CGFloat h = scrollSize.height / newScale;
+        CGRect zoomRect = CGRectMake(point.x - (w / 2.0), point.y - (h / 2.0), w, h);
         [zoomScroll zoomToRect:zoomRect animated:YES];
+    }
+}
+
+- (void)handlePanDismiss:(UIPanGestureRecognizer *)gesture {
+    UIScrollView *zoomScroll = (UIScrollView *)gesture.view;
+    if (zoomScroll.zoomScale > 1.0) return; // Не смахивать при зуме
+    
+    CGPoint translation = [gesture translationInView:self.view];
+    CGPoint velocity = [gesture velocityInView:self.view];
+    
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        self.isDraggingDown = (translation.y > 0);
+    } else if (gesture.state == UIGestureRecognizerStateChanged) {
+        if (translation.y > 0) {
+            CGFloat progress = translation.y / self.view.bounds.size.height;
+            self.pagingScrollView.transform = CGAffineTransformMakeTranslation(0, translation.y);
+            CGFloat scale = MAX(0.8, 1.0 - (progress * 0.3));
+            self.pagingScrollView.transform = CGAffineTransformScale(self.pagingScrollView.transform, scale, scale);
+            self.view.backgroundColor = [UIColor colorWithWhite:0.0 alpha:MAX(0.2, 1.0 - progress * 1.5)];
+            self.topBarView.alpha = MAX(0.0, 1.0 - progress * 3.0);
+            self.bottomBarView.alpha = MAX(0.0, 1.0 - progress * 3.0);
+        }
+    } else if (gesture.state == UIGestureRecognizerStateEnded || gesture.state == UIGestureRecognizerStateCancelled) {
+        if (translation.y > 100 || velocity.y > 600) {
+            [UIView animateWithDuration:0.25 animations:^{
+                self.pagingScrollView.transform = CGAffineTransformMakeTranslation(0, self.view.bounds.size.height);
+                self.view.backgroundColor = [UIColor clearColor];
+                self.topBarView.alpha = 0.0;
+                self.bottomBarView.alpha = 0.0;
+            } completion:^(BOOL finished) {
+                [self dismissViewControllerAnimated:NO completion:nil];
+            }];
+        } else {
+            [UIView animateWithDuration:0.25 animations:^{
+                self.pagingScrollView.transform = CGAffineTransformIdentity;
+                self.view.backgroundColor = [UIColor blackColor];
+                self.topBarView.alpha = self.isBarsHidden ? 0.0 : 1.0;
+                self.bottomBarView.alpha = self.isBarsHidden ? 0.0 : 1.0;
+            }];
+        }
+    }
+}
+
+- (void)centerImageInScrollView:(UIScrollView *)scrollView {
+    NSInteger index = scrollView.tag - 1000;
+    if (index >= 0 && index < (NSInteger)self.imageViews.count) {
+        UIImageView *iv = self.imageViews[index];
+        CGFloat offsetX = (scrollView.bounds.size.width > scrollView.contentSize.width) ? (scrollView.bounds.size.width - scrollView.contentSize.width) * 0.5 : 0.0;
+        CGFloat offsetY = (scrollView.bounds.size.height > scrollView.contentSize.height) ? (scrollView.bounds.size.height - scrollView.contentSize.height) * 0.5 : 0.0;
+        iv.center = CGPointMake(scrollView.contentSize.width * 0.5 + offsetX, scrollView.contentSize.height * 0.5 + offsetY);
     }
 }
 
@@ -172,6 +273,60 @@
         UIImage *img = self.imageViews[self.currentIndex].image;
         if (img) {
             UIImageWriteToSavedPhotosAlbum(img, self, @selector(image:didFinishSavingWithError:contextInfo:), nil);
+        }
+    }
+}
+
+- (void)sharePhotoAction {
+    if (self.currentIndex < (NSInteger)self.imageViews.count) {
+        UIImage *img = self.imageViews[self.currentIndex].image;
+        NSString *urlStr = (self.currentIndex < (NSInteger)self.photoURLs.count) ? self.photoURLs[self.currentIndex] : nil;
+        
+        NSMutableArray *items = [NSMutableArray array];
+        if (img) [items addObject:img];
+        if (urlStr) [items addObject:[NSURL URLWithString:urlStr]];
+        
+        if (NSClassFromString(@"UIActivityViewController") && items.count > 0) {
+            UIActivityViewController *act = [[UIActivityViewController alloc] initWithActivityItems:items applicationActivities:nil];
+            [self presentViewController:act animated:YES completion:nil];
+        } else {
+            [self moreOptionsAction];
+        }
+    }
+}
+
+- (void)moreOptionsAction {
+    UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil
+                                                       delegate:self
+                                              cancelButtonTitle:@"Отмена"
+                                         destructiveButtonTitle:nil
+                                              otherButtonTitles:@"Сохранить в фотопленку", @"Редактировать", @"Скопировать ссылку", nil];
+    [sheet showInView:self.view];
+}
+
+- (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
+    if (buttonIndex == 0) {
+        [self savePhotoAction];
+    } else if (buttonIndex == 1) {
+        if (self.currentIndex < (NSInteger)self.imageViews.count) {
+            UIImage *img = self.imageViews[self.currentIndex].image;
+            if (img) {
+                VKPhotoEditorViewController *editor = [[VKPhotoEditorViewController alloc] initWithImage:img];
+                __weak typeof(self) weakSelf = self;
+                editor.onImageEdited = ^(UIImage *edited) {
+                    if (edited && weakSelf.currentIndex < (NSInteger)weakSelf.imageViews.count) {
+                        weakSelf.imageViews[weakSelf.currentIndex].image = edited;
+                    }
+                };
+                [self presentViewController:editor animated:YES completion:nil];
+            }
+        }
+    } else if (buttonIndex == 2) {
+        if (self.currentIndex < (NSInteger)self.photoURLs.count) {
+            NSString *urlStr = self.photoURLs[self.currentIndex];
+            [UIPasteboard generalPasteboard].string = urlStr;
+            UIAlertView *a = [[UIAlertView alloc] initWithTitle:@"Скопировано" message:@"Ссылка на фотографию скопирована в буфер обмена" delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+            [a show];
         }
     }
 }
@@ -200,6 +355,10 @@
     return nil;
 }
 
+- (void)scrollViewDidZoom:(UIScrollView *)scrollView {
+    [self centerImageInScrollView:scrollView];
+}
+
 - (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView {
     if (scrollView == self.pagingScrollView) {
         CGFloat pageWidth = scrollView.frame.size.width;
@@ -208,7 +367,6 @@
             self.currentIndex = page;
             [self updateTitleForIndex:page];
             
-            // Сбрасываем зум на соседних страницах
             for (NSInteger i = 0; i < (NSInteger)self.zoomScrollViews.count; i++) {
                 if (i != page) {
                     [self.zoomScrollViews[i] setZoomScale:1.0 animated:NO];

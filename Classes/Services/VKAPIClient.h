@@ -15,4 +15,11 @@ typedef void (^VKAPICompletionBlock)(id response, NSError *error);
                             code:(NSString *)code
                completionHandler:(VKAPICompletionBlock)completionHandler;
 
+- (void)uploadFileWithURL:(NSString *)uploadURL
+                fieldName:(NSString *)fieldName
+                 fileName:(NSString *)fileName
+                 mimeType:(NSString *)mimeType
+                 fileData:(NSData *)fileData
+        completionHandler:(VKAPICompletionBlock)completionHandler;
+
 @end

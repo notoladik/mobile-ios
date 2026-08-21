@@ -19,24 +19,55 @@
     NSDictionary *params = @{
         @"offset": @(offset),
         @"count": @(count),
-        @"extended": @"1"
+        @"extended": @"1",
+        @"fields": @"photo_50,photo_100,photo_200,online,last_seen,sex,verified,screen_name"
     };
     
     [[VKAPIClient sharedClient] callMethod:@"messages.getConversations" parameters:params completionHandler:^(id response, NSError *error) {
         if (error) {
             // Fallback на messages.getDialogs
-            [[VKAPIClient sharedClient] callMethod:@"messages.getDialogs" parameters:@{@"offset": @(offset), @"count": @(count)} completionHandler:^(id dResp, NSError *dErr) {
+            NSDictionary *dParams = @{
+                @"offset": @(offset),
+                @"count": @(count),
+                @"extended": @"1",
+                @"fields": @"photo_50,photo_100,photo_200,online,last_seen,sex,verified,screen_name"
+            };
+            [[VKAPIClient sharedClient] callMethod:@"messages.getDialogs" parameters:dParams completionHandler:^(id dResp, NSError *dErr) {
                 if (dErr) {
                     if (completion) completion(nil, 0, dErr);
                     return;
                 }
                 
-                if ([dResp isKindOfClass:[NSDictionary class]] && dResp[@"response"]) {
-                    NSArray *items = dResp[@"response"][@"items"] ?: @[];
+                NSDictionary *dDict = [dResp isKindOfClass:[NSDictionary class]] ? (dResp[@"response"] ?: dResp) : nil;
+                if (dDict) {
+                    NSArray *items = dDict[@"items"] ?: @[];
+                    NSArray *rawProfiles = dDict[@"profiles"] ?: dDict[@"users"] ?: @[];
+                    NSArray *rawGroups = dDict[@"groups"] ?: @[];
+                    
+                    NSMutableDictionary *profiles = [NSMutableDictionary dictionary];
+                    for (NSDictionary *p in rawProfiles) {
+                        if (p[@"id"] || p[@"uid"]) {
+                            NSInteger uid = [p[@"id"] integerValue] ?: [p[@"uid"] integerValue];
+                            profiles[@(uid)] = p;
+                            profiles[[NSString stringWithFormat:@"%ld", (long)uid]] = p;
+                        }
+                    }
+                    
+                    NSMutableDictionary *groups = [NSMutableDictionary dictionary];
+                    for (NSDictionary *g in rawGroups) {
+                        if (g[@"id"] || g[@"gid"]) {
+                            NSInteger gid = [g[@"id"] integerValue] ?: [g[@"gid"] integerValue];
+                            groups[@(gid)] = g;
+                            groups[[NSString stringWithFormat:@"%ld", (long)gid]] = g;
+                        }
+                    }
+                    
                     NSMutableArray *convs = [NSMutableArray array];
-                    for (NSDictionary *item in items) {
-                        VKConversation *c = [VKConversation conversationFromDictionary:item profiles:@{} groups:@{}];
-                        if (c) [convs addObject:c];
+                    for (id item in items) {
+                        if ([item isKindOfClass:[NSDictionary class]]) {
+                            VKConversation *c = [VKConversation conversationFromDictionary:item profiles:profiles groups:groups];
+                            if (c) [convs addObject:c];
+                        }
                     }
                     if (completion) completion(convs, 0, nil);
                     return;
@@ -55,12 +86,20 @@
             
             NSMutableDictionary *profiles = [NSMutableDictionary dictionary];
             for (NSDictionary *p in rawProfiles) {
-                if (p[@"id"]) profiles[p[@"id"]] = p;
+                if (p[@"id"] || p[@"uid"]) {
+                    NSInteger uid = [p[@"id"] integerValue] ?: [p[@"uid"] integerValue];
+                    profiles[@(uid)] = p;
+                    profiles[[NSString stringWithFormat:@"%ld", (long)uid]] = p;
+                }
             }
             
             NSMutableDictionary *groups = [NSMutableDictionary dictionary];
             for (NSDictionary *g in rawGroups) {
-                if (g[@"id"]) groups[g[@"id"]] = g;
+                if (g[@"id"] || g[@"gid"]) {
+                    NSInteger gid = [g[@"id"] integerValue] ?: [g[@"gid"] integerValue];
+                    groups[@(gid)] = g;
+                    groups[[NSString stringWithFormat:@"%ld", (long)gid]] = g;
+                }
             }
             
             NSMutableArray *convs = [NSMutableArray array];
@@ -86,7 +125,8 @@
         @"peer_id": @(peerId),
         @"offset": @(offset),
         @"count": @(count),
-        @"extended": @"1"
+        @"extended": @"1",
+        @"fields": @"photo_50,photo_100,photo_200,online,last_seen,sex,verified"
     };
     
     [[VKAPIClient sharedClient] callMethod:@"messages.getHistory" parameters:params completionHandler:^(id response, NSError *error) {

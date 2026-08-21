@@ -50,10 +50,10 @@
     conv.unreadCount = [c[@"unread_count"] integerValue];
     
     if (peerId > 0) {
-        NSDictionary *p = profiles[@(peerId)];
+        NSDictionary *p = profiles[@(peerId)] ?: profiles[[NSString stringWithFormat:@"%ld", (long)peerId]];
         conv.peerUser = [VKUser userFromDictionary:p] ?: [VKUser userFromDictionary:@{@"id": @(peerId), @"first_name": @"Пользователь", @"last_name": @""}];
     } else if (peerId < 0) {
-        NSDictionary *g = groups[@(-peerId)];
+        NSDictionary *g = groups[@(-peerId)] ?: groups[[NSString stringWithFormat:@"%ld", (long)-peerId]];
         conv.peerUser = [VKUser groupFromDictionary:g] ?: [VKUser groupFromDictionary:@{@"id": @(-peerId), @"name": @"Сообщество"}];
     }
     

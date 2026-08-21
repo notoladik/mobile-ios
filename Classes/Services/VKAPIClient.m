@@ -156,4 +156,41 @@ static NSString *VKPercentEscapedString(NSString *string) {
     }
 }
 
+- (void)uploadFileWithURL:(NSString *)uploadURL
+                fieldName:(NSString *)fieldName
+                 fileName:(NSString *)fileName
+                 mimeType:(NSString *)mimeType
+                 fileData:(NSData *)fileData
+        completionHandler:(VKAPICompletionBlock)completionHandler {
+    
+    if (!uploadURL || !fileData) {
+        if (completionHandler) {
+            completionHandler(nil, [NSError errorWithDomain:@"VKAPIClient" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"Missing upload URL or data"}]);
+        }
+        return;
+    }
+    
+    NSURL *url = [NSURL URLWithString:uploadURL];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    [request setHTTPMethod:@"POST"];
+    
+    NSString *boundary = [NSString stringWithFormat:@"Boundary-%08X%08X", arc4random(), arc4random()];
+    NSString *contentType = [NSString stringWithFormat:@"multipart/form-data; boundary=%@", boundary];
+    [request setValue:contentType forHTTPHeaderField:@"Content-Type"];
+    
+    NSMutableData *body = [NSMutableData data];
+    
+    [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
+    [body appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"%@\"; filename=\"%@\"\r\n", fieldName ?: @"photo", fileName ?: @"photo.jpg"] dataUsingEncoding:NSUTF8StringEncoding]];
+    [body appendData:[[NSString stringWithFormat:@"Content-Type: %@\r\n\r\n", mimeType ?: @"image/jpeg"] dataUsingEncoding:NSUTF8StringEncoding]];
+    [body appendData:fileData];
+    [body appendData:[@"\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
+    
+    [body appendData:[[NSString stringWithFormat:@"--%@--\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
+    
+    [request setHTTPBody:body];
+    
+    [self executeRequest:request completionHandler:completionHandler];
+}
+
 @end

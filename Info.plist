@@ -129,5 +129,14 @@
     <false/>
     <key>UIStatusBarStyle</key>
     <string>UIStatusBarStyleLightContent</string>
+    <key>UIAppFonts</key>
+    <array>
+        <string>Fonts/Impact.ttf</string>
+        <string>Fonts/Lobster.ttf</string>
+        <string>Fonts/Pacifico-Regular.ttf</string>
+        <string>Fonts/AmaticSC-Bold.ttf</string>
+        <string>Fonts/Rodchenko_Condensed_Bold.ttf</string>
+        <string>Fonts/TT_Commons_Black_Italic.ttf</string>
+    </array>
 </dict>
 </plist>

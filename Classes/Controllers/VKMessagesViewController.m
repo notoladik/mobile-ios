@@ -429,7 +429,7 @@
         unreadBadge.hidden = YES;
         cell.backgroundColor = [UIColor clearColor];
         
-        if (conv.lastMessage.isOutgoing && conv.lastMessage.isUnread) {
+        if (conv.lastMessage.isOutgoing && !conv.lastMessage.isRead) {
             unreadDot.hidden = NO;
             unreadDot.frame = CGRectMake(width - 24, 43, 8, 8);
             unreadDot.backgroundColor = [[VKThemeManager sharedManager] accentColor];

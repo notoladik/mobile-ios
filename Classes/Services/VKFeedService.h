@@ -20,9 +20,20 @@
 - (void)createPostWithText:(NSString *)text
                    ownerId:(NSInteger)ownerId
                attachments:(NSString *)attachments
+                 copyright:(NSString *)copyright
                   explicit:(BOOL)explicit
                  fromGroup:(BOOL)fromGroup
                 completion:(void (^)(BOOL success, NSError *error))completion;
+
+- (void)uploadWallPhoto:(UIImage *)image
+                ownerId:(NSInteger)ownerId
+             completion:(void (^)(NSString *attachmentString, NSError *error))completion;
+
+- (void)createPollWithQuestion:(NSString *)question
+                       answers:(NSArray<NSString *> *)answers
+                   isAnonymous:(BOOL)isAnonymous
+                       ownerId:(NSInteger)ownerId
+                    completion:(void (^)(NSString *attachmentString, NSError *error))completion;
 
 - (void)repostPost:(VKPost *)post
            message:(NSString *)message
