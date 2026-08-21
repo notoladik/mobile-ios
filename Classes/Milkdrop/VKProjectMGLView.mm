@@ -132,8 +132,8 @@ void operator delete(void* ptr, std::size_t size, std::align_val_t alignment) no
 }
 
 static void projectMLogCallback(const char* message, projectm_log_level log_level, void* user_data) {
-    if (log_level <= PROJECTM_LOG_WARN) {
-        NSLog(@"[libprojectM] %s", message);
+    if (log_level >= PROJECTM_LOG_LEVEL_WARN) {
+        NSLog(@"[libprojectM log lvl=%d] %s", (int)log_level, message);
     }
 }
 
@@ -144,7 +144,7 @@ static void projectMLogCallback(const char* message, projectm_log_level log_leve
         [EAGLContext setCurrentContext:_context];
     }
     
-    projectm_set_log_level(PROJECTM_LOG_DEBUG, false);
+    projectm_set_log_level(PROJECTM_LOG_LEVEL_DEBUG, false);
     projectm_set_log_callback(projectMLogCallback, false, nullptr);
     
     _pm = projectm_create();
