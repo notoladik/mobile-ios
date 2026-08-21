@@ -1,5 +1,6 @@
 #import "VKPostDetailViewController.h"
 #import "VKCommentsService.h"
+#import "VKFeedService.h"
 #import "VKAuthService.h"
 #import "VKFeedPostCell.h"
 #import "VKProfileViewController.h"
