@@ -286,18 +286,24 @@
         avatar.backgroundColor = [UIColor colorWithWhite:0.92 alpha:1.0];
         [cell.contentView addSubview:avatar];
         
-        UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectMake(68, 12, cell.contentView.bounds.size.width - 100, 36)];
+        UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectMake(68, 11, cell.contentView.bounds.size.width - 110, 20)];
         nameLabel.tag = 102;
         nameLabel.font = [UIFont boldSystemFontOfSize:15];
         nameLabel.textColor = [UIColor blackColor];
-        nameLabel.numberOfLines = 2;
         [cell.contentView addSubview:nameLabel];
         
-        UILabel *onlineDot = [[UILabel alloc] initWithFrame:CGRectMake(cell.contentView.bounds.size.width - 30, 22, 16, 16)];
+        UILabel *statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(68, 32, cell.contentView.bounds.size.width - 110, 16)];
+        statusLabel.tag = 104;
+        statusLabel.font = [UIFont systemFontOfSize:12];
+        statusLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+        [cell.contentView addSubview:statusLabel];
+        
+        UILabel *onlineDot = [[UILabel alloc] initWithFrame:CGRectMake(cell.contentView.bounds.size.width - 32, 22, 22, 16)];
         onlineDot.tag = 103;
         onlineDot.text = @"●";
         onlineDot.textColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
         onlineDot.font = [UIFont systemFontOfSize:12];
+        onlineDot.textAlignment = NSTextAlignmentRight;
         onlineDot.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
         onlineDot.hidden = YES;
         [cell.contentView addSubview:onlineDot];
@@ -309,6 +315,7 @@
     UIImageView *avatar = (UIImageView *)[cell.contentView viewWithTag:101];
     UILabel *nameLabel = (UILabel *)[cell.contentView viewWithTag:102];
     UILabel *onlineDot = (UILabel *)[cell.contentView viewWithTag:103];
+    UILabel *statusLabel = (UILabel *)[cell.contentView viewWithTag:104];
     
     avatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:44.0];
     avatar.layer.borderWidth = [[VKThemeManager sharedManager] avatarBorderWidth];
@@ -321,8 +328,40 @@
         }];
     }
     
+    BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
+    if (isSkeuomorph) {
+        nameLabel.textColor = [UIColor colorWithRed:43.0/255.0 green:88.0/255.0 blue:122.0/255.0 alpha:1.0];
+    } else {
+        nameLabel.textColor = [UIColor colorWithRed:25.0/255.0 green:25.0/255.0 blue:26.0/255.0 alpha:1.0];
+    }
+    
     nameLabel.text = friend.displayName;
-    onlineDot.hidden = !friend.isOnline;
+    
+    if (friend.status.length > 0) {
+        statusLabel.text = friend.status;
+    } else if (friend.city.length > 0) {
+        statusLabel.text = friend.city;
+    } else {
+        statusLabel.text = friend.isOnline ? @"В сети" : @"";
+    }
+    
+    if (friend.isOnline) {
+        onlineDot.hidden = NO;
+        if ([friend.onlinePlatform isEqualToString:@"iphone"] || [friend.onlinePlatform isEqualToString:@"ipad"]) {
+            onlineDot.text = @"";
+            onlineDot.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
+            onlineDot.font = [UIFont boldSystemFontOfSize:14];
+        } else if ([friend.onlinePlatform isEqualToString:@"android"]) {
+            onlineDot.text = @"📱";
+            onlineDot.font = [UIFont systemFontOfSize:12];
+        } else {
+            onlineDot.text = @"●";
+            onlineDot.textColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
+            onlineDot.font = [UIFont systemFontOfSize:11];
+        }
+    } else {
+        onlineDot.hidden = YES;
+    }
     
     return cell;
 }

@@ -335,6 +335,21 @@
         unreadBadge.hidden = YES;
         unreadBadge.tag = 306;
         [cell.contentView addSubview:unreadBadge];
+        
+        UILabel *dateLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        dateLabel.font = [UIFont systemFontOfSize:12];
+        dateLabel.textColor = [UIColor colorWithRed:145.0/255.0 green:150.0/255.0 blue:160.0/255.0 alpha:1.0];
+        dateLabel.textAlignment = NSTextAlignmentRight;
+        dateLabel.tag = 307;
+        [cell.contentView addSubview:dateLabel];
+        
+        UIView *unreadDot = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 8, 8)];
+        unreadDot.backgroundColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
+        unreadDot.layer.cornerRadius = 4.0;
+        unreadDot.clipsToBounds = YES;
+        unreadDot.hidden = YES;
+        unreadDot.tag = 308;
+        [cell.contentView addSubview:unreadDot];
     }
     
     if (indexPath.row >= (NSInteger)self.conversations.count) return cell;
@@ -348,11 +363,21 @@
     avatar.layer.borderColor = [[VKThemeManager sharedManager] avatarBorderColor].CGColor;
     
     UILabel *nameLabel = (UILabel *)[cell.contentView viewWithTag:302];
-    nameLabel.font = [[VKThemeManager sharedManager] titleFontOfSize:16];
+    nameLabel.font = [[VKThemeManager sharedManager] titleFontOfSize:15];
+    
+    BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
+    if (isSkeuomorph) {
+        nameLabel.textColor = [UIColor colorWithRed:43.0/255.0 green:88.0/255.0 blue:122.0/255.0 alpha:1.0];
+    } else {
+        nameLabel.textColor = [UIColor colorWithRed:25.0/255.0 green:25.0/255.0 blue:26.0/255.0 alpha:1.0];
+    }
+    
     UILabel *badgeVerified = (UILabel *)[cell.contentView viewWithTag:303];
     UIImageView *supporterBadge = (UIImageView *)[cell.contentView viewWithTag:304];
     UILabel *msgLabel = (UILabel *)[cell.contentView viewWithTag:305];
     UILabel *unreadBadge = (UILabel *)[cell.contentView viewWithTag:306];
+    UILabel *dateLabel = (UILabel *)[cell.contentView viewWithTag:307];
+    UIView *unreadDot = [cell.contentView viewWithTag:308];
     
     avatar.image = nil;
     if (conv.peerUser.avatarURL) {
@@ -363,7 +388,7 @@
     
     nameLabel.text = conv.title ?: @"Беседа";
     CGSize nameSize = [nameLabel.text sizeWithFont:[UIFont boldSystemFontOfSize:15]];
-    nameLabel.frame = CGRectMake(72, 16, MIN(nameSize.width, width - 150), 20);
+    nameLabel.frame = CGRectMake(72, 16, MIN(nameSize.width, width - 160), 20);
     
     CGFloat nextX = CGRectGetMaxX(nameLabel.frame) + 4;
     if (conv.peerUser.isOfficial) {
@@ -385,16 +410,32 @@
         supporterBadge.hidden = YES;
     }
     
+    // Дата последнего сообщения
+    dateLabel.text = conv.lastMessage.timeString ?: @"";
+    dateLabel.frame = CGRectMake(width - 76, 17, 66, 16);
+    
     NSString *msgPrefix = conv.lastMessage.isOutgoing ? @"Вы: " : @"";
     msgLabel.text = [NSString stringWithFormat:@"%@%@", msgPrefix, conv.lastMessage.text ?: @"[Вложение]"];
-    msgLabel.frame = CGRectMake(72, 38, width - 130, 18);
+    msgLabel.frame = CGRectMake(72, 38, width - 140, 18);
     
     if (conv.unreadCount > 0) {
         unreadBadge.hidden = NO;
         unreadBadge.text = [NSString stringWithFormat:@"%ld", (long)conv.unreadCount];
-        unreadBadge.frame = CGRectMake(width - 45, 27, 26, 20);
+        unreadBadge.backgroundColor = [[VKThemeManager sharedManager] accentColor];
+        unreadBadge.frame = CGRectMake(width - 44, 38, 24, 18);
+        unreadDot.hidden = YES;
+        cell.backgroundColor = isSkeuomorph ? [UIColor colorWithRed:238.0/255.0 green:243.0/255.0 blue:250.0/255.0 alpha:1.0] : [UIColor colorWithRed:242.0/255.0 green:245.0/255.0 blue:252.0/255.0 alpha:1.0];
     } else {
         unreadBadge.hidden = YES;
+        cell.backgroundColor = [UIColor clearColor];
+        
+        if (conv.lastMessage.isOutgoing && conv.lastMessage.isUnread) {
+            unreadDot.hidden = NO;
+            unreadDot.frame = CGRectMake(width - 24, 43, 8, 8);
+            unreadDot.backgroundColor = [[VKThemeManager sharedManager] accentColor];
+        } else {
+            unreadDot.hidden = YES;
+        }
     }
     
     return cell;

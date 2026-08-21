@@ -140,8 +140,19 @@
     
     VKUser *group = self.filteredGroups[indexPath.row];
     cell.textLabel.text = group.displayName;
-    cell.detailTextLabel.text = group.status.length > 0 ? group.status : @"Сообщество";
     
+    BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
+    if (isSkeuomorph) {
+        cell.textLabel.textColor = [UIColor colorWithRed:43.0/255.0 green:88.0/255.0 blue:122.0/255.0 alpha:1.0];
+    } else {
+        cell.textLabel.textColor = [UIColor colorWithRed:25.0/255.0 green:25.0/255.0 blue:26.0/255.0 alpha:1.0];
+    }
+    
+    cell.detailTextLabel.text = group.status.length > 0 ? group.status : (group.followersCount > 0 ? [NSString stringWithFormat:@"%ld участников", (long)group.followersCount] : @"Сообщество");
+    
+    cell.imageView.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:44.0];
+    cell.imageView.layer.borderWidth = [[VKThemeManager sharedManager] avatarBorderWidth];
+    cell.imageView.layer.borderColor = [[VKThemeManager sharedManager] avatarBorderColor].CGColor;
     cell.imageView.image = nil;
     if (group.avatarURL) {
         [[VKImageLoader sharedLoader] loadImageWithURL:group.avatarURL completion:^(UIImage *img) {

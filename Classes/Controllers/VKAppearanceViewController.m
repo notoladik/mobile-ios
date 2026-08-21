@@ -12,6 +12,21 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"Внешний вид";
+    [self setupNavigationItems];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applyThemeStyle) name:VKThemeDidChangeNotification object:nil];
+}
+
+- (void)setupNavigationItems {
+    self.navigationItem.leftBarButtonItem = [[VKThemeManager sharedManager] barButtonItemWithTitle:@"Назад" target:self action:@selector(goBackAction) isBack:YES];
+}
+
+- (void)goBackAction {
+    [self.navigationController popViewControllerAnimated:YES];
+}
+
+- (void)applyThemeStyle {
+    [self setupNavigationItems];
+    [self.tableView reloadData];
 }
 
 #pragma mark - Table View Data Source
