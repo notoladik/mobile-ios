@@ -526,6 +526,27 @@
             }
         };
         
+        cell.onAuthorTapped = ^(VKUser *author) {
+            if (author) {
+                VKProfileViewController *profVC = [[VKProfileViewController alloc] initWithUser:author];
+                [weakSelf.navigationController pushViewController:profVC animated:YES];
+            }
+        };
+        
+        cell.onToggleTextExpanded = ^(VKPost *p) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [weakSelf.tableView beginUpdates];
+                [weakSelf.tableView endUpdates];
+            });
+        };
+        
+        cell.onToggleRepostTextExpanded = ^(VKPost *p) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [weakSelf.tableView beginUpdates];
+                [weakSelf.tableView endUpdates];
+            });
+        };
+        
         cell.onCopyrightTapped = ^(NSString *url) {
             if (url.length > 0) {
                 [[UIApplication sharedApplication] openURL:[NSURL URLWithString:url]];

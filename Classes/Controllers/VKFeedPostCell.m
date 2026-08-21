@@ -33,6 +33,9 @@
         
         // Header
         _avatarContainerView = [[UIView alloc] initWithFrame:CGRectMake(12, 12, 42, 42)];
+        _avatarContainerView.userInteractionEnabled = YES;
+        UITapGestureRecognizer *avContTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(authorTapped)];
+        [_avatarContainerView addGestureRecognizer:avContTap];
         [_cardBackgroundView addSubview:_avatarContainerView];
         
         _avatarImageView = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 42, 42)];
@@ -173,11 +176,17 @@
         _repostAvatarImageView.layer.cornerRadius = 14.0;
         _repostAvatarImageView.clipsToBounds = YES;
         _repostAvatarImageView.backgroundColor = [UIColor colorWithWhite:0.9 alpha:1.0];
+        _repostAvatarImageView.userInteractionEnabled = YES;
+        UITapGestureRecognizer *repAvTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(repostAuthorTapped)];
+        [_repostAvatarImageView addGestureRecognizer:repAvTap];
         [_repostContainerView addSubview:_repostAvatarImageView];
         
         _repostAuthorLabel = [[UILabel alloc] initWithFrame:CGRectMake(46, 8, 200, 16)];
         _repostAuthorLabel.font = [UIFont boldSystemFontOfSize:13];
         _repostAuthorLabel.textColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
+        _repostAuthorLabel.userInteractionEnabled = YES;
+        UITapGestureRecognizer *repAuthTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(repostAuthorTapped)];
+        [_repostAuthorLabel addGestureRecognizer:repAuthTap];
         [_repostContainerView addSubview:_repostAuthorLabel];
         
         _repostTextLabel = [[UILabel alloc] initWithFrame:CGRectZero];
@@ -438,6 +447,21 @@
     }
 }
 
+- (void)authorTapped {
+    if (self.currentPost.author && self.onAuthorTapped) {
+        self.onAuthorTapped(self.currentPost.author);
+    }
+}
+
+- (void)repostAuthorTapped {
+    if (self.currentPost.repostHistory.count > 0) {
+        VKPost *rep = self.currentPost.repostHistory[0];
+        if (rep.author && self.onAuthorTapped) {
+            self.onAuthorTapped(rep.author);
+        }
+    }
+}
+
 - (void)signerTapped {
     if (self.currentPost.signerUser && self.onAuthorTapped) {
         self.onAuthorTapped(self.currentPost.signerUser);
@@ -491,17 +515,17 @@
     // Прочие вложения (Аудио, Видео, Опросы, Документы, GIF, Ссылки)
     for (VKAttachment *att in post.attachments) {
         if (att.type == VKAttachmentTypeAudio) {
-            h += 40.0;
+            h += 44.0;
         } else if (att.type == VKAttachmentTypeVideo) {
-            h += 162.0;
+            h += 166.0;
         } else if (att.type == VKAttachmentTypePoll) {
             h += 30.0 + (att.pollOptions.count * 30.0) + 24.0;
         } else if (att.type == VKAttachmentTypeDoc) {
-            h += 38.0;
+            h += 44.0;
         } else if (att.type == VKAttachmentTypeGif) {
-            h += 160.0;
+            h += 188.0;
         } else if (att.type == VKAttachmentTypeLink) {
-            h += (att.linkImageURL.length > 0) ? 180.0 : 54.0;
+            h += (att.linkImageURL.length > 0) ? 188.0 : 62.0;
         }
     }
     
@@ -999,8 +1023,9 @@
             attY += 44.0;
             docIndex++;
         } else if (att.type == VKAttachmentTypeGif) {
-            UIView *gifView = [[UIView alloc] initWithFrame:CGRectMake(0, attY, contentW, 168)];
-            gifView.backgroundColor = [UIColor colorWithWhite:0.1 alpha:1.0];
+            CGFloat gifH = 180.0;
+            UIView *gifView = [[UIView alloc] initWithFrame:CGRectMake(0, attY, contentW, gifH)];
+            gifView.backgroundColor = [UIColor colorWithWhite:0.05 alpha:1.0];
             gifView.layer.cornerRadius = 6.0;
             gifView.clipsToBounds = YES;
             gifView.tag = 8500 + gifIndex;
@@ -1008,17 +1033,19 @@
             UITapGestureRecognizer *gTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(gifAttachmentTapped:)];
             [gifView addGestureRecognizer:gTap];
             
-            UIImageView *gifImg = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, contentW, 168)];
-            gifImg.contentMode = UIViewContentModeScaleAspectFill;
+            UIImageView *gifImg = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, contentW, gifH)];
+            gifImg.contentMode = UIViewContentModeScaleAspectFit;
+            gifImg.backgroundColor = [UIColor colorWithWhite:0.05 alpha:1.0];
             gifImg.clipsToBounds = YES;
-            if (att.gifPreviewURL.length > 0) {
-                [[VKImageLoader sharedLoader] loadImageWithURL:att.gifPreviewURL completion:^(UIImage *img) {
+            NSString *imgURL = att.gifPreviewURL.length > 0 ? att.gifPreviewURL : att.docURL;
+            if (imgURL.length > 0) {
+                [[VKImageLoader sharedLoader] loadImageWithURL:imgURL completion:^(UIImage *img) {
                     if (img) gifImg.image = img;
                 }];
             }
             [gifView addSubview:gifImg];
             
-            UILabel *gifBadge = [[UILabel alloc] initWithFrame:CGRectMake(10, 138, 38, 22)];
+            UILabel *gifBadge = [[UILabel alloc] initWithFrame:CGRectMake(8, gifH - 28, 36, 20)];
             gifBadge.text = @"GIF";
             gifBadge.textColor = [UIColor whiteColor];
             gifBadge.font = [UIFont boldSystemFontOfSize:11];
@@ -1029,7 +1056,7 @@
             [gifView addSubview:gifBadge];
             
             [self.attachmentsContainerView addSubview:gifView];
-            attY += 176.0;
+            attY += gifH + 8.0;
             gifIndex++;
         } else if (att.type == VKAttachmentTypeLink) {
             BOOL hasImage = (att.linkImageURL.length > 0);
