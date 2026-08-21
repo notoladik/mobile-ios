@@ -77,7 +77,20 @@ void operator delete(void* ptr, std::size_t size, std::align_val_t alignment) no
         self.clipsToBounds = YES;
         self.userInteractionEnabled = YES;
         
+        UISwipeGestureRecognizer *swipeL = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(nextPreset)];
+        swipeL.direction = UISwipeGestureRecognizerDirectionLeft;
+        [self addGestureRecognizer:swipeL];
+        
+        UISwipeGestureRecognizer *swipeR = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(previousPreset)];
+        swipeR.direction = UISwipeGestureRecognizerDirectionRight;
+        [self addGestureRecognizer:swipeR];
+        
+        UITapGestureRecognizer *doubleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(toggleTelemetry)];
+        doubleTap.numberOfTapsRequired = 2;
+        [self addGestureRecognizer:doubleTap];
+        
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(nextPreset)];
+        [tap requireGestureRecognizerToFail:doubleTap];
         [self addGestureRecognizer:tap];
         
         _presetBadgeLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 10, 240, 24)];
@@ -96,12 +109,17 @@ void operator delete(void* ptr, std::size_t size, std::align_val_t alignment) no
         _debugStatusLabel.font = [UIFont fontWithName:@"Courier" size:9] ?: [UIFont systemFontOfSize:9];
         _debugStatusLabel.numberOfLines = 0;
         _debugStatusLabel.text = @"Initializing MilkDrop Telemetry...";
+        _debugStatusLabel.hidden = YES;
         [self addSubview:_debugStatusLabel];
         
         [self loadPresetsList];
         [self startAnimation];
     }
     return self;
+}
+
+- (void)toggleTelemetry {
+    self.debugStatusLabel.hidden = !self.debugStatusLabel.hidden;
 }
 
 - (void)destroyBuffers {
@@ -383,16 +401,21 @@ static const char* kDefaultMilkdropPreset =
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         
-        // Передача аудиоданных (PCM сэмплинг с гармониками)
+        // Передача аудиоданных (PCM сэмплинг с мощными ритмичными битами)
         float dummyPCM[512];
         static float phase = 0.0f;
+        static float beatTimer = 0.0f;
         phase += 0.12f;
-        float amp = self.isPlaying ? 0.85f : 0.35f;
+        beatTimer += 0.016f;
+        if (beatTimer > 0.45f) beatTimer -= 0.45f;
+        float beatKick = (beatTimer < 0.08f) ? (1.0f - beatTimer / 0.08f) * 1.5f : 0.0f;
+        float amp = self.isPlaying ? (0.75f + beatKick * 0.5f) : 0.35f;
         for (int i = 0; i < 512; i++) {
             float s1 = sinf(phase + i * 0.04f);
             float s2 = sinf(phase * 2.3f + i * 0.08f) * 0.5f;
             float s3 = sinf(phase * 0.7f + i * 0.02f) * 0.3f;
-            dummyPCM[i] = (s1 + s2 + s3) * amp;
+            float bass = sinf((phase + i * 0.01f) * 0.5f) * (beatKick * 1.2f);
+            dummyPCM[i] = (s1 + s2 + s3 + bass) * amp;
         }
         projectm_pcm_add_float(_pm, dummyPCM, 512, PROJECTM_STEREO);
         
