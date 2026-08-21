@@ -447,12 +447,6 @@
     }
 }
 
-- (void)authorTapped {
-    if (self.currentPost.author && self.onAuthorTapped) {
-        self.onAuthorTapped(self.currentPost.author);
-    }
-}
-
 - (void)repostAuthorTapped {
     if (self.currentPost.repostHistory.count > 0) {
         VKPost *rep = self.currentPost.repostHistory[0];
