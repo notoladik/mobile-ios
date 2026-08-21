@@ -25,6 +25,10 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
+	<key>UIStatusBarStyle</key>
+	<string>UIStatusBarStyleLightContent</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Приложению требуется доступ к фотогалерее для сохранения изображений.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

@@ -49,6 +49,8 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
     [[NSUserDefaults standardUserDefaults] synchronize];
     
     if (type == VKThemeTypeClassicUIKit) {
+        [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleLightContent animated:NO];
+        [[UINavigationBar appearance] setBarStyle:UIBarStyleBlack];
         [[UINavigationBar appearance] setBackgroundImage:nil forBarMetrics:UIBarMetricsDefault];
         [[UINavigationBar appearance] setBarTintColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
         [[UINavigationBar appearance] setTintColor:[UIColor whiteColor]];
@@ -60,6 +62,8 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
         [[UITabBar appearance] setBarTintColor:[UIColor colorWithWhite:0.98 alpha:1.0]];
         [[UITabBar appearance] setTintColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
     } else if (type == VKThemeTypeiOS6Legacy) {
+        [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleLightContent animated:NO];
+        [[UINavigationBar appearance] setBarStyle:UIBarStyleBlack];
         UIImage *navImg = [self navBarBackgroundImageForHeight:64.0];
         [[UINavigationBar appearance] setBackgroundImage:navImg forBarMetrics:UIBarMetricsDefault];
         [[UINavigationBar appearance] setTintColor:[UIColor whiteColor]];
@@ -77,6 +81,8 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
         [[UITabBar appearance] setTintColor:[UIColor colorWithRed:120.0/255.0 green:165.0/255.0 blue:235.0/255.0 alpha:1.0]];
     } else {
         // Modern Swift
+        [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleDefault animated:NO];
+        [[UINavigationBar appearance] setBarStyle:UIBarStyleDefault];
         [[UINavigationBar appearance] setBackgroundImage:nil forBarMetrics:UIBarMetricsDefault];
         [[UINavigationBar appearance] setBarTintColor:[UIColor whiteColor]];
         [[UINavigationBar appearance] setTintColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
@@ -561,16 +567,25 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
         [btn setBackgroundImage:bg forState:UIControlStateNormal];
         [btn setBackgroundImage:bgPress forState:UIControlStateHighlighted];
         
-        // Рисуем значок меню ≡ (3 белые полосы с тенью)
-        [btn setTitle:@"≡" forState:UIControlStateNormal];
-        [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-        btn.titleLabel.font = [UIFont boldSystemFontOfSize:20];
-        btn.titleLabel.shadowColor = [UIColor colorWithWhite:0.0 alpha:0.6];
-        btn.titleLabel.shadowOffset = CGSizeMake(0, -1);
+        UIImage *menuImg = [UIImage imageNamed:@"7_menu_icon"];
+        if (menuImg) {
+            [btn setImage:menuImg forState:UIControlStateNormal];
+        } else {
+            [btn setTitle:@"≡" forState:UIControlStateNormal];
+            [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+            btn.titleLabel.font = [UIFont boldSystemFontOfSize:20];
+            btn.titleLabel.shadowColor = [UIColor colorWithWhite:0.0 alpha:0.6];
+            btn.titleLabel.shadowOffset = CGSizeMake(0, -1);
+        }
         [btn addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
         return [[UIBarButtonItem alloc] initWithCustomView:btn];
     } else {
-        return [[UIBarButtonItem alloc] initWithTitle:@"≡" style:UIBarButtonItemStylePlain target:target action:action];
+        UIImage *menuImg = [UIImage imageNamed:@"7_menu_icon"];
+        if (menuImg) {
+            return [[UIBarButtonItem alloc] initWithImage:menuImg style:UIBarButtonItemStylePlain target:target action:action];
+        } else {
+            return [[UIBarButtonItem alloc] initWithTitle:@"≡" style:UIBarButtonItemStylePlain target:target action:action];
+        }
     }
 }
 

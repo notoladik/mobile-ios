@@ -30,7 +30,7 @@
 
 - (void)setupMenuItems {
     self.menuItems = @[
-        @{@"title": @"Моя страница", @"image": @"7_user_placeholder", @"badge": @""},
+        @{@"title": @"Моя страница", @"image": @"7_left_friends", @"badge": @""},
         @{@"title": @"Новости", @"image": @"7_left_news", @"badge": @""},
         @{@"title": @"Ответы", @"image": @"7_left_answers", @"badge": @"notifications"},
         @{@"title": @"Сообщения", @"image": @"7_left_messages", @"badge": @"messages"},
