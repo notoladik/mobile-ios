@@ -431,10 +431,10 @@
     CGFloat cardWidth = (margin > 0) ? (width - margin * 2.0) : width;
     CGFloat contentWidth = cardWidth - 24.0;
     
-    CGFloat h = 12.0 + 44.0 + 8.0; // Header
+    CGFloat h = 56.0; // Header (Avatar 40pt + Top 10pt + Bottom 6pt)
     
     if (post.isExplicit && !isRevealed) {
-        return h + 180.0 + 44.0 + 12.0;
+        return h + 180.0 + 34.0 + 8.0;
     }
     
     // Текст
@@ -442,7 +442,7 @@
         CGSize textSize = [post.text sizeWithFont:[UIFont systemFontOfSize:15]
                                constrainedToSize:CGSizeMake(contentWidth, CGFLOAT_MAX)
                                    lineBreakMode:NSLineBreakByWordWrapping];
-        h += ceilf(textSize.height) + 10.0;
+        h += ceilf(textSize.height) + 8.0;
     }
     
     // Фотографии (сетка)
@@ -451,11 +451,11 @@
         if (att.type == VKAttachmentTypePhoto && att.photoURL.length > 0) photoCount++;
     }
     if (photoCount == 1) {
-        h += 280.0 + 8.0;
+        h += 240.0 + 8.0;
     } else if (photoCount == 2 || photoCount == 3) {
-        h += 170.0 + 8.0;
+        h += 160.0 + 8.0;
     } else if (photoCount >= 4) {
-        h += 260.0 + 8.0;
+        h += 240.0 + 8.0;
     }
     
     // Прочие вложения (Аудио, Видео, Опросы, Документы, GIF, Ссылки)
@@ -463,23 +463,23 @@
         if (att.type == VKAttachmentTypeAudio) {
             h += 40.0;
         } else if (att.type == VKAttachmentTypeVideo) {
-            h += 166.0;
+            h += 162.0;
         } else if (att.type == VKAttachmentTypePoll) {
-            h += 34.0 + (att.pollOptions.count * 34.0) + 32.0;
+            h += 30.0 + (att.pollOptions.count * 30.0) + 24.0;
         } else if (att.type == VKAttachmentTypeDoc) {
-            h += 44.0;
+            h += 38.0;
         } else if (att.type == VKAttachmentTypeGif) {
-            h += 176.0;
+            h += 160.0;
         } else if (att.type == VKAttachmentTypeLink) {
-            h += (att.linkImageURL.length > 0) ? 190.0 : 62.0;
+            h += (att.linkImageURL.length > 0) ? 180.0 : 54.0;
         }
     }
     
     // Репост
     if (post.repostHistory.count > 0) {
         VKPost *rep = post.repostHistory[0];
-        CGFloat repContentW = contentWidth - 24.0;
-        CGFloat repH = 44.0;
+        CGFloat repContentW = contentWidth - 16.0;
+        CGFloat repH = 38.0;
         if (rep.text.length > 0) {
             CGSize repTextSize = [rep.text sizeWithFont:[UIFont systemFontOfSize:13]
                                       constrainedToSize:CGSizeMake(repContentW, CGFLOAT_MAX)
@@ -495,7 +495,7 @@
         if (repPhotoCount == 1) {
             repH += 220.0 + 8.0;
         } else if (repPhotoCount == 2 || repPhotoCount == 3) {
-            repH += 150.0 + 8.0;
+            repH += 140.0 + 8.0;
         } else if (repPhotoCount >= 4) {
             repH += 220.0 + 8.0;
         }
@@ -503,32 +503,32 @@
         // Прочие вложения репоста
         for (VKAttachment *att in rep.attachments) {
             if (att.type == VKAttachmentTypeAudio) {
-                repH += 40.0;
+                repH += 38.0;
             } else if (att.type == VKAttachmentTypeVideo) {
-                repH += 150.0;
+                repH += 140.0;
             } else if (att.type == VKAttachmentTypePoll) {
-                repH += 34.0 + (att.pollOptions.count * 34.0) + 24.0;
+                repH += 30.0 + (att.pollOptions.count * 30.0) + 20.0;
             } else if (att.type == VKAttachmentTypeDoc) {
-                repH += 44.0;
+                repH += 38.0;
             } else if (att.type == VKAttachmentTypeGif) {
-                repH += 176.0;
+                repH += 160.0;
             } else if (att.type == VKAttachmentTypeLink) {
-                repH += (att.linkImageURL.length > 0) ? 190.0 : 62.0;
+                repH += (att.linkImageURL.length > 0) ? 180.0 : 54.0;
             }
         }
-        h += repH + 12.0;
+        h += repH + 8.0;
     }
     
     // Источник и подпись
     if (post.copyrightName.length > 0) {
-        h += 22.0;
+        h += 20.0;
     }
     if (post.signerUser != nil) {
-        h += 22.0;
+        h += 20.0;
     }
     
-    h += 40.0; // Кнопки действий
-    h += (margin > 0) ? 12.0 : 10.0; // Нижний разделитель
+    h += 32.0; // Кнопки действий (лайк, комменты, репост)
+    h += 8.0;  // Нижний отступ разделителя
     return h;
 }
 
@@ -545,7 +545,7 @@
     BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
     BOOL isFlat = [[VKThemeManager sharedManager] isClassicFlat];
     
-    self.avatarImageView.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:42.0];
+    self.avatarImageView.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:40.0];
     self.avatarImageView.layer.borderWidth = [[VKThemeManager sharedManager] avatarBorderWidth];
     self.avatarImageView.layer.borderColor = [[VKThemeManager sharedManager] avatarBorderColor].CGColor;
     
@@ -608,8 +608,8 @@
     }
     
     CGFloat totalHeight = [VKFeedPostCell heightForPost:post width:width isRevealed:isRevealed];
-    CGFloat bottomSpacing = (margin > 0) ? 10.0 : 8.0;
-    self.cardBackgroundView.frame = CGRectMake(margin, (margin > 0 ? 5.0 : 0.0), cardWidth, totalHeight - bottomSpacing);
+    CGFloat bottomSpacing = 8.0;
+    self.cardBackgroundView.frame = CGRectMake(margin, (margin > 0 ? 4.0 : 0.0), cardWidth, totalHeight - bottomSpacing);
     
     UIView *bottomSep = [self.contentView viewWithTag:999];
     if (isSkeuomorph || isFlat) {
@@ -620,16 +620,17 @@
         bottomSep.hidden = YES;
     }
     
-    CGFloat headerLeft = 62.0;
+    CGFloat headerLeft = 60.0;
     CGFloat headerRight = cardWidth - 36.0;
-    self.authorNameLabel.frame = CGRectMake(headerLeft, 12, headerRight - headerLeft, 20);
-    self.dateAndPlatformLabel.frame = CGRectMake(headerLeft, 34, headerRight - headerLeft, 16);
-    self.moreButton.frame = CGRectMake(cardWidth - 36, 12, 28, 28);
+    self.avatarImageView.frame = CGRectMake(12.0, 10.0, 40.0, 40.0);
+    self.authorNameLabel.frame = CGRectMake(headerLeft, 10.0, headerRight - headerLeft, 19.0);
+    self.dateAndPlatformLabel.frame = CGRectMake(headerLeft, 31.0, headerRight - headerLeft, 15.0);
+    self.moreButton.frame = CGRectMake(cardWidth - 36.0, 8.0, 28.0, 28.0);
     
     // Контент
     CGFloat contentX = 12.0;
     CGFloat contentW = cardWidth - 24.0;
-    CGFloat currentY = 58.0;
+    CGFloat currentY = 56.0;
     self.contentContainerView.frame = CGRectMake(contentX, 0, contentW, totalHeight);
     
     // Текст поста
@@ -640,7 +641,7 @@
                                constrainedToSize:CGSizeMake(contentW, CGFLOAT_MAX)
                                    lineBreakMode:NSLineBreakByWordWrapping];
         self.postTextLabel.frame = CGRectMake(0, currentY, contentW, ceilf(textSize.height));
-        currentY += ceilf(textSize.height) + 10.0;
+        currentY += ceilf(textSize.height) + 8.0;
     } else {
         self.postTextLabel.hidden = YES;
     }
