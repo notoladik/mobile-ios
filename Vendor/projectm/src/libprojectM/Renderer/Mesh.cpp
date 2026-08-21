@@ -175,7 +175,7 @@ void Mesh::Draw()
     if (!m_indices.Empty())
     {
         m_indices.Bind();
-        glDrawElements(primitiveType, static_cast<GLsizei>(m_indices.Size()), GL_UNSIGNED_INT, nullptr);
+        glDrawElements(primitiveType, static_cast<GLsizei>(m_indices.Size()), GL_UNSIGNED_SHORT, nullptr);
     }
     else if (!m_vertices.Empty())
     {
