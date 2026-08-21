@@ -26,9 +26,14 @@
         track.streamURL = rawUrl;
     }
     
-    id rawCover = dict[@"thumb"] ?: dict[@"cover"] ?: dict[@"album"][@"thumb"];
-    if ([rawCover isKindOfClass:[NSString class]]) {
+    id rawCover = dict[@"thumb"] ?: dict[@"cover"] ?: dict[@"cover_url"] ?: dict[@"photo_300"] ?: dict[@"album"][@"thumb"] ?: dict[@"album"][@"cover"];
+    if ([rawCover isKindOfClass:[NSString class]] && [rawCover length] > 0) {
         track.coverURL = rawCover;
+    } else if ([rawCover isKindOfClass:[NSDictionary class]]) {
+        NSString *url = rawCover[@"photo_600"] ?: rawCover[@"photo_300"] ?: rawCover[@"photo_135"] ?: rawCover[@"photo_68"] ?: rawCover[@"src"];
+        if ([url isKindOfClass:[NSString class]] && [url length] > 0) {
+            track.coverURL = url;
+        }
     }
     
     return track;
