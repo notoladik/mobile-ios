@@ -73,10 +73,12 @@
     NSMutableDictionary *params = [NSMutableDictionary dictionaryWithDictionary:@{
         @"owner_id": @(ownerId),
         @"post_id": @(postId),
+        @"message": message ?: @"",
         @"text": message ?: @""
     }];
     if (replyToCid > 0) {
         params[@"reply_to_comment"] = @(replyToCid);
+        params[@"reply_to_cid"] = @(replyToCid);
     }
     
     [[VKAPIClient sharedClient] callMethod:@"wall.createComment" parameters:params completionHandler:^(id response, NSError *error) {
@@ -86,8 +88,15 @@
         }
         
         NSInteger cid = 0;
-        if ([response isKindOfClass:[NSDictionary class]] && response[@"response"]) {
-            cid = [response[@"response"][@"comment_id"] integerValue] ?: [response[@"response"] integerValue];
+        if ([response isKindOfClass:[NSDictionary class]]) {
+            id respObj = response[@"response"] ?: response;
+            if ([respObj isKindOfClass:[NSDictionary class]]) {
+                cid = [respObj[@"comment_id"] integerValue] ?: [respObj[@"cid"] integerValue];
+            } else if ([respObj respondsToSelector:@selector(integerValue)]) {
+                cid = [respObj integerValue];
+            }
+        } else if ([response respondsToSelector:@selector(integerValue)]) {
+            cid = [response integerValue];
         }
         if (completion) completion(YES, cid, nil);
     }];

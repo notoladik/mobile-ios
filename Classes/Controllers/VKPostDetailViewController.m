@@ -188,10 +188,13 @@
     self.moreButton.frame = CGRectMake(58 + dateSize.width + 70.0, bottomY, 26, 16);
     
     // Кнопка Лайка
-    self.likeButton.frame = CGRectMake(width - 56, bottomY - 2, 46, 20);
-    NSString *likeText = (comment.likesCount > 0) ? [NSString stringWithFormat:@"♥ %ld", (long)comment.likesCount] : (comment.isLiked ? @"♥ 1" : @"♡");
+    self.likeButton.frame = CGRectMake(width - 64, bottomY - 2, 54, 20);
+    NSString *likeText = (comment.likesCount > 0) ? [NSString stringWithFormat:@"%ld", (long)comment.likesCount] : @"";
     [self.likeButton setTitle:likeText forState:UIControlStateNormal];
-    UIColor *heartColor = comment.isLiked ? [UIColor colorWithRed:235.0/255.0 green:45.0/255.0 blue:70.0/255.0 alpha:1.0] : [UIColor colorWithRed:145.0/255.0 green:155.0/255.0 blue:168.0/255.0 alpha:1.0];
+    UIColor *heartColor = comment.isLiked ? [UIColor colorWithRed:235.0/255.0 green:45.0/255.0 blue:70.0/255.0 alpha:1.0] : [UIColor colorWithRed:155.0/255.0 green:165.0/255.0 blue:175.0/255.0 alpha:1.0];
+    [self.likeButton setImage:[[VKThemeManager sharedManager] reactionHeartIconWithColor:heartColor filled:comment.isLiked] forState:UIControlStateNormal];
+    self.likeButton.imageEdgeInsets = (likeText.length > 0) ? UIEdgeInsetsMake(0, 0, 0, 4) : UIEdgeInsetsZero;
+    self.likeButton.titleEdgeInsets = (likeText.length > 0) ? UIEdgeInsetsMake(0, 4, 0, 0) : UIEdgeInsetsZero;
     [self.likeButton setTitleColor:heartColor forState:UIControlStateNormal];
 }
 
@@ -424,15 +427,27 @@
     self.sendButton.userInteractionEnabled = NO;
     NSInteger replyId = self.replyingToCommentId;
     
+    [VKCrashLogger log:@"[VKPostDetailViewController] Sending comment: owner=%ld, post=%ld, text='%@', replyTo=%ld", (long)self.post.ownerID, (long)self.post.vkID, text, (long)replyId];
+    
     [[VKCommentsService sharedService] addCommentForOwnerId:self.post.ownerID postId:self.post.vkID message:text replyToCid:replyId completion:^(BOOL success, NSInteger commentId, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             self.sendButton.userInteractionEnabled = YES;
             if (success) {
+                [VKCrashLogger log:@"[VKPostDetailViewController] Comment created successfully with ID=%ld", (long)commentId];
                 self.commentTextField.text = @"";
                 self.replyingToCommentId = 0;
                 [self textFieldChanged];
                 [self.commentTextField resignFirstResponder];
                 [self loadComments];
+            } else {
+                NSString *errMsg = error.localizedDescription ?: @"Не удалось отправить комментарий. Проверьте соединение с сервером.";
+                [VKCrashLogger log:@"[VKPostDetailViewController] Error creating comment: %@", errMsg];
+                UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Ошибка"
+                                                                message:errMsg
+                                                               delegate:nil
+                                                      cancelButtonTitle:@"OK"
+                                                      otherButtonTitles:nil];
+                [alert show];
             }
         });
     }];
