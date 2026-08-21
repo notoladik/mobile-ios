@@ -77,6 +77,9 @@ void operator delete(void* ptr, std::size_t size, std::align_val_t alignment) no
         self.clipsToBounds = YES;
         self.userInteractionEnabled = YES;
         
+        _shuffleMode = YES;
+        _autoSwitchInterval = 20.0;
+        
         UISwipeGestureRecognizer *swipeL = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(nextPreset)];
         swipeL.direction = UISwipeGestureRecognizerDirectionLeft;
         [self addGestureRecognizer:swipeL];
@@ -284,8 +287,12 @@ static const char* kDefaultMilkdropPreset =
     }
     NSLog(@"[VKProjectMGLView] Loaded %lu milkdrop presets", (unsigned long)self.presetPaths.count);
     if (self.presetPaths.count > 0) {
-        self.currentPresetIndex = 0;
-        [self loadPresetFromFile:self.presetPaths.firstObject];
+        if (self.shuffleMode) {
+            self.currentPresetIndex = arc4random_uniform((uint32_t)self.presetPaths.count);
+        } else {
+            self.currentPresetIndex = 0;
+        }
+        [self loadPresetFromFile:self.presetPaths[self.currentPresetIndex]];
     } else if (_pm) {
         projectm_load_preset_data(_pm, kDefaultMilkdropPreset, true);
         [self showPresetBadge];
@@ -299,10 +306,26 @@ static const char* kDefaultMilkdropPreset =
     [self showPresetBadge];
 }
 
+- (void)randomPreset {
+    if (self.presetPaths.count == 0) return;
+    if (self.presetPaths.count == 1) {
+        self.currentPresetIndex = 0;
+    } else {
+        NSUInteger nextIdx = self.currentPresetIndex;
+        while (nextIdx == self.currentPresetIndex) {
+            nextIdx = arc4random_uniform((uint32_t)self.presetPaths.count);
+        }
+        self.currentPresetIndex = nextIdx;
+    }
+    [self loadPresetFromFile:self.presetPaths[self.currentPresetIndex]];
+}
+
 - (void)nextPreset {
     if (self.presetPaths.count == 0) return;
-    self.currentPresetIndex = (self.currentPresetIndex + 1) % self.presetPaths.count;
-    if (self.currentPresetIndex < self.presetPaths.count) {
+    if (self.shuffleMode && self.presetPaths.count > 1) {
+        [self randomPreset];
+    } else {
+        self.currentPresetIndex = (self.currentPresetIndex + 1) % self.presetPaths.count;
         [self loadPresetFromFile:self.presetPaths[self.currentPresetIndex]];
     }
 }
@@ -436,6 +459,14 @@ static const char* kDefaultMilkdropPreset =
         frameCounter++;
         fpsCounter++;
         NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+        
+        static NSTimeInterval lastAutoSwitchTime = 0;
+        if (lastAutoSwitchTime == 0) lastAutoSwitchTime = now;
+        if (self.autoSwitchInterval > 0 && self.isPlaying && (now - lastAutoSwitchTime) >= self.autoSwitchInterval) {
+            lastAutoSwitchTime = now;
+            [self nextPreset];
+        }
+        
         if (now - lastLogTime >= 1.0) {
             currentFps = (CGFloat)fpsCounter / (CGFloat)(now - lastLogTime);
             fpsCounter = 0;

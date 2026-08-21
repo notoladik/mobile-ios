@@ -6,11 +6,14 @@
 @interface VKProjectMGLView : UIView
 
 @property (nonatomic, assign) BOOL isPlaying;
+@property (nonatomic, assign) BOOL shuffleMode;
+@property (nonatomic, assign) NSTimeInterval autoSwitchInterval;
 
 - (void)startAnimation;
 - (void)stopAnimation;
 - (void)nextPreset;
 - (void)previousPreset;
+- (void)randomPreset;
 - (NSString *)currentPresetName;
 - (void)showPresetBadge;
 
