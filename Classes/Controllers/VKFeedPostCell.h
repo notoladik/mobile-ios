@@ -16,6 +16,7 @@
 
 @property (nonatomic, strong) UIView *contentContainerView;
 @property (nonatomic, strong) UILabel *postTextLabel;
+@property (nonatomic, strong) UIButton *expandTextButton;
 
 // Контейнер фотографий
 @property (nonatomic, strong) UIView *photosContainerView;
@@ -35,6 +36,7 @@
 @property (nonatomic, strong) UIImageView *repostAvatarImageView;
 @property (nonatomic, strong) UILabel *repostAuthorLabel;
 @property (nonatomic, strong) UILabel *repostTextLabel;
+@property (nonatomic, strong) UIButton *expandRepostTextButton;
 
 // Кнопки действий
 @property (nonatomic, strong) UIView *actionsContainerView;
@@ -50,6 +52,8 @@
 @property (nonatomic, copy) void (^onAuthorTapped)(VKUser *user);
 @property (nonatomic, copy) void (^onOptionsTapped)(VKPost *post);
 @property (nonatomic, copy) void (^onRevealSpoilerTapped)(VKPost *post);
+@property (nonatomic, copy) void (^onToggleTextExpanded)(VKPost *post);
+@property (nonatomic, copy) void (^onToggleRepostTextExpanded)(VKPost *post);
 @property (nonatomic, copy) void (^onPhotoTapped)(NSString *imageURL, UIImage *image);
 @property (nonatomic, copy) void (^onPhotosGalleryTapped)(NSArray<NSString *> *photoURLs, NSInteger initialIndex);
 @property (nonatomic, copy) void (^onVideoTapped)(VKAttachment *videoAttachment);

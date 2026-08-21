@@ -272,6 +272,20 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
         });
     };
     
+    cell.onToggleTextExpanded = ^(VKPost *p) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf.tableView beginUpdates];
+            [weakSelf.tableView endUpdates];
+        });
+    };
+    
+    cell.onToggleRepostTextExpanded = ^(VKPost *p) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf.tableView beginUpdates];
+            [weakSelf.tableView endUpdates];
+        });
+    };
+    
     cell.onAuthorTapped = ^(VKUser *author) {
         VKProfileViewController *profVC = [[VKProfileViewController alloc] initWithUser:author];
         [weakSelf.navigationController pushViewController:profVC animated:YES];

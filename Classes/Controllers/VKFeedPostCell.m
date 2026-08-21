@@ -103,7 +103,18 @@
         _postTextLabel.font = [UIFont systemFontOfSize:15];
         _postTextLabel.textColor = [UIColor colorWithRed:30.0/255.0 green:30.0/255.0 blue:30.0/255.0 alpha:1.0];
         _postTextLabel.numberOfLines = 0;
+        _postTextLabel.userInteractionEnabled = YES;
+        UITapGestureRecognizer *textTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(toggleTextExpandedAction)];
+        [_postTextLabel addGestureRecognizer:textTap];
         [_contentContainerView addSubview:_postTextLabel];
+        
+        _expandTextButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        _expandTextButton.titleLabel.font = [UIFont boldSystemFontOfSize:13.5];
+        [_expandTextButton setTitleColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+        _expandTextButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        [_expandTextButton addTarget:self action:@selector(toggleTextExpandedAction) forControlEvents:UIControlEventTouchUpInside];
+        _expandTextButton.hidden = YES;
+        [_contentContainerView addSubview:_expandTextButton];
         
         // Фото контейнер
         _photosContainerView = [[UIView alloc] initWithFrame:CGRectZero];
@@ -173,7 +184,18 @@
         _repostTextLabel.font = [UIFont systemFontOfSize:13];
         _repostTextLabel.textColor = [UIColor colorWithWhite:0.2 alpha:1.0];
         _repostTextLabel.numberOfLines = 0;
+        _repostTextLabel.userInteractionEnabled = YES;
+        UITapGestureRecognizer *repTextTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(toggleRepostTextExpandedAction)];
+        [_repostTextLabel addGestureRecognizer:repTextTap];
         [_repostContainerView addSubview:_repostTextLabel];
+        
+        _expandRepostTextButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        _expandRepostTextButton.titleLabel.font = [UIFont boldSystemFontOfSize:12.5];
+        [_expandRepostTextButton setTitleColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+        _expandRepostTextButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        [_expandRepostTextButton addTarget:self action:@selector(toggleRepostTextExpandedAction) forControlEvents:UIControlEventTouchUpInside];
+        _expandRepostTextButton.hidden = YES;
+        [_repostContainerView addSubview:_expandRepostTextButton];
         
         // Actions
         _actionsContainerView = [[UIView alloc] initWithFrame:CGRectZero];
@@ -442,7 +464,15 @@
         CGSize textSize = [post.text sizeWithFont:[UIFont systemFontOfSize:15]
                                constrainedToSize:CGSizeMake(contentWidth, CGFLOAT_MAX)
                                    lineBreakMode:NSLineBreakByWordWrapping];
-        h += ceilf(textSize.height) + 10.0;
+        CGFloat fullH = ceilf(textSize.height);
+        BOOL isLongText = post.text.length > 250 || [post.text componentsSeparatedByString:@"\n"].count > 5;
+        if (isLongText) {
+            CGFloat collapsedH = MIN(fullH, [UIFont systemFontOfSize:15].lineHeight * 6.0);
+            CGFloat textH = post.isTextExpanded ? fullH : collapsedH;
+            h += textH + 24.0 + 10.0;
+        } else {
+            h += fullH + 10.0;
+        }
     }
     
     // Фотографии (сетка)
@@ -484,7 +514,15 @@
             CGSize repTextSize = [rep.text sizeWithFont:[UIFont systemFontOfSize:13]
                                       constrainedToSize:CGSizeMake(repContentW, CGFLOAT_MAX)
                                           lineBreakMode:NSLineBreakByWordWrapping];
-            repH += ceilf(repTextSize.height) + 8.0;
+            CGFloat fullRepH = ceilf(repTextSize.height);
+            BOOL isLongRep = rep.text.length > 250 || [rep.text componentsSeparatedByString:@"\n"].count > 5;
+            if (isLongRep) {
+                CGFloat collapsedRepH = MIN(fullRepH, [UIFont systemFontOfSize:13].lineHeight * 6.0);
+                CGFloat repTextH = rep.isRepostTextExpanded ? fullRepH : collapsedRepH;
+                repH += repTextH + 22.0 + 8.0;
+            } else {
+                repH += fullRepH + 8.0;
+            }
         }
         
         // Фотографии репоста
@@ -643,10 +681,30 @@
         CGSize textSize = [post.text sizeWithFont:[UIFont systemFontOfSize:15]
                                constrainedToSize:CGSizeMake(contentW, CGFLOAT_MAX)
                                    lineBreakMode:NSLineBreakByWordWrapping];
-        self.postTextLabel.frame = CGRectMake(0, currentY, contentW, ceilf(textSize.height));
-        currentY += ceilf(textSize.height) + 10.0;
+        CGFloat fullH = ceilf(textSize.height);
+        BOOL isLongText = post.text.length > 250 || [post.text componentsSeparatedByString:@"\n"].count > 5;
+        
+        if (isLongText) {
+            self.expandTextButton.hidden = NO;
+            [self.expandTextButton setTitle:(post.isTextExpanded ? @"Свернуть" : @"Показать полностью...") forState:UIControlStateNormal];
+            
+            CGFloat collapsedH = MIN(fullH, [UIFont systemFontOfSize:15].lineHeight * 6.0);
+            CGFloat textH = post.isTextExpanded ? fullH : collapsedH;
+            self.postTextLabel.numberOfLines = post.isTextExpanded ? 0 : 6;
+            self.postTextLabel.frame = CGRectMake(0, currentY, contentW, textH);
+            currentY += textH;
+            
+            self.expandTextButton.frame = CGRectMake(0, currentY, 200, 24);
+            currentY += 24.0 + 10.0;
+        } else {
+            self.expandTextButton.hidden = YES;
+            self.postTextLabel.numberOfLines = 0;
+            self.postTextLabel.frame = CGRectMake(0, currentY, contentW, fullH);
+            currentY += fullH + 10.0;
+        }
     } else {
         self.postTextLabel.hidden = YES;
+        self.expandTextButton.hidden = YES;
     }
     
     // Сетка фотографий (до 10 фото!)
@@ -1167,7 +1225,7 @@
         
         // Удаляем динамические вложения репоста
         for (UIView *sub in self.repostContainerView.subviews) {
-            if (sub != self.repostLeftBarView && sub != self.repostAvatarImageView && sub != self.repostAuthorLabel && sub != self.repostTextLabel) {
+            if (sub != self.repostLeftBarView && sub != self.repostAvatarImageView && sub != self.repostAuthorLabel && sub != self.repostTextLabel && sub != self.expandRepostTextButton) {
                 [sub removeFromSuperview];
             }
         }
@@ -1184,10 +1242,30 @@
             CGSize repTextSize = [rep.text sizeWithFont:[UIFont systemFontOfSize:13]
                                       constrainedToSize:CGSizeMake(repInnerW, CGFLOAT_MAX)
                                           lineBreakMode:NSLineBreakByWordWrapping];
-            self.repostTextLabel.frame = CGRectMake(8, repCurY, repInnerW, ceilf(repTextSize.height));
-            repCurY += ceilf(repTextSize.height) + 8.0;
+            CGFloat fullRepH = ceilf(repTextSize.height);
+            BOOL isLongRep = rep.text.length > 250 || [rep.text componentsSeparatedByString:@"\n"].count > 5;
+            
+            if (isLongRep) {
+                self.expandRepostTextButton.hidden = NO;
+                [self.expandRepostTextButton setTitle:(rep.isRepostTextExpanded ? @"Свернуть" : @"Показать полностью...") forState:UIControlStateNormal];
+                
+                CGFloat collapsedRepH = MIN(fullRepH, [UIFont systemFontOfSize:13].lineHeight * 6.0);
+                CGFloat repTextH = rep.isRepostTextExpanded ? fullRepH : collapsedRepH;
+                self.repostTextLabel.numberOfLines = rep.isRepostTextExpanded ? 0 : 6;
+                self.repostTextLabel.frame = CGRectMake(8, repCurY, repInnerW, repTextH);
+                repCurY += repTextH;
+                
+                self.expandRepostTextButton.frame = CGRectMake(8, repCurY, 180, 22);
+                repCurY += 22.0 + 8.0;
+            } else {
+                self.expandRepostTextButton.hidden = YES;
+                self.repostTextLabel.numberOfLines = 0;
+                self.repostTextLabel.frame = CGRectMake(8, repCurY, repInnerW, fullRepH);
+                repCurY += fullRepH + 8.0;
+            }
         } else {
             self.repostTextLabel.hidden = YES;
+            self.expandRepostTextButton.hidden = YES;
         }
         
         // Вложения репоста (Фотографии)
@@ -1490,6 +1568,29 @@
         self.likeButton.titleLabel.shadowColor = nil;
         self.likeButton.titleLabel.font = [UIFont systemFontOfSize:13.5];
         [self.likeButton setTitleColor:likeIconColor forState:UIControlStateNormal];
+    }
+}
+
+- (void)toggleTextExpandedAction {
+    if (!self.currentPost) return;
+    BOOL isLongText = self.currentPost.text.length > 250 || [self.currentPost.text componentsSeparatedByString:@"\n"].count > 5;
+    if (!isLongText) return;
+    
+    self.currentPost.isTextExpanded = !self.currentPost.isTextExpanded;
+    if (self.onToggleTextExpanded) {
+        self.onToggleTextExpanded(self.currentPost);
+    }
+}
+
+- (void)toggleRepostTextExpandedAction {
+    if (!self.currentPost || self.currentPost.repostHistory.count == 0) return;
+    VKPost *rep = self.currentPost.repostHistory[0];
+    BOOL isLongRep = rep.text.length > 250 || [rep.text componentsSeparatedByString:@"\n"].count > 5;
+    if (!isLongRep) return;
+    
+    rep.isRepostTextExpanded = !rep.isRepostTextExpanded;
+    if (self.onToggleRepostTextExpanded) {
+        self.onToggleRepostTextExpanded(self.currentPost);
     }
 }
 

@@ -571,6 +571,18 @@
                                                           otherButtonTitles:@"Поделиться на стене", @"Скопировать ссылку", nil];
                 [sheet showInView:weakSelf.view];
             };
+            cell.onToggleTextExpanded = ^(VKPost *p) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [weakSelf.tableView beginUpdates];
+                    [weakSelf.tableView endUpdates];
+                });
+            };
+            cell.onToggleRepostTextExpanded = ^(VKPost *p) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [weakSelf.tableView beginUpdates];
+                    [weakSelf.tableView endUpdates];
+                });
+            };
             cell.onPhotosGalleryTapped = ^(NSArray<NSString *> *photoURLs, NSInteger initialIndex) {
                 VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithPhotoURLs:photoURLs initialIndex:initialIndex];
                 [weakSelf presentViewController:viewer animated:YES completion:nil];
