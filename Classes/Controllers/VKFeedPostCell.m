@@ -431,7 +431,7 @@
     CGFloat cardWidth = (margin > 0) ? (width - margin * 2.0) : width;
     CGFloat contentWidth = cardWidth - 24.0;
     
-    CGFloat h = 56.0; // Header (Avatar 40pt + Top 10pt + Bottom 6pt)
+    CGFloat h = 60.0; // Header (Avatar 40pt at y=10 + bottom margin 10pt)
     
     if (post.isExplicit && !isRevealed) {
         return h + 180.0 + 34.0 + 8.0;
@@ -442,7 +442,7 @@
         CGSize textSize = [post.text sizeWithFont:[UIFont systemFontOfSize:15]
                                constrainedToSize:CGSizeMake(contentWidth, CGFLOAT_MAX)
                                    lineBreakMode:NSLineBreakByWordWrapping];
-        h += ceilf(textSize.height) + 8.0;
+        h += ceilf(textSize.height) + 10.0;
     }
     
     // Фотографии (сетка)
@@ -451,11 +451,11 @@
         if (att.type == VKAttachmentTypePhoto && att.photoURL.length > 0) photoCount++;
     }
     if (photoCount == 1) {
-        h += 240.0 + 8.0;
+        h += 240.0 + 10.0;
     } else if (photoCount == 2 || photoCount == 3) {
-        h += 160.0 + 8.0;
+        h += 160.0 + 10.0;
     } else if (photoCount >= 4) {
-        h += 240.0 + 8.0;
+        h += 240.0 + 10.0;
     }
     
     // Прочие вложения (Аудио, Видео, Опросы, Документы, GIF, Ссылки)
@@ -516,7 +516,7 @@
                 repH += (att.linkImageURL.length > 0) ? 180.0 : 54.0;
             }
         }
-        h += repH + 8.0;
+        h += repH + 10.0;
     }
     
     // Источник и подпись
@@ -527,7 +527,7 @@
         h += 20.0;
     }
     
-    h += 32.0; // Кнопки действий (лайк, комменты, репост)
+    h += 34.0; // Кнопки действий (лайк, комменты, репост)
     h += 8.0;  // Нижний отступ разделителя
     return h;
 }
@@ -622,7 +622,10 @@
     
     CGFloat headerLeft = 60.0;
     CGFloat headerRight = cardWidth - 36.0;
-    self.avatarImageView.frame = CGRectMake(12.0, 10.0, 40.0, 40.0);
+    self.avatarContainerView.frame = CGRectMake(12.0, 10.0, 40.0, 40.0);
+    self.avatarImageView.frame = CGRectMake(0.0, 0.0, 40.0, 40.0);
+    self.wallOwnerAvatarImageView.frame = CGRectMake(24.0, 24.0, 18.0, 18.0);
+    
     self.authorNameLabel.frame = CGRectMake(headerLeft, 10.0, headerRight - headerLeft, 19.0);
     self.dateAndPlatformLabel.frame = CGRectMake(headerLeft, 31.0, headerRight - headerLeft, 15.0);
     self.moreButton.frame = CGRectMake(cardWidth - 36.0, 8.0, 28.0, 28.0);
@@ -630,7 +633,7 @@
     // Контент
     CGFloat contentX = 12.0;
     CGFloat contentW = cardWidth - 24.0;
-    CGFloat currentY = 56.0;
+    CGFloat currentY = 60.0;
     self.contentContainerView.frame = CGRectMake(contentX, 0, contentW, totalHeight);
     
     // Текст поста
@@ -641,7 +644,7 @@
                                constrainedToSize:CGSizeMake(contentW, CGFLOAT_MAX)
                                    lineBreakMode:NSLineBreakByWordWrapping];
         self.postTextLabel.frame = CGRectMake(0, currentY, contentW, ceilf(textSize.height));
-        currentY += ceilf(textSize.height) + 8.0;
+        currentY += ceilf(textSize.height) + 10.0;
     } else {
         self.postTextLabel.hidden = YES;
     }
