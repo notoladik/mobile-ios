@@ -463,4 +463,28 @@
     return [NSString stringWithFormat:@"%ld:%02ld", (long)m, (long)s];
 }
 
+#pragma mark - UIActionSheetDelegate
+
+- (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
+    if (actionSheet.tag == 5002) {
+        // 0: Транслировать в статус
+        VKAudioTrack *track = [VKAudioPlayer sharedPlayer].currentTrack;
+        if (!track) return;
+        
+        if (buttonIndex == 0) {
+            NSString *audioStr = [NSString stringWithFormat:@"%ld_%ld", (long)track.ownerId, (long)track.audioId];
+            [[VKAudioService sharedService] setBroadcastAudio:audioStr completion:^(BOOL success, NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:nil
+                                                                    message:success ? @"Статус обновлен" : @"Не удалось транслировать в статус"
+                                                                   delegate:nil
+                                                          cancelButtonTitle:@"OK"
+                                                          otherButtonTitles:nil];
+                    [alert show];
+                });
+            }];
+        }
+    }
+}
+
 @end
