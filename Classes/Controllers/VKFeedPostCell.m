@@ -661,14 +661,12 @@
         CGFloat photoCorner = isSkeuomorph ? 3.0 : (isFlat ? 2.0 : 6.0);
         
         if (photos.count == 1) {
-            CGFloat photoH = 280.0;
+            CGFloat photoH = 260.0;
             UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, contentW, photoH)];
-            iv.contentMode = UIViewContentModeScaleAspectFit;
+            iv.contentMode = UIViewContentModeScaleAspectFill;
             iv.clipsToBounds = YES;
-            iv.backgroundColor = [UIColor colorWithRed:244.0/255.0 green:246.0/255.0 blue:249.0/255.0 alpha:1.0];
+            iv.backgroundColor = [UIColor colorWithRed:235.0/255.0 green:237.0/255.0 blue:240.0/255.0 alpha:1.0];
             iv.layer.cornerRadius = photoCorner;
-            iv.layer.borderWidth = 0.5;
-            iv.layer.borderColor = [UIColor colorWithRed:220.0/255.0 green:225.0/255.0 blue:232.0/255.0 alpha:1.0].CGColor;
             iv.tag = 0;
             iv.userInteractionEnabled = YES;
             UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(photoCellTapped:)];
@@ -1197,12 +1195,10 @@
         if (repPhotos.count == 1) {
             CGFloat photoH = 220.0;
             UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(8, repCurY, repInnerW, photoH)];
-            iv.contentMode = UIViewContentModeScaleAspectFit;
+            iv.contentMode = UIViewContentModeScaleAspectFill;
             iv.clipsToBounds = YES;
-            iv.backgroundColor = [UIColor colorWithRed:238.0/255.0 green:240.0/255.0 blue:244.0/255.0 alpha:1.0];
+            iv.backgroundColor = [UIColor colorWithRed:235.0/255.0 green:237.0/255.0 blue:240.0/255.0 alpha:1.0];
             iv.layer.cornerRadius = 4.0;
-            iv.layer.borderWidth = 0.5;
-            iv.layer.borderColor = [UIColor colorWithRed:215.0/255.0 green:220.0/255.0 blue:228.0/255.0 alpha:1.0].CGColor;
             iv.userInteractionEnabled = YES;
             
             VKAttachment *a = repPhotos[0];
