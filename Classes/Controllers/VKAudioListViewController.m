@@ -6,28 +6,49 @@
 #import "VKSideMenuManager.h"
 #import "VKImageLoader.h"
 #import "VKAuthService.h"
+#import "VKAudioAlbum.h"
 
 @interface VKAudioListViewController () <UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate>
 @property (nonatomic, assign) NSInteger userId;
+@property (nonatomic, assign) NSInteger albumId;
+@property (nonatomic, copy) NSString *albumTitle;
+
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UISearchBar *searchBar;
 @property (nonatomic, strong) UISegmentedControl *segmentedControl;
 @property (nonatomic, strong) UIRefreshControl *refreshControl;
-@property (nonatomic, strong) NSArray<VKAudioTrack *> *allTracks;
+@property (nonatomic, strong) UIActivityIndicatorView *footerSpinner;
+
+@property (nonatomic, strong) NSMutableArray<VKAudioTrack *> *allTracks;
 @property (nonatomic, strong) NSArray<VKAudioTrack *> *filteredTracks;
+@property (nonatomic, strong) NSArray<VKAudioAlbum *> *albums;
+
 @property (nonatomic, strong) UIView *miniPlayerView;
 @property (nonatomic, strong) UILabel *miniTitleLabel;
 @property (nonatomic, strong) UIButton *miniPlayButton;
-@property (nonatomic, assign) NSInteger selectedTab; // 0: My, 1: Popular, 2: Recommendations
+
+@property (nonatomic, assign) NSInteger selectedTab; // 0: My, 1: Albums, 2: Popular, 3: Recommendations
+@property (nonatomic, assign) BOOL isLoadingMore;
+@property (nonatomic, assign) BOOL hasMore;
 @end
 
 @implementation VKAudioListViewController
 
 - (instancetype)initWithUserId:(NSInteger)userId {
+    return [self initWithUserId:userId albumId:0 albumTitle:nil];
+}
+
+- (instancetype)initWithUserId:(NSInteger)userId albumId:(NSInteger)albumId albumTitle:(NSString *)albumTitle {
     self = [super init];
     if (self) {
         _userId = userId;
+        _albumId = albumId;
+        _albumTitle = albumTitle;
         _selectedTab = 0;
+        _allTracks = [NSMutableArray array];
+        _filteredTracks = @[];
+        _albums = @[];
+        _hasMore = YES;
     }
     return self;
 }
@@ -35,7 +56,11 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     
-    self.title = @"Аудиозаписи";
+    if (self.albumId > 0) {
+        self.title = self.albumTitle.length > 0 ? self.albumTitle : @"Альбом";
+    } else {
+        self.title = @"Аудиозаписи";
+    }
     self.view.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
     
     [self setupNavigationItems];
@@ -44,25 +69,29 @@
     CGFloat width = self.view.bounds.size.width;
     CGFloat height = self.view.bounds.size.height;
     
-    // 1. Header Container with Segmented Control & SearchBar
-    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 84)];
-    headerView.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
+    CGFloat topOffset = 0;
     
-    self.segmentedControl = [[UISegmentedControl alloc] initWithItems:@[@"Мои", @"Популярное", @"Рекомендации"]];
-    self.segmentedControl.frame = CGRectMake(12, 6, width - 24, 28);
-    self.segmentedControl.selectedSegmentIndex = self.selectedTab;
-    [self.segmentedControl addTarget:self action:@selector(segmentChanged:) forControlEvents:UIControlEventValueChanged];
-    [headerView addSubview:self.segmentedControl];
-    
-    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 40, width, 44)];
-    self.searchBar.delegate = self;
-    self.searchBar.placeholder = @"Поиск по музыке...";
-    [headerView addSubview:self.searchBar];
-    
-    [self.view addSubview:headerView];
+    // 1. Header Container with Segmented Control & SearchBar (только если не в отдельном альбоме)
+    if (self.albumId == 0) {
+        topOffset = 84.0;
+        UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, topOffset)];
+        headerView.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
+        
+        self.segmentedControl = [[UISegmentedControl alloc] initWithItems:@[@"Мои", @"Альбомы", @"Топ", @"Реком."]];
+        self.segmentedControl.frame = CGRectMake(10, 6, width - 20, 28);
+        self.segmentedControl.selectedSegmentIndex = self.selectedTab;
+        [self.segmentedControl addTarget:self action:@selector(segmentChanged:) forControlEvents:UIControlEventValueChanged];
+        [headerView addSubview:self.segmentedControl];
+        
+        self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 40, width, 44)];
+        self.searchBar.delegate = self;
+        self.searchBar.placeholder = @"Поиск по музыке...";
+        [headerView addSubview:self.searchBar];
+        
+        [self.view addSubview:headerView];
+    }
     
     // 2. TableView
-    CGFloat topOffset = 84.0;
     CGFloat bottomPlayerH = 50.0;
     self.tableView = [[UITableView alloc] initWithFrame:CGRectMake(0, topOffset, width, height - topOffset - bottomPlayerH) style:UITableViewStylePlain];
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -73,6 +102,14 @@
     self.refreshControl = [[UIRefreshControl alloc] init];
     [self.refreshControl addTarget:self action:@selector(loadAudios) forControlEvents:UIControlEventValueChanged];
     [self.tableView addSubview:self.refreshControl];
+    
+    UIView *footerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 44)];
+    self.footerSpinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
+    self.footerSpinner.center = CGPointMake(width / 2.0, 22.0);
+    self.footerSpinner.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+    self.footerSpinner.hidesWhenStopped = YES;
+    [footerView addSubview:self.footerSpinner];
+    self.tableView.tableFooterView = footerView;
     
     [self.view addSubview:self.tableView];
     
@@ -154,29 +191,92 @@
 
 - (void)loadAudios {
     [self.refreshControl beginRefreshing];
+    self.hasMore = YES;
+    self.isLoadingMore = NO;
+    
+    if (self.selectedTab == 1 && self.albumId == 0) {
+        // Загрузка списка альбомов
+        [[VKAudioService sharedService] fetchAlbumsWithUserId:self.userId offset:0 count:50 completion:^(NSArray<VKAudioAlbum *> *albums, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self.refreshControl endRefreshing];
+                self.albums = albums ?: @[];
+                [self.tableView reloadData];
+            });
+        }];
+        return;
+    }
     
     void (^completion)(NSArray<VKAudioTrack *> *tracks, NSError *error) = ^(NSArray<VKAudioTrack *> *tracks, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [self.refreshControl endRefreshing];
-            self.allTracks = tracks ?: @[];
-            self.filteredTracks = self.allTracks;
+            [self.allTracks removeAllObjects];
+            if (tracks) [self.allTracks addObjectsFromArray:tracks];
+            self.filteredTracks = [self.allTracks copy];
+            self.hasMore = (tracks.count >= 40);
             [self.tableView reloadData];
         });
     };
     
-    if (self.selectedTab == 0) {
-        [[VKAudioService sharedService] fetchAudiosWithUserId:self.userId offset:0 count:100 completion:completion];
-    } else if (self.selectedTab == 1) {
+    if (self.albumId > 0) {
+        [[VKAudioService sharedService] fetchAudiosWithUserId:self.userId albumId:self.albumId offset:0 count:50 completion:completion];
+    } else if (self.selectedTab == 0) {
+        [[VKAudioService sharedService] fetchAudiosWithUserId:self.userId offset:0 count:50 completion:completion];
+    } else if (self.selectedTab == 2) {
         [[VKAudioService sharedService] fetchPopularAudiosWithOffset:0 count:50 completion:completion];
-    } else {
+    } else if (self.selectedTab == 3) {
         [[VKAudioService sharedService] fetchRecommendationsWithOffset:0 count:50 completion:completion];
     }
 }
 
+- (void)loadMoreAudios {
+    if (self.isLoadingMore || !self.hasMore || (self.selectedTab == 1 && self.albumId == 0)) return;
+    if (self.searchBar.text.length > 0) return;
+    
+    self.isLoadingMore = YES;
+    [self.footerSpinner startAnimating];
+    
+    NSInteger nextOffset = self.allTracks.count;
+    void (^completion)(NSArray<VKAudioTrack *> *tracks, NSError *error) = ^(NSArray<VKAudioTrack *> *tracks, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self.footerSpinner stopAnimating];
+            self.isLoadingMore = NO;
+            if (tracks.count > 0) {
+                [self.allTracks addObjectsFromArray:tracks];
+                self.filteredTracks = [self.allTracks copy];
+                self.hasMore = (tracks.count >= 40);
+                [self.tableView reloadData];
+            } else {
+                self.hasMore = NO;
+            }
+        });
+    };
+    
+    if (self.albumId > 0) {
+        [[VKAudioService sharedService] fetchAudiosWithUserId:self.userId albumId:self.albumId offset:nextOffset count:50 completion:completion];
+    } else if (self.selectedTab == 0) {
+        [[VKAudioService sharedService] fetchAudiosWithUserId:self.userId offset:nextOffset count:50 completion:completion];
+    } else if (self.selectedTab == 2) {
+        [[VKAudioService sharedService] fetchPopularAudiosWithOffset:nextOffset count:50 completion:completion];
+    } else if (self.selectedTab == 3) {
+        [[VKAudioService sharedService] fetchRecommendationsWithOffset:nextOffset count:50 completion:completion];
+    }
+}
+
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
+    if (self.selectedTab == 1 && self.albumId == 0) {
+        // Поиск по альбомам
+        NSString *q = [searchText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (q.length == 0) {
+            [self.tableView reloadData];
+        } else {
+            [self.tableView reloadData];
+        }
+        return;
+    }
+    
     NSString *q = [searchText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
     if (q.length == 0) {
-        self.filteredTracks = self.allTracks;
+        self.filteredTracks = [self.allTracks copy];
         [self.tableView reloadData];
     } else {
         NSPredicate *pred = [NSPredicate predicateWithFormat:@"title CONTAINS[cd] %@ OR artist CONTAINS[cd] %@", q, q];
@@ -231,10 +331,64 @@
 #pragma mark - Table View Data Source
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    if (self.selectedTab == 1 && self.albumId == 0) {
+        return self.albums.count;
+    }
     return self.filteredTracks.count;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
+    
+    // Вкладка "Альбомы"
+    if (self.selectedTab == 1 && self.albumId == 0) {
+        static NSString *AlbumCellId = @"VKAudioAlbumCell";
+        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:AlbumCellId];
+        if (!cell) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:AlbumCellId];
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            cell.textLabel.font = [UIFont boldSystemFontOfSize:15];
+            cell.detailTextLabel.font = [UIFont systemFontOfSize:12];
+            cell.detailTextLabel.textColor = [UIColor colorWithWhite:0.5 alpha:1.0];
+            
+            UIImageView *albumCover = [[UIImageView alloc] initWithFrame:CGRectMake(10, 6, 44, 44)];
+            albumCover.tag = 601;
+            albumCover.layer.cornerRadius = 4.0;
+            albumCover.clipsToBounds = YES;
+            albumCover.backgroundColor = [UIColor colorWithRed:230.0/255.0 green:233.0/255.0 blue:238.0/255.0 alpha:1.0];
+            albumCover.contentMode = UIViewContentModeScaleAspectFill;
+            [cell.contentView addSubview:albumCover];
+            
+            UILabel *albumIcon = [[UILabel alloc] initWithFrame:CGRectMake(10, 6, 44, 44)];
+            albumIcon.tag = 602;
+            albumIcon.text = @"💿";
+            albumIcon.textAlignment = NSTextAlignmentCenter;
+            albumIcon.font = [UIFont systemFontOfSize:22];
+            [cell.contentView addSubview:albumIcon];
+        }
+        
+        UIImageView *albumCover = (UIImageView *)[cell.contentView viewWithTag:601];
+        UILabel *albumIcon = (UILabel *)[cell.contentView viewWithTag:602];
+        
+        VKAudioAlbum *album = self.albums[indexPath.row];
+        cell.textLabel.text = [NSString stringWithFormat:@"      %@", album.title ?: @"Альбом"];
+        cell.textLabel.textColor = isSkeuomorph ? [UIColor colorWithRed:43.0/255.0 green:88.0/255.0 blue:122.0/255.0 alpha:1.0] : [UIColor colorWithRed:25.0/255.0 green:25.0/255.0 blue:26.0/255.0 alpha:1.0];
+        cell.detailTextLabel.text = [NSString stringWithFormat:@"      %ld аудиозаписей", (long)album.trackCount];
+        
+        if (album.thumbURL.length > 0) {
+            albumIcon.hidden = YES;
+            albumCover.image = nil;
+            [[VKImageLoader sharedLoader] loadImageWithURL:album.thumbURL completion:^(UIImage *img) {
+                if (img) albumCover.image = img;
+            }];
+        } else {
+            albumCover.image = nil;
+            albumIcon.hidden = NO;
+        }
+        return cell;
+    }
+    
+    // Вкладка треков
     static NSString *AudioCellId = @"VKAudioListTrackCell";
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:AudioCellId];
     if (!cell) {
@@ -266,8 +420,6 @@
     VKAudioTrack *track = self.filteredTracks[indexPath.row];
     BOOL isPlayingThis = [[VKAudioPlayer sharedPlayer].currentTrack.title isEqualToString:track.title] && [[VKAudioPlayer sharedPlayer].currentTrack.artist isEqualToString:track.artist];
     
-    BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
-    
     cell.textLabel.text = [NSString stringWithFormat:@"     %@", track.title ?: @"Трек"];
     if (isPlayingThis) {
         cell.textLabel.text = [NSString stringWithFormat:@"  ▶  %@", track.title ?: @"Трек"];
@@ -294,13 +446,29 @@
     return cell;
 }
 
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (self.selectedTab != 1 || self.albumId > 0) {
+        if (indexPath.row >= (NSInteger)self.filteredTracks.count - 4) {
+            [self loadMoreAudios];
+        }
+    }
+}
+
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    
+    if (self.selectedTab == 1 && self.albumId == 0) {
+        VKAudioAlbum *album = self.albums[indexPath.row];
+        VKAudioListViewController *albumVC = [[VKAudioListViewController alloc] initWithUserId:self.userId albumId:album.albumId albumTitle:album.title];
+        [self.navigationController pushViewController:albumVC animated:YES];
+        return;
+    }
+    
     [[VKAudioPlayer sharedPlayer] playPlaylist:self.filteredTracks startIndex:indexPath.row];
 }
 
 - (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
-    return (self.selectedTab == 0); // Удаление доступно в "Моих аудиозаписях"
+    return (self.selectedTab == 0 && self.albumId == 0);
 }
 
 - (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -309,14 +477,10 @@
         [[VKAudioService sharedService] deleteAudioWithAudioId:track.audioId ownerId:track.ownerId completion:^(BOOL success, NSError *error) {
             if (success) {
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    NSMutableArray *mAll = [self.allTracks mutableCopy];
-                    [mAll removeObject:track];
-                    self.allTracks = mAll;
-                    
+                    [self.allTracks removeObject:track];
                     NSMutableArray *mFilt = [self.filteredTracks mutableCopy];
                     [mFilt removeObject:track];
-                    self.filteredTracks = mFilt;
-                    
+                    self.filteredTracks = [mFilt copy];
                     [tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
                 });
             }

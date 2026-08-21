@@ -1,14 +1,26 @@
 #import <Foundation/Foundation.h>
 #import "VKAudioTrack.h"
+#import "VKAudioAlbum.h"
 
 @interface VKAudioService : NSObject
 
 + (instancetype)sharedService;
 
 - (void)fetchAudiosWithUserId:(NSInteger)userId
+                      albumId:(NSInteger)albumId
                        offset:(NSInteger)offset
                         count:(NSInteger)count
                    completion:(void (^)(NSArray<VKAudioTrack *> *tracks, NSError *error))completion;
+
+- (void)fetchAudiosWithUserId:(NSInteger)userId
+                       offset:(NSInteger)offset
+                        count:(NSInteger)count
+                   completion:(void (^)(NSArray<VKAudioTrack *> *tracks, NSError *error))completion;
+
+- (void)fetchAlbumsWithUserId:(NSInteger)userId
+                       offset:(NSInteger)offset
+                        count:(NSInteger)count
+                   completion:(void (^)(NSArray<VKAudioAlbum *> *albums, NSError *error))completion;
 
 - (void)searchAudiosWithQuery:(NSString *)query
                        offset:(NSInteger)offset

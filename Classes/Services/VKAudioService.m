@@ -34,10 +34,21 @@
                        offset:(NSInteger)offset
                         count:(NSInteger)count
                    completion:(void (^)(NSArray<VKAudioTrack *> *tracks, NSError *error))completion {
+    [self fetchAudiosWithUserId:userId albumId:0 offset:offset count:count completion:completion];
+}
+
+- (void)fetchAudiosWithUserId:(NSInteger)userId
+                      albumId:(NSInteger)albumId
+                       offset:(NSInteger)offset
+                        count:(NSInteger)count
+                   completion:(void (^)(NSArray<VKAudioTrack *> *tracks, NSError *error))completion {
     
     NSMutableDictionary *params = [NSMutableDictionary dictionary];
     if (userId != 0) {
         params[@"owner_id"] = @(userId);
+    }
+    if (albumId != 0) {
+        params[@"album_id"] = @(albumId);
     }
     params[@"offset"] = @(offset);
     params[@"count"] = @(count > 0 ? count : 50);
@@ -45,7 +56,11 @@
     
     [[VKAPIClient sharedClient] callMethod:@"audio.get" parameters:params completionHandler:^(id response, NSError *error) {
         if (error) {
-            if (completion) completion([self demoTracks], error);
+            if (offset == 0) {
+                if (completion) completion([self demoTracks], error);
+            } else {
+                if (completion) completion(@[], error);
+            }
             return;
         }
         
@@ -53,8 +68,46 @@
         if (tracks.count > 0) {
             if (completion) completion(tracks, nil);
         } else {
-            if (completion) completion([self demoTracks], nil);
+            if (offset == 0) {
+                if (completion) completion([self demoTracks], nil);
+            } else {
+                if (completion) completion(@[], nil);
+            }
         }
+    }];
+}
+
+- (void)fetchAlbumsWithUserId:(NSInteger)userId
+                       offset:(NSInteger)offset
+                        count:(NSInteger)count
+                   completion:(void (^)(NSArray<VKAudioAlbum *> *albums, NSError *error))completion {
+    
+    NSMutableDictionary *params = [NSMutableDictionary dictionary];
+    if (userId != 0) {
+        params[@"owner_id"] = @(userId);
+    }
+    params[@"offset"] = @(offset);
+    params[@"count"] = @(count > 0 ? count : 50);
+    
+    [[VKAPIClient sharedClient] callMethod:@"audio.getAlbums" parameters:params completionHandler:^(id response, NSError *error) {
+        if (error) {
+            if (completion) completion(@[], error);
+            return;
+        }
+        
+        NSDictionary *respDict = [response isKindOfClass:[NSDictionary class]] ? (response[@"response"] ?: response) : nil;
+        id rawItems = respDict[@"items"] ?: respDict[@"albums"] ?: ([response isKindOfClass:[NSArray class]] ? response : nil);
+        
+        NSMutableArray *albums = [NSMutableArray array];
+        if ([rawItems isKindOfClass:[NSArray class]]) {
+            for (id item in rawItems) {
+                if ([item isKindOfClass:[NSDictionary class]]) {
+                    VKAudioAlbum *a = [VKAudioAlbum albumFromDictionary:item];
+                    if (a) [albums addObject:a];
+                }
+            }
+        }
+        if (completion) completion(albums, nil);
     }];
 }
 
