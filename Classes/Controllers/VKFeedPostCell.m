@@ -453,9 +453,9 @@
     if (photoCount == 1) {
         h += 240.0 + 10.0;
     } else if (photoCount == 2 || photoCount == 3) {
-        h += 160.0 + 10.0;
+        h += 170.0 + 10.0;
     } else if (photoCount >= 4) {
-        h += 240.0 + 10.0;
+        h += 260.0 + 10.0;
     }
     
     // Прочие вложения (Аудио, Видео, Опросы, Документы, GIF, Ссылки)
@@ -521,13 +521,13 @@
     
     // Источник и подпись
     if (post.copyrightName.length > 0) {
-        h += 20.0;
+        h += 22.0;
     }
     if (post.signerUser != nil) {
-        h += 20.0;
+        h += 22.0;
     }
     
-    h += 34.0; // Кнопки действий (лайк, комменты, репост)
+    h += 38.0; // Кнопки действий (лайк, комменты, репост)
     h += 8.0;  // Нижний отступ разделителя
     return h;
 }
@@ -665,7 +665,7 @@
         CGFloat photoCorner = isSkeuomorph ? 3.0 : (isFlat ? 2.0 : 6.0);
         
         if (photos.count == 1) {
-            CGFloat photoH = 260.0;
+            CGFloat photoH = 240.0;
             UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, contentW, photoH)];
             iv.contentMode = UIViewContentModeScaleAspectFill;
             iv.clipsToBounds = YES;
@@ -682,7 +682,7 @@
             }];
             [self.photosContainerView addSubview:iv];
             self.photosContainerView.frame = CGRectMake(0, currentY, contentW, photoH);
-            currentY += photoH + 8.0;
+            currentY += photoH + 10.0;
         } else if (photos.count == 2) {
             CGFloat halfW = (contentW - 4.0) / 2.0;
             for (NSInteger i = 0; i < 2; i++) {
@@ -702,7 +702,7 @@
                 [self.photosContainerView addSubview:iv];
             }
             self.photosContainerView.frame = CGRectMake(0, currentY, contentW, 170.0);
-            currentY += 178.0;
+            currentY += 170.0 + 10.0;
         } else if (photos.count == 3) {
             CGFloat leftW = floorf(contentW * 0.65);
             CGFloat rightW = contentW - leftW - 4.0;
@@ -730,7 +730,7 @@
                 [self.photosContainerView addSubview:iv];
             }
             self.photosContainerView.frame = CGRectMake(0, currentY, contentW, 170.0);
-            currentY += 178.0;
+            currentY += 170.0 + 10.0;
         } else {
             // 4 и более фото (сетка 2x2 или мозаика)
             CGFloat halfW = (contentW - 4.0) / 2.0;
@@ -766,7 +766,7 @@
                 }
             }
             self.photosContainerView.frame = CGRectMake(0, currentY, contentW, 260.0);
-            currentY += 268.0;
+            currentY += 260.0 + 10.0;
         }
     } else {
         self.photosContainerView.hidden = YES;
@@ -1371,7 +1371,7 @@
     }
     
     // Кнопки лайк / комменты / репост
-    self.actionsContainerView.frame = CGRectMake(12.0, currentY, contentW, 28);
+    self.actionsContainerView.frame = CGRectMake(12.0, currentY + 4.0, contentW, 30.0);
     
     UIColor *defIconColor = isSkeuomorph ? [UIColor colorWithRed:100.0/255.0 green:110.0/255.0 blue:125.0/255.0 alpha:1.0] : [UIColor colorWithRed:130.0/255.0 green:140.0/255.0 blue:155.0/255.0 alpha:1.0];
     UIColor *likeIconColor = post.isLiked ? (isSkeuomorph ? [UIColor colorWithRed:215.0/255.0 green:35.0/255.0 blue:55.0/255.0 alpha:1.0] : [UIColor colorWithRed:235.0/255.0 green:45.0/255.0 blue:70.0/255.0 alpha:1.0]) : defIconColor;
