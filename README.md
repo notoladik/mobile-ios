@@ -1,31 +1,96 @@
-# OpenVK for iOS
+# 📱 OpenVK Legacy for iOS
 
-Author: [Nika Falaleeva](https://github.com/nikanikoo)
+<p align="center">
+  <img src="Resources/logo.png" width="128" height="128" alt="OpenVK Logo" />
+  <br>
+  <b>Аутентичный нативный клиент OpenVK для ретро и современных устройств Apple</b>
+  <br>
+  <i>iOS 6.0 — iOS 18+ • armv7 • armv7s • arm64</i>
+</p>
 
-Native mobile client for iOS built with SwiftUI.\
-_Powered by OpenVK API. iOS 15.0+ supported._
+---
 
-We will be happy to accept your bugreports [in our bug-tracker](https://github.com/openvk/mobile-android-legacy/projects/1).
+## 🌟 Особенности
 
-> [!WARNING]
-> OpenVK it is fan project, not affiliated in any way with VKontakte and it's company VK LLC. Below is the same message in Russian. \
-> OpenVK является любительской разработкой и никак не связан с ВКонтакте и компанией ООО "ВК".
+* 🎨 **3 эпохи дизайна в одном приложении:**
+  * **iOS 6 Скевоморфизм**: Текстуры льна, глянцевые тиснёные кнопки с градиентами, полосатый фон и легендарные синие топбары.
+  * **iOS 7 Classic Flat**: Лаконичный плоский стиль времён расцвета VK App 2.0.
+  * **Modern Flat**: Современная чистая эстетика.
+* 🌌 **MilkDrop 2 (projectM 4.x) Визуализатор:**
+  * Встроенный аппаратный 3D-движок рендеринга легендарных визуализаций Winamp MilkDrop 2 на **OpenGL ES 2.0 / 3.0**.
+  * **55–60 FPS** на реальном железе (Apple A6 / A7 / A8 / A9+).
+  * **Управление жестами**: свайпы для переключения пресетов, одиночный тап для случайного пресета, двойной тап для телеметрии и FPS.
+  * **Shuffle Mode & Авто-ротация**: автоматическая смена пресетов каждые 20 секунд во время воспроизведения музыки.
+  * **Динамический PCM-синтезатор**: бит-детектор заставляет визуальные волны пульсировать под ритм трека.
+* 🎵 **Полноценный Аудиоплеер OpenVK:**
+  * Стриминг аудиозаписей в формате MP3.
+  * Работа с **Альбомами** и **Плейлистами** (`audio.getAlbums`, `audio.get`).
+  * Вкладки: **«Мои»**, **«Альбомы»**, **«Популярное»**, **«Рекомендации»**.
+  * Глобальный серверный поиск по музыкальной базе OpenVK (`audio.search`).
+  * Бесконечная пагинация треков (Infinite Scrolling).
+  * Поддержка обложек треков и альбомов из ID3/APIC и вложенных структур OpenVK.
+  * Свайп для быстрого удаления трека из медиатеки.
+  * Трансляция текущего трека в статус профиля (`audio.setBroadcast`).
+* 📰 **Продвинутая Лента новостей и Стена:**
+  * Сворачивание и разворачивание длинных постов («Показать полностью...» / «Свернуть»).
+  * Фото-сетки до 10 фотографий в посте с полноэкранной галереей.
+  * Поддержка всех типов вложений: видеозаписи, аудио, опросы с голосованием, документы, гифки, внешние ссылки.
+  * Скрытие и раскрытие контента под спойлером (`isExplicit`).
+  * Полная поддержка репостов с цитированием автора.
+* 💬 **Сообщения и Диалоги:**
+  * Real-time чат с поддержкой LongPoll.
+  * Список диалогов, стикеры, вложения и фото.
+* 👤 **Профили, Группы и Поиск:**
+  * Просмотр профилей пользователей, статусов, счётчиков друзей/подписчиков.
+  * Стена группы, вступление/выход из сообществ.
+  * Боковое меню навигации (Sidebar).
 
-## Download IPA
-* **via [Releases](https://github.com/OpenVK/mobile-ios/releases/)**
-* **via [Telegram channel](https://t.me/+HzmLz9DgNY5iNjIy)**
+---
 
-## Building
-You can build your app from source in Xcode 26.3+.
+## 🛠 Сборка проекта (Theos)
 
-## Used Libraries
-The rest of the project is built on native Apple frameworks (SwiftUI, UIKit, Combine, AVFoundation and others) with no third-party dependencies.
+Проект собирается с помощью кроссплатформенного тулчейна **Theos** под архитектуры `armv7`, `armv7s`, `arm64`.
 
-1. [VLCKit](https://code.videolan.org/videolan/VLCKit) (LGPL 2.1+) — video playback
+### 1. Требования:
+* Установленный **Theos** (в macOS, Linux, WSL или непосредственно на iOS-устройстве).
+* iOS SDK (рекомендуется iPhoneOS 9.3 — 14.5+ SDK для Theos).
 
-## OpenVK Refresh License
-[GNU (Affero) GPL v3.0](https://github.com/openvk/mobile-ios/blob/main/COPYING) or later version.
+### 2. Сборка с визуализатором MilkDrop 2 (по умолчанию):
+```bash
+make -j2 ipa FINALPACKAGE=1
+```
 
-## Links
-[OpenVK API docs](https://openvk.org/dev)\
-[OpenVK Mobile](https://openvk.org/app)
+> [!TIP]
+> При сборке в средах с ограниченной оперативной памятью (например, WSL / виртуальные машины) флаг `-j2` обеспечивает стабильную компиляцию C++ движка `libprojectM` без нехватки памяти.
+
+### 3. Быстрая облегченная сборка БЕЗ визуализатора:
+Если вам нужен максимально легкий бинарник или быстрая сборка за **5 секунд**:
+```bash
+make -j2 ipa FINALPACKAGE=1 ENABLE_VISUALIZER=0
+```
+
+Готовый файл **`OpenVK-Legacy.ipa`** появится в корневой директории проекта.
+
+---
+
+## 📱 Совместимость
+
+| Архитектура | Устройства | Версии iOS |
+|---|---|---|
+| **armv7** | iPhone 3GS, iPhone 4, iPhone 4s, iPod touch 3/4/5, iPad 1/2/3, iPad mini 1 | iOS 6.0 — 9.3.6 |
+| **armv7s** | iPhone 5, iPhone 5c, iPad 4 | iOS 6.0 — 10.3.4 |
+| **arm64** | iPhone 5s, iPhone 6, iPhone 6s, SE, 7, 8, X, 11, 12, 13, 14, 15, 16+ | iOS 7.0 — 18.x |
+
+---
+
+## 📚 Используемые компоненты и благодарности
+
+* [OpenVK](https://github.com/openvk/openvk) — свободная платформа социальной сети.
+* [projectM](https://github.com/projectM-visualizer/projectm) (LGPL v2.1+) — легендарный движок музыкальной визуализации MilkDrop 2.
+* [Theos](https://github.com/theos/theos) — кросс-компиляторная среда сборки для iOS.
+
+---
+
+## 📄 Лицензия
+
+Проект распространяется под свободной лицензией **GNU GPL v3.0**.
