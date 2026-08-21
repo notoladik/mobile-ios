@@ -30,18 +30,18 @@
 
 - (void)setupMenuItems {
     self.menuItems = @[
-        @{@"title": @"Моя страница", @"icon": @"👤", @"badge": @""},
-        @{@"title": @"Новости", @"icon": @"📰", @"badge": @""},
-        @{@"title": @"Ответы", @"icon": @"💬", @"badge": @"notifications"},
-        @{@"title": @"Сообщения", @"icon": @"✉️", @"badge": @"messages"},
-        @{@"title": @"Друзья", @"icon": @"👥", @"badge": @"friends"},
-        @{@"title": @"Группы", @"icon": @"👥", @"badge": @""},
-        @{@"title": @"Фотографии", @"icon": @"🖼", @"badge": @""},
-        @{@"title": @"Видеозаписи", @"icon": @"🎬", @"badge": @""},
-        @{@"title": @"Аудиозаписи", @"icon": @"🎵", @"badge": @""},
-        @{@"title": @"Заметки", @"icon": @"📝", @"badge": @""},
-        @{@"title": @"Поиск", @"icon": @"🔍", @"badge": @""},
-        @{@"title": @"Настройки", @"icon": @"⚙️", @"badge": @""}
+        @{@"title": @"Моя страница", @"image": @"7_user_placeholder", @"badge": @""},
+        @{@"title": @"Новости", @"image": @"7_left_news", @"badge": @""},
+        @{@"title": @"Ответы", @"image": @"7_left_answers", @"badge": @"notifications"},
+        @{@"title": @"Сообщения", @"image": @"7_left_messages", @"badge": @"messages"},
+        @{@"title": @"Друзья", @"image": @"7_left_friends", @"badge": @"friends"},
+        @{@"title": @"Группы", @"image": @"7_left_groups", @"badge": @""},
+        @{@"title": @"Фотографии", @"image": @"7_left_photos", @"badge": @""},
+        @{@"title": @"Видеозаписи", @"image": @"7_left_videos", @"badge": @""},
+        @{@"title": @"Аудиозаписи", @"image": @"7_left_audio", @"badge": @""},
+        @{@"title": @"Закладки", @"image": @"7_left_bookmarks", @"badge": @""},
+        @{@"title": @"Поиск", @"image": @"7_main_menu_search_icon", @"badge": @""},
+        @{@"title": @"Настройки", @"image": @"7_left_settings", @"badge": @""}
     ];
 }
 
@@ -162,12 +162,20 @@
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:CellId];
         cell.backgroundColor = [UIColor clearColor];
-        cell.textLabel.font = [UIFont boldSystemFontOfSize:15];
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
         cell.detailTextLabel.font = [UIFont boldSystemFontOfSize:12];
+        cell.imageView.contentMode = UIViewContentModeCenter;
     }
     
     NSDictionary *item = self.menuItems[indexPath.row];
-    cell.textLabel.text = [NSString stringWithFormat:@"%@   %@", item[@"icon"], item[@"title"]];
+    cell.textLabel.text = item[@"title"];
+    
+    NSString *imageName = item[@"image"];
+    if (imageName.length > 0) {
+        cell.imageView.image = [UIImage imageNamed:imageName];
+    } else {
+        cell.imageView.image = nil;
+    }
     
     BOOL isModern = [[VKThemeManager sharedManager] isModern];
     if (isModern) {

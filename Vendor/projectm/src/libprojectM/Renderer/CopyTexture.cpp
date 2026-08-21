@@ -30,7 +30,7 @@ uniform sampler2D texture_sampler;
 
 void main() {
     vec4 col = texture2D(texture_sampler, fragment_tex_coord);
-    gl_FragColor = vec4(col.rgb, 1.0);
+    gl_FragColor = vec4(1.0, 0.0, 1.0, 1.0); // MAGENTA TEST
 }
 )";
 #else

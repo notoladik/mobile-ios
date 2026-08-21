@@ -470,6 +470,9 @@
             cell = [[VKFeedPostCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:PostCellId];
         }
         [cell configureWithPost:self.post isRevealed:YES];
+        cell.onLikeTapped = ^(VKPost *p) {
+            [[VKFeedService sharedService] likePost:p completion:nil];
+        };
         
         __weak typeof(self) weakSelf = self;
         cell.onPhotosGalleryTapped = ^(NSArray<NSString *> *photoURLs, NSInteger initialIndex) {

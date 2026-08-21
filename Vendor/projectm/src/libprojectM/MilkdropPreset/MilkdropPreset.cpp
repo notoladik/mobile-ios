@@ -155,14 +155,7 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
     m_framebuffer.BindRead(m_currentFrameBuffer);
     m_framebuffer.BindDraw(m_previousFrameBuffer);
 
-    // DIAGNOSTIC: fill previous FBO with bright blue so we can see if composite shader renders over it
-    m_framebuffer.Bind(m_previousFrameBuffer);
-    glViewport(0, 0, renderContext.viewportSizeX, renderContext.viewportSizeY);
-    glClearColor(0.0f, 1.0f, 0.0f, 1.0f);  // GREEN instead of draw call
-    glClear(GL_COLOR_BUFFER_BIT);
-    // No composite draw — just green to test if CopyTexture can show non-black
-
-    //m_finalComposite.Draw(m_state, m_perFrameContext);
+    m_finalComposite.Draw(m_state, m_perFrameContext);
 
     if (!m_finalComposite.HasCompositeShader())
     {

@@ -67,15 +67,24 @@
     }
     
     // 1. Navigation Bar
+    // 1. Navigation Bar
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:(isFlat ? @"Готово" : @"Закрыть")
                                                                              style:UIBarButtonItemStylePlain
                                                                             target:self
                                                                             action:@selector(closeAction)];
     
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"☰"
-                                                                              style:UIBarButtonItemStylePlain
-                                                                             target:self
-                                                                             action:@selector(playlistAction)];
+    UIImage *playlistImg = [UIImage imageNamed:@"7_audioplayer_playlist"];
+    if (playlistImg) {
+        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithImage:playlistImg
+                                                                                  style:UIBarButtonItemStylePlain
+                                                                                 target:self
+                                                                                 action:@selector(playlistAction)];
+    } else {
+        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"☰"
+                                                                                  style:UIBarButtonItemStylePlain
+                                                                                 target:self
+                                                                                 action:@selector(playlistAction)];
+    }
     
     // 2. Контейнер обложки / Визуализатора
     self.coverContainerView = [[UIView alloc] initWithFrame:CGRectZero];
@@ -129,6 +138,10 @@
     self.progressSlider.minimumValue = 0.0;
     self.progressSlider.maximumValue = 1.0;
     self.progressSlider.tintColor = [UIColor colorWithRed:230.0/255.0 green:70.0/255.0 blue:80.0/255.0 alpha:1.0];
+    UIImage *thumbImg = [UIImage imageNamed:@"7_audioplayer_thumb"] ?: [UIImage imageNamed:@"AudioPlayer_TimeControl"];
+    if (thumbImg) {
+        [self.progressSlider setThumbImage:thumbImg forState:UIControlStateNormal];
+    }
     [self.progressSlider addTarget:self action:@selector(sliderTouchDown) forControlEvents:UIControlEventTouchDown];
     [self.progressSlider addTarget:self action:@selector(sliderValueChanged:) forControlEvents:UIControlEventValueChanged];
     [self.progressSlider addTarget:self action:@selector(sliderTouchUp) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside];
@@ -136,52 +149,52 @@
     
     // 4. Панель из 4 кнопок (Повтор, Добавить, Статус, Перемешать)
     self.repeatButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    [self.repeatButton setTitle:@"🔁" forState:UIControlStateNormal];
-    self.repeatButton.titleLabel.font = [UIFont systemFontOfSize:18];
-    [self.repeatButton setTitleColor:[UIColor colorWithWhite:0.3 alpha:1.0] forState:UIControlStateNormal];
+    UIImage *repImg = [UIImage imageNamed:@"7_audioplayer_repeat"];
+    if (repImg) [self.repeatButton setImage:repImg forState:UIControlStateNormal];
+    else [self.repeatButton setTitle:@"🔁" forState:UIControlStateNormal];
     [self.repeatButton addTarget:self action:@selector(toggleRepeatAction) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.repeatButton];
     
     self.addButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    [self.addButton setTitle:@"+" forState:UIControlStateNormal];
-    self.addButton.titleLabel.font = [UIFont boldSystemFontOfSize:24];
-    [self.addButton setTitleColor:[UIColor colorWithWhite:0.3 alpha:1.0] forState:UIControlStateNormal];
+    UIImage *addImg = [UIImage imageNamed:@"7_audioplayer_add"];
+    if (addImg) [self.addButton setImage:addImg forState:UIControlStateNormal];
+    else [self.addButton setTitle:@"+" forState:UIControlStateNormal];
     [self.addButton addTarget:self action:@selector(addToMyAudiosAction) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.addButton];
     
     self.shareButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    [self.shareButton setTitle:@"📢" forState:UIControlStateNormal];
-    self.shareButton.titleLabel.font = [UIFont systemFontOfSize:19];
-    [self.shareButton setTitleColor:[UIColor colorWithWhite:0.3 alpha:1.0] forState:UIControlStateNormal];
+    UIImage *hornImg = [UIImage imageNamed:@"7_audioplayer_horn"];
+    if (hornImg) [self.shareButton setImage:hornImg forState:UIControlStateNormal];
+    else [self.shareButton setTitle:@"📢" forState:UIControlStateNormal];
     [self.shareButton addTarget:self action:@selector(shareAction) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.shareButton];
     
     self.shuffleButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    [self.shuffleButton setTitle:@"🔀" forState:UIControlStateNormal];
-    self.shuffleButton.titleLabel.font = [UIFont systemFontOfSize:18];
-    [self.shuffleButton setTitleColor:[UIColor colorWithWhite:0.3 alpha:1.0] forState:UIControlStateNormal];
+    UIImage *shufImg = [UIImage imageNamed:@"7_audioplayer_shuffle"];
+    if (shufImg) [self.shuffleButton setImage:shufImg forState:UIControlStateNormal];
+    else [self.shuffleButton setTitle:@"🔀" forState:UIControlStateNormal];
     [self.shuffleButton addTarget:self action:@selector(toggleShuffleAction) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.shuffleButton];
     
     // 5. Главные кнопки воспроизведения (◀◀, ❚❚/▶, ▶▶)
     self.prevButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    [self.prevButton setTitle:@"◀◀" forState:UIControlStateNormal];
-    self.prevButton.titleLabel.font = [UIFont boldSystemFontOfSize:22];
-    [self.prevButton setTitleColor:[UIColor colorWithWhite:0.15 alpha:1.0] forState:UIControlStateNormal];
+    UIImage *prevImg = [UIImage imageNamed:@"7_audioplayer_previous"];
+    if (prevImg) [self.prevButton setImage:prevImg forState:UIControlStateNormal];
+    else [self.prevButton setTitle:@"◀◀" forState:UIControlStateNormal];
     [self.prevButton addTarget:self action:@selector(prevAction) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.prevButton];
     
     self.playPauseButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    [self.playPauseButton setTitle:@"❚❚" forState:UIControlStateNormal];
-    self.playPauseButton.titleLabel.font = [UIFont boldSystemFontOfSize:26];
-    [self.playPauseButton setTitleColor:[UIColor colorWithWhite:0.1 alpha:1.0] forState:UIControlStateNormal];
+    UIImage *playImg = [UIImage imageNamed:@"7_audioplayer_play"];
+    if (playImg) [self.playPauseButton setImage:playImg forState:UIControlStateNormal];
+    else [self.playPauseButton setTitle:@"▶" forState:UIControlStateNormal];
     [self.playPauseButton addTarget:self action:@selector(playPauseAction) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.playPauseButton];
     
     self.nextButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    [self.nextButton setTitle:@"▶▶" forState:UIControlStateNormal];
-    self.nextButton.titleLabel.font = [UIFont boldSystemFontOfSize:22];
-    [self.nextButton setTitleColor:[UIColor colorWithWhite:0.15 alpha:1.0] forState:UIControlStateNormal];
+    UIImage *nextImg = [UIImage imageNamed:@"7_audioplayer_next"];
+    if (nextImg) [self.nextButton setImage:nextImg forState:UIControlStateNormal];
+    else [self.nextButton setTitle:@"▶▶" forState:UIControlStateNormal];
     [self.nextButton addTarget:self action:@selector(nextAction) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.nextButton];
     
@@ -361,8 +374,14 @@
     }
     
     BOOL isPlaying = [VKAudioPlayer sharedPlayer].isPlaying;
-    [self.playPauseButton setTitle:isPlaying ? @"❚❚" : @"▶" forState:UIControlStateNormal];
-    self.playPauseButton.titleLabel.font = [UIFont boldSystemFontOfSize:isPlaying ? 24 : 32];
+    UIImage *playPauseImg = [UIImage imageNamed:(isPlaying ? @"7_audioplayer_pause" : @"7_audioplayer_play")];
+    if (playPauseImg) {
+        [self.playPauseButton setImage:playPauseImg forState:UIControlStateNormal];
+        [self.playPauseButton setTitle:@"" forState:UIControlStateNormal];
+    } else {
+        [self.playPauseButton setTitle:isPlaying ? @"❚❚" : @"▶" forState:UIControlStateNormal];
+        self.playPauseButton.titleLabel.font = [UIFont boldSystemFontOfSize:isPlaying ? 24 : 32];
+    }
     
 #if ENABLE_MILKDROP_VISUALIZER
     self.visualizerView.isPlaying = isPlaying;
@@ -392,20 +411,27 @@
 - (void)updateButtonsStyle {
     // 1. Повтор
     NSInteger repeatMode = [VKAudioPlayer sharedPlayer].repeatMode;
+    UIImage *repSetImg = [UIImage imageNamed:@"7_audioplayer_repeat_set"];
+    UIImage *repNormImg = [UIImage imageNamed:@"7_audioplayer_repeat"];
     if (repeatMode == 0) {
-        [self.repeatButton setTitle:@"🔁" forState:UIControlStateNormal];
+        if (repNormImg) [self.repeatButton setImage:repNormImg forState:UIControlStateNormal];
         self.repeatButton.alpha = 0.45;
-    } else if (repeatMode == 1) {
-        [self.repeatButton setTitle:@"🔁" forState:UIControlStateNormal];
-        self.repeatButton.alpha = 1.0;
     } else {
-        [self.repeatButton setTitle:@"🔂" forState:UIControlStateNormal];
+        if (repSetImg) [self.repeatButton setImage:repSetImg forState:UIControlStateNormal];
         self.repeatButton.alpha = 1.0;
     }
     
     // 2. Перемешать
     BOOL isShuffle = [VKAudioPlayer sharedPlayer].isShuffleEnabled;
-    self.shuffleButton.alpha = isShuffle ? 1.0 : 0.45;
+    UIImage *shufSetImg = [UIImage imageNamed:@"7_audioplayer_shuffle_set"];
+    UIImage *shufNormImg = [UIImage imageNamed:@"7_audioplayer_shuffle"];
+    if (isShuffle) {
+        if (shufSetImg) [self.shuffleButton setImage:shufSetImg forState:UIControlStateNormal];
+        self.shuffleButton.alpha = 1.0;
+    } else {
+        if (shufNormImg) [self.shuffleButton setImage:shufNormImg forState:UIControlStateNormal];
+        self.shuffleButton.alpha = 0.45;
+    }
 }
 
 - (void)updateProgress {

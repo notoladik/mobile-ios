@@ -248,11 +248,7 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     
     __weak typeof(self) weakSelf = self;
     cell.onLikeTapped = ^(VKPost *p) {
-        [[VKFeedService sharedService] likePost:p completion:^(VKPost *updatedPost, NSError *error) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [weakSelf.tableView reloadData];
-            });
-        }];
+        [[VKFeedService sharedService] likePost:p completion:nil];
     };
     
     cell.onCommentTapped = ^(VKPost *p) {

@@ -366,9 +366,14 @@
             UIButton *infoButton = [UIButton buttonWithType:UIButtonTypeCustom];
             infoButton.frame = CGRectMake(cell.contentView.bounds.size.width - 44, 24, 30, 30);
             infoButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-            [infoButton setTitle:@"ⓘ" forState:UIControlStateNormal];
-            [infoButton setTitleColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] forState:UIControlStateNormal];
-            infoButton.titleLabel.font = [UIFont systemFontOfSize:22];
+            UIImage *infoImg = [UIImage imageNamed:@"7_profile_info"];
+            if (infoImg) {
+                [infoButton setImage:infoImg forState:UIControlStateNormal];
+            } else {
+                [infoButton setTitle:@"ⓘ" forState:UIControlStateNormal];
+                [infoButton setTitleColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+                infoButton.titleLabel.font = [UIFont systemFontOfSize:22];
+            }
             [infoButton addTarget:self action:@selector(showDetailsAction) forControlEvents:UIControlEventTouchUpInside];
             infoButton.tag = 605;
             [cell.contentView addSubview:infoButton];
@@ -508,13 +513,25 @@
             [actionsBar addSubview:joinBtn];
         } else {
             CGFloat actW = cell.contentView.bounds.size.width / 3.0;
-            NSArray *acts = @[@"Запись", @"Фото", @"Место"];
+            NSArray *acts = @[
+                @{@"title": @"Запись", @"image": @"7_profile_post_text"},
+                @{@"title": @"Фото", @"image": @"7_profile_post_photo"},
+                @{@"title": @"Место", @"image": @"7_profile_post_place"}
+            ];
             for (NSInteger i = 0; i < 3; i++) {
                 UIButton *actBtn = [UIButton buttonWithType:UIButtonTypeCustom];
                 actBtn.frame = CGRectMake(i * actW, 0, actW, 44);
-                [actBtn setTitle:acts[i] forState:UIControlStateNormal];
+                [actBtn setTitle:acts[i][@"title"] forState:UIControlStateNormal];
                 [actBtn setTitleColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] forState:UIControlStateNormal];
                 actBtn.titleLabel.font = [UIFont systemFontOfSize:14];
+                
+                UIImage *img = [UIImage imageNamed:acts[i][@"image"]];
+                if (img) {
+                    [actBtn setImage:img forState:UIControlStateNormal];
+                    actBtn.imageEdgeInsets = UIEdgeInsetsMake(0, 0, 0, 6);
+                    actBtn.titleEdgeInsets = UIEdgeInsetsMake(0, 6, 0, 0);
+                }
+                
                 if (i == 0) [actBtn addTarget:self action:@selector(newPostAction) forControlEvents:UIControlEventTouchUpInside];
                 [actionsBar addSubview:actBtn];
                 
@@ -538,13 +555,8 @@
             VKPost *post = self.wallPosts[indexPath.row];
             [cell configureWithPost:post isRevealed:YES];
             
-            __weak typeof(self) weakSelf = self;
             cell.onLikeTapped = ^(VKPost *p) {
-                [[VKFeedService sharedService] likePost:p completion:^(VKPost *updatedPost, NSError *error) {
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        [weakSelf.tableView reloadData];
-                    });
-                }];
+                [[VKFeedService sharedService] likePost:p completion:nil];
             };
             cell.onCommentTapped = ^(VKPost *p) {
                 VKPostDetailViewController *detailVC = [[VKPostDetailViewController alloc] initWithPost:p];

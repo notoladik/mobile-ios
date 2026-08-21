@@ -265,28 +265,29 @@
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
         cell.backgroundColor = [UIColor clearColor];
         
-        UIView *bubble = [[UIView alloc] initWithFrame:CGRectZero];
+        UIImageView *bubble = [[UIImageView alloc] initWithFrame:CGRectZero];
         bubble.tag = 1001;
-        bubble.layer.cornerRadius = 14.0;
-        bubble.clipsToBounds = YES;
+        bubble.userInteractionEnabled = YES;
         [cell.contentView addSubview:bubble];
         
         UILabel *textLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         textLabel.tag = 1002;
         textLabel.font = [UIFont systemFontOfSize:15];
         textLabel.numberOfLines = 0;
+        textLabel.backgroundColor = [UIColor clearColor];
         [bubble addSubview:textLabel];
         
         UILabel *timeLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         timeLabel.tag = 1003;
         timeLabel.font = [UIFont systemFontOfSize:10];
+        timeLabel.backgroundColor = [UIColor clearColor];
         [bubble addSubview:timeLabel];
     }
     
     if (indexPath.row >= (NSInteger)self.messages.count) return cell;
     
     VKMessage *msg = self.messages[indexPath.row];
-    UIView *bubble = [cell.contentView viewWithTag:1001];
+    UIImageView *bubble = (UIImageView *)[cell.contentView viewWithTag:1001];
     UILabel *textLabel = (UILabel *)[bubble viewWithTag:1002];
     UILabel *timeLabel = (UILabel *)[bubble viewWithTag:1003];
     
@@ -295,39 +296,66 @@
     
     CGFloat width = tableView.bounds.size.width;
     CGSize size = [msg.text sizeWithFont:[UIFont systemFontOfSize:15] constrainedToSize:CGSizeMake(width - 100, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
-    CGFloat bubbleWidth = MAX(74.0, ceilf(size.width) + 24.0);
+    CGFloat bubbleWidth = MAX(80.0, ceilf(size.width) + 26.0);
     CGFloat bubbleHeight = ceilf(size.height) + 22.0;
     
     BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
     
     if (msg.isOutgoing) {
-        // Исходящие (зеленый / синий бабл справа)
-        bubble.frame = CGRectMake(width - bubbleWidth - 12.0, 4.0, bubbleWidth, bubbleHeight);
+        // Исходящие (справа)
+        bubble.frame = CGRectMake(width - bubbleWidth - 10.0, 3.0, bubbleWidth, bubbleHeight);
+        
         if (isSkeuomorph) {
-            // Зеленый глянцевый бабл в стиле iOS 6
-            bubble.backgroundColor = [UIColor colorWithRed:220.0/255.0 green:245.0/255.0 blue:220.0/255.0 alpha:1.0];
-            bubble.layer.borderWidth = 1.0;
-            bubble.layer.borderColor = [UIColor colorWithRed:160.0/255.0 green:210.0/255.0 blue:160.0/255.0 alpha:1.0].CGColor;
-            textLabel.textColor = [UIColor blackColor];
-            timeLabel.textColor = [UIColor colorWithRed:100.0/255.0 green:160.0/255.0 blue:100.0/255.0 alpha:1.0];
+            UIImage *blueImg = [UIImage imageNamed:@"Blue_Bubble"];
+            if (blueImg) {
+                bubble.image = [blueImg resizableImageWithCapInsets:UIEdgeInsetsMake(14, 14, 14, 20) resizingMode:UIImageResizingModeStretch];
+            } else {
+                bubble.backgroundColor = [UIColor colorWithRed:220.0/255.0 green:245.0/255.0 blue:220.0/255.0 alpha:1.0];
+                bubble.layer.cornerRadius = 12.0;
+            }
+            textLabel.textColor = [UIColor whiteColor];
+            timeLabel.textColor = [UIColor colorWithWhite:0.9 alpha:1.0];
         } else {
-            bubble.backgroundColor = [[VKThemeManager sharedManager] accentColor];
-            bubble.layer.borderWidth = 0.0;
+            UIImage *outImg = [UIImage imageNamed:@"7_messages_bubble_out"];
+            if (outImg) {
+                bubble.image = [outImg resizableImageWithCapInsets:UIEdgeInsetsMake(15, 15, 15, 20) resizingMode:UIImageResizingModeStretch];
+            } else {
+                bubble.backgroundColor = [[VKThemeManager sharedManager] accentColor];
+                bubble.layer.cornerRadius = 14.0;
+            }
             textLabel.textColor = [UIColor whiteColor];
             timeLabel.textColor = [UIColor colorWithWhite:0.85 alpha:1.0];
         }
+        textLabel.frame = CGRectMake(12, 6, ceilf(size.width), ceilf(size.height));
+        timeLabel.frame = CGRectMake(bubbleWidth - 44, bubbleHeight - 16, 34, 12);
     } else {
-        // Входящие (белый глянцевый бабл слева по скриншоту 2)
-        bubble.frame = CGRectMake(12.0, 4.0, bubbleWidth, bubbleHeight);
-        bubble.backgroundColor = [UIColor whiteColor];
-        bubble.layer.borderWidth = 1.0;
-        bubble.layer.borderColor = [UIColor colorWithRed:200.0/255.0 green:205.0/255.0 blue:215.0/255.0 alpha:1.0].CGColor;
-        textLabel.textColor = [UIColor blackColor];
-        timeLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+        // Входящие (слева)
+        bubble.frame = CGRectMake(10.0, 3.0, bubbleWidth, bubbleHeight);
+        
+        if (isSkeuomorph) {
+            UIImage *greyImg = [UIImage imageNamed:@"Grey_Bubble"];
+            if (greyImg) {
+                bubble.image = [greyImg resizableImageWithCapInsets:UIEdgeInsetsMake(14, 20, 14, 14) resizingMode:UIImageResizingModeStretch];
+            } else {
+                bubble.backgroundColor = [UIColor whiteColor];
+                bubble.layer.cornerRadius = 12.0;
+            }
+            textLabel.textColor = [UIColor blackColor];
+            timeLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+        } else {
+            UIImage *incImg = [UIImage imageNamed:@"7_messages_bubble_inc"];
+            if (incImg) {
+                bubble.image = [incImg resizableImageWithCapInsets:UIEdgeInsetsMake(15, 20, 15, 15) resizingMode:UIImageResizingModeStretch];
+            } else {
+                bubble.backgroundColor = [UIColor whiteColor];
+                bubble.layer.cornerRadius = 14.0;
+            }
+            textLabel.textColor = [UIColor blackColor];
+            timeLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+        }
+        textLabel.frame = CGRectMake(16, 6, ceilf(size.width), ceilf(size.height));
+        timeLabel.frame = CGRectMake(bubbleWidth - 40, bubbleHeight - 16, 34, 12);
     }
-    
-    textLabel.frame = CGRectMake(10, 6, ceilf(size.width), ceilf(size.height));
-    timeLabel.frame = CGRectMake(bubbleWidth - 40, bubbleHeight - 16, 34, 12);
     
     return cell;
 }

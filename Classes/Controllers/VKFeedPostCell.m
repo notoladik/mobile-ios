@@ -213,16 +213,41 @@
     }
 }
 
+- (void)updateLikeButtonUI {
+    if (!self.currentPost) return;
+    
+    BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
+    UIColor *defIconColor = isSkeuomorph ? [UIColor colorWithRed:100.0/255.0 green:110.0/255.0 blue:125.0/255.0 alpha:1.0] : [UIColor colorWithRed:130.0/255.0 green:140.0/255.0 blue:155.0/255.0 alpha:1.0];
+    UIColor *likeIconColor = self.currentPost.isLiked ? (isSkeuomorph ? [UIColor colorWithRed:215.0/255.0 green:35.0/255.0 blue:55.0/255.0 alpha:1.0] : [UIColor colorWithRed:235.0/255.0 green:45.0/255.0 blue:70.0/255.0 alpha:1.0]) : defIconColor;
+    
+    NSString *likeText = [NSString stringWithFormat:@"%ld", (long)self.currentPost.likesCount];
+    [self.likeButton setImage:[[VKThemeManager sharedManager] reactionHeartIconWithColor:likeIconColor filled:self.currentPost.isLiked] forState:UIControlStateNormal];
+    [self.likeButton setTitle:likeText forState:UIControlStateNormal];
+    [self.likeButton setTitleColor:likeIconColor forState:UIControlStateNormal];
+}
+
 - (void)likeTapped {
+    if (self.currentPost) {
+        // Оптимистичное мгновенное переключение без перезагрузки всей таблицы
+        self.currentPost.isLiked = !self.currentPost.isLiked;
+        if (self.currentPost.isLiked) {
+            self.currentPost.likesCount += 1;
+        } else {
+            self.currentPost.likesCount = MAX(0, self.currentPost.likesCount - 1);
+        }
+        [self updateLikeButtonUI];
+    }
+    
     if (self.likeButton) {
         [UIView animateWithDuration:0.1 animations:^{
-            self.likeButton.transform = CGAffineTransformMakeScale(1.15, 1.15);
+            self.likeButton.transform = CGAffineTransformMakeScale(1.2, 1.2);
         } completion:^(BOOL finished) {
             [UIView animateWithDuration:0.12 animations:^{
                 self.likeButton.transform = CGAffineTransformIdentity;
             }];
         }];
     }
+    
     if (self.onLikeTapped && self.currentPost) {
         self.onLikeTapped(self.currentPost);
     }
