@@ -1,7 +1,9 @@
 #import "VKAudioPlayerViewController.h"
 #import "VKAudioPlayer.h"
 #import "VKAudioService.h"
+#if ENABLE_MILKDROP_VISUALIZER
 #import "VKProjectMGLView.h"
+#endif
 #import "VKImageLoader.h"
 #import "VKThemeManager.h"
 #import <MediaPlayer/MediaPlayer.h>
@@ -10,7 +12,9 @@
 @property (nonatomic, strong) UIView *coverContainerView;
 @property (nonatomic, strong) UILabel *notePlaceholderLabel;
 @property (nonatomic, strong) UIImageView *coverImageView;
+#if ENABLE_MILKDROP_VISUALIZER
 @property (nonatomic, strong) VKProjectMGLView *visualizerView;
+#endif
 
 @property (nonatomic, strong) UISlider *progressSlider;
 @property (nonatomic, strong) UILabel *timeElapsedLabel;
@@ -230,7 +234,9 @@
     self.coverContainerView.frame = CGRectMake(coverX, coverY, coverSize, coverSize);
     self.notePlaceholderLabel.frame = self.coverContainerView.bounds;
     self.coverImageView.frame = self.coverContainerView.bounds;
+#if ENABLE_MILKDROP_VISUALIZER
     self.visualizerView.frame = self.coverContainerView.bounds;
+#endif
     
     // 2. Таймлайн прогресса
     CGFloat sliderY = coverY + coverSize + 14.0;
