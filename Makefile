@@ -52,8 +52,8 @@ PROJECTM_FILES = $(wildcard Vendor/projectm/src/libprojectM/*.cpp) \
 
 OpenVK_FILES = $(wildcard Classes/*.m) $(wildcard Classes/Controllers/*.m) $(wildcard Classes/Models/*.m) $(wildcard Classes/Services/*.m) $(wildcard Classes/Milkdrop/*.cpp) $(wildcard Classes/Milkdrop/*.mm) $(PROJECTM_FILES)
 OpenVK_FRAMEWORKS = UIKit Foundation CoreGraphics QuartzCore Security SystemConfiguration MediaPlayer AVFoundation OpenGLES
-OpenVK_CFLAGS = -fobjc-arc -IClasses -IClasses/Controllers -IClasses/Models -IClasses/Services -IClasses/Milkdrop $(PROJECTM_INCLUDES) $(VISUALIZER_CFLAGS) -DSTBI_NO_THREAD_LOCALS=1 -Wno-deprecated-declarations -Wno-enum-conversion -Wno-unused-variable -Wno-unused-function -Wno-unused-private-field -Wno-error
-OpenVK_CXXFLAGS = -std=c++17 -stdlib=libc++ -faligned-allocation -IClasses -IClasses/Milkdrop $(PROJECTM_INCLUDES) $(VISUALIZER_CFLAGS) -DSTBI_NO_THREAD_LOCALS=1 -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-function -Wno-unused-private-field -Wno-error
+OpenVK_CFLAGS = -fobjc-arc -IClasses -IClasses/Controllers -IClasses/Models -IClasses/Services -IClasses/Milkdrop $(PROJECTM_INCLUDES) $(VISUALIZER_CFLAGS) -DUSE_GLES=1 -DUSE_GLES2=1 -DSTBI_NO_THREAD_LOCALS=1 -Wno-deprecated-declarations -Wno-enum-conversion -Wno-unused-variable -Wno-unused-function -Wno-unused-private-field -Wno-error
+OpenVK_CXXFLAGS = -std=c++17 -stdlib=libc++ -faligned-allocation -IClasses -IClasses/Milkdrop $(PROJECTM_INCLUDES) $(VISUALIZER_CFLAGS) -DUSE_GLES=1 -DUSE_GLES2=1 -DSTBI_NO_THREAD_LOCALS=1 -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-function -Wno-unused-private-field -Wno-error
 OpenVK_CCFLAGS = $(OpenVK_CXXFLAGS)
 OpenVK_LDFLAGS = -lc++
 OpenVK_CODESIGN_FLAGS = -Sentitlements.plist

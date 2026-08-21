@@ -131,18 +131,29 @@ void operator delete(void* ptr, std::size_t size, std::align_val_t alignment) no
     glGetRenderbufferParameteriv(GL_RENDERBUFFER, GL_RENDERBUFFER_HEIGHT, &_backingHeight);
 }
 
+static void projectMLogCallback(const char* message, projectm_log_level log_level, void* user_data) {
+    if (log_level <= PROJECTM_LOG_WARN) {
+        NSLog(@"[libprojectM] %s", message);
+    }
+}
+
 - (void)initProjectM {
     if (_pm) return;
     if (!_context) return;
     if ([EAGLContext currentContext] != _context) {
         [EAGLContext setCurrentContext:_context];
     }
+    
+    projectm_set_log_level(PROJECTM_LOG_DEBUG, false);
+    projectm_set_log_callback(projectMLogCallback, false, nullptr);
+    
     _pm = projectm_create();
     NSLog(@"[VKProjectMGLView] projectm_create -> %p (w=%d, h=%d)", _pm, _backingWidth, _backingHeight);
     if (_pm) {
         projectm_set_window_size(_pm, (size_t)MAX(64, _backingWidth), (size_t)MAX(64, _backingHeight));
         projectm_set_fps(_pm, 60);
         projectm_set_mesh_size(_pm, 24, 18);
+        projectm_set_aspect_correction(_pm, false);
     }
 }
 
@@ -372,13 +383,16 @@ static const char* kDefaultMilkdropPreset =
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         
-        // Передача аудиоданных (PCM сэмплинг)
+        // Передача аудиоданных (PCM сэмплинг с гармониками)
         float dummyPCM[512];
         static float phase = 0.0f;
-        phase += 0.08f;
-        float amp = self.isPlaying ? 0.7f : 0.25f;
+        phase += 0.12f;
+        float amp = self.isPlaying ? 0.85f : 0.35f;
         for (int i = 0; i < 512; i++) {
-            dummyPCM[i] = (float)sin(phase + i * 0.06f) * amp;
+            float s1 = sinf(phase + i * 0.04f);
+            float s2 = sinf(phase * 2.3f + i * 0.08f) * 0.5f;
+            float s3 = sinf(phase * 0.7f + i * 0.02f) * 0.3f;
+            dummyPCM[i] = (s1 + s2 + s3) * amp;
         }
         projectm_pcm_add_float(_pm, dummyPCM, 512, PROJECTM_STEREO);
         
