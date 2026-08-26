@@ -127,8 +127,12 @@
     </dict>
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <false/>
-    <key>UIStatusBarStyle</key>
-    <string>UIStatusBarStyleLightContent</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Приложению требуется доступ к фотопленке для сохранения и загрузки фотографий.</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>Приложению требуется доступ для сохранения фотографий в медиатеку устройства.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Приложению требуется доступ к камере для съемки фотографий.</string>
     <key>UIAppFonts</key>
     <array>
         <string>Fonts/Impact.ttf</string>

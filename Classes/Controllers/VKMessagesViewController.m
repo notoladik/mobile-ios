@@ -9,15 +9,12 @@
 #import "VKCrashLogger.h"
 #import <QuartzCore/QuartzCore.h>
 
-@interface VKMessagesViewController ()
+@interface VKMessagesViewController () <UISearchBarDelegate>
 @property (nonatomic, strong) NSMutableArray *conversations;
+@property (nonatomic, strong) NSMutableArray *filteredConversations;
+@property (nonatomic, strong) UISearchBar *searchBar;
+@property (nonatomic, assign) BOOL isSearching;
 @property (nonatomic, assign) BOOL isLoading;
-
-// Пасхалка: разбитое окно
-@property (nonatomic, strong) UIView *shatteredOverlayView;
-@property (nonatomic, strong) UIView *behindGlassView;
-@property (nonatomic, strong) UIView *glassView;
-@property (nonatomic, assign) BOOL hasShattered;
 @end
 
 @implementation VKMessagesViewController
@@ -29,12 +26,22 @@
     
     self.title = @"Сообщения";
     self.conversations = [NSMutableArray array];
-    self.tableView.rowHeight = 74.0;
-    self.tableView.separatorInset = UIEdgeInsetsMake(0, 72, 0, 0);
+    self.filteredConversations = [NSMutableArray array];
+    self.tableView.rowHeight = 72.0;
+    self.tableView.separatorInset = UIEdgeInsetsMake(0, 70, 0, 0);
     
     if ([self respondsToSelector:@selector(setEdgesForExtendedLayout:)]) {
         self.edgesForExtendedLayout = UIRectEdgeNone;
     }
+    
+    // Поисковая строка диалогов
+    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 44)];
+    self.searchBar.placeholder = @"Поиск диалогов";
+    self.searchBar.delegate = self;
+    if ([[VKThemeManager sharedManager] isSkeuomorphic]) {
+        self.searchBar.tintColor = [UIColor colorWithRed:80.0/255.0 green:110.0/255.0 blue:145.0/255.0 alpha:1.0];
+    }
+    self.tableView.tableHeaderView = self.searchBar;
     
     [self setupNavigationItems];
     [self applyThemeStyle];
@@ -48,19 +55,12 @@
     }
     
     [self loadDialogs];
-    [self setupShatteredGlassOverlay];
-}
-
-- (void)viewDidAppear:(BOOL)animated {
-    [super viewDidAppear:animated];
-    if (!self.hasShattered) {
-        [self performSelector:@selector(triggerGlassBreakAnimation) withObject:nil afterDelay:0.35];
-    }
 }
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self setupNavigationItems];
+    [self loadDialogs];
 }
 
 - (void)setupNavigationItems {
@@ -70,12 +70,7 @@
         self.navigationItem.leftBarButtonItem = nil;
     }
     
-    // Кнопка для повторного разбития окна для прикола
-    if (self.hasShattered) {
-        self.navigationItem.rightBarButtonItem = [[VKThemeManager sharedManager] barButtonItemWithTitle:@"🔨" target:self action:@selector(resetAndBreakGlass) isBack:NO];
-    } else {
-        self.navigationItem.rightBarButtonItem = nil;
-    }
+    self.navigationItem.rightBarButtonItem = [[VKThemeManager sharedManager] barButtonItemWithTitle:@"Обновить" target:self action:@selector(loadDialogs) isBack:NO];
 }
 
 - (void)leftMenuButtonAction {
@@ -88,170 +83,40 @@
     [self.tableView reloadData];
 }
 
-#pragma mark - 💥 Пасхалка: Разбитое окно
+#pragma mark - Search Filtering
 
-- (void)setupShatteredGlassOverlay {
-    CGRect bounds = [[UIScreen mainScreen] bounds];
-    
-    self.shatteredOverlayView = [[UIView alloc] initWithFrame:bounds];
-    self.shatteredOverlayView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    self.shatteredOverlayView.clipsToBounds = YES;
-    
-    // 1. Задний фон за стеклом (темная кирпичная стена / стройка)
-    self.behindGlassView = [[UIView alloc] initWithFrame:bounds];
-    self.behindGlassView.backgroundColor = [UIColor colorWithRed:24.0/255.0 green:28.0/255.0 blue:36.0/255.0 alpha:1.0];
-    
-    // Предупреждающая плашка ровно по центру экрана
-    CGFloat cardW = bounds.size.width - 40.0;
-    CGFloat cardH = 260.0;
-    CGFloat cardY = (bounds.size.height - cardH) / 2.0;
-    
-    UIView *card = [[UIView alloc] initWithFrame:CGRectMake(20, cardY, cardW, cardH)];
-    card.backgroundColor = [UIColor colorWithRed:34.0/255.0 green:40.0/255.0 blue:52.0/255.0 alpha:0.98];
-    card.layer.cornerRadius = 12.0;
-    card.layer.borderWidth = 1.0;
-    card.layer.borderColor = [UIColor colorWithRed:235.0/255.0 green:87.0/255.0 blue:87.0/255.0 alpha:0.7].CGColor;
-    card.clipsToBounds = YES;
-    
-    // Иконка опасности / стройки
-    UILabel *iconLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 16, cardW, 40)];
-    iconLabel.text = @"⚠️ 🔨 💥";
-    iconLabel.font = [UIFont systemFontOfSize:30];
-    iconLabel.textAlignment = NSTextAlignmentCenter;
-    [card addSubview:iconLabel];
-    
-    // Заголовок
-    UILabel *titleLbl = [[UILabel alloc] initWithFrame:CGRectMake(16, 60, cardW - 32, 50)];
-    titleLbl.text = @"Нормальные диалоги\nещё не вышли в ОВК";
-    titleLbl.font = [UIFont boldSystemFontOfSize:17];
-    titleLbl.textColor = [UIColor colorWithRed:255.0/255.0 green:215.0/255.0 blue:0.0/255.0 alpha:1.0];
-    titleLbl.textAlignment = NSTextAlignmentCenter;
-    titleLbl.numberOfLines = 2;
-    [card addSubview:titleLbl];
-    
-    // Описание
-    UILabel *descLbl = [[UILabel alloc] initWithFrame:CGRectMake(20, 115, cardW - 40, 55)];
-    descLbl.text = @"Разработчики OpenVK усердно переписывают протокол сообщений. Ведутся ремонтные работы.";
-    descLbl.font = [UIFont systemFontOfSize:13];
-    descLbl.textColor = [UIColor colorWithRed:180.0/255.0 green:190.0/255.0 blue:205.0/255.0 alpha:1.0];
-    descLbl.textAlignment = NSTextAlignmentCenter;
-    descLbl.numberOfLines = 3;
-    [card addSubview:descLbl];
-    
-    // Кнопка склеить скотчем
-    UIButton *tapeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    tapeBtn.frame = CGRectMake(24, 185, cardW - 48, 44);
-    tapeBtn.backgroundColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
-    tapeBtn.layer.cornerRadius = 6.0;
-    tapeBtn.clipsToBounds = YES;
-    [tapeBtn setTitle:@"🔧 Заклеить скотчем (Диалоги)" forState:UIControlStateNormal];
-    [tapeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    tapeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
-    [tapeBtn addTarget:self action:@selector(fixGlassAction) forControlEvents:UIControlEventTouchUpInside];
-    [card addSubview:tapeBtn];
-    
-    [self.behindGlassView addSubview:card];
-    [self.shatteredOverlayView addSubview:self.behindGlassView];
-    
-    // 2. Стеклянная панель с имитацией окна диалогов
-    self.glassView = [[UIView alloc] initWithFrame:bounds];
-    self.glassView.backgroundColor = [UIColor colorWithRed:245.0/255.0 green:247.0/255.0 blue:250.0/255.0 alpha:0.98];
-    
-    for (NSInteger i = 0; i < 8; i++) {
-        UIView *fakeRow = [[UIView alloc] initWithFrame:CGRectMake(0, i * 74.0, bounds.size.width, 74.0)];
-        fakeRow.backgroundColor = [UIColor whiteColor];
-        
-        UIView *fakeAvatar = [[UIView alloc] initWithFrame:CGRectMake(12, 13, 48, 48)];
-        fakeAvatar.backgroundColor = [UIColor colorWithRed:215.0/255.0 green:220.0/255.0 blue:228.0/255.0 alpha:1.0];
-        fakeAvatar.layer.cornerRadius = 24.0;
-        [fakeRow addSubview:fakeAvatar];
-        
-        UIView *fakeName = [[UIView alloc] initWithFrame:CGRectMake(72, 18, 120, 14)];
-        fakeName.backgroundColor = [UIColor colorWithRed:200.0/255.0 green:205.0/255.0 blue:215.0/255.0 alpha:1.0];
-        fakeName.layer.cornerRadius = 3.0;
-        [fakeRow addSubview:fakeName];
-        
-        UIView *fakeText = [[UIView alloc] initWithFrame:CGRectMake(72, 40, bounds.size.width - 120, 12)];
-        fakeText.backgroundColor = [UIColor colorWithRed:230.0/255.0 green:234.0/255.0 blue:240.0/255.0 alpha:1.0];
-        fakeText.layer.cornerRadius = 3.0;
-        [fakeRow addSubview:fakeText];
-        
-        UIView *fakeLine = [[UIView alloc] initWithFrame:CGRectMake(72, 73.5, bounds.size.width - 72, 0.5)];
-        fakeLine.backgroundColor = [UIColor colorWithWhite:0.88 alpha:1.0];
-        [fakeRow addSubview:fakeLine];
-        
-        [self.glassView addSubview:fakeRow];
+- (NSArray *)currentDataSource {
+    return self.isSearching ? self.filteredConversations : self.conversations;
+}
+
+- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
+    NSString *query = [searchText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (query.length == 0) {
+        self.isSearching = NO;
+        [self.filteredConversations removeAllObjects];
+    } else {
+        self.isSearching = YES;
+        [self.filteredConversations removeAllObjects];
+        for (VKConversation *conv in self.conversations) {
+            if ([conv.title rangeOfString:query options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                [conv.lastMessage.text rangeOfString:query options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                [self.filteredConversations addObject:conv];
+            }
+        }
     }
-    
-    [self.shatteredOverlayView addSubview:self.glassView];
-    
-    UIView *container = self.navigationController.view ?: self.view;
-    [container addSubview:self.shatteredOverlayView];
+    [self.tableView reloadData];
 }
 
-- (void)triggerGlassBreakAnimation {
-    if (self.hasShattered) return;
-    self.hasShattered = YES;
-    [self setupNavigationItems];
-    
-    // 1. Тряска экрана (Землетрясение / Удар)
-    CAKeyframeAnimation *shake = [CAKeyframeAnimation animationWithKeyPath:@"transform.translation.x"];
-    shake.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
-    shake.duration = 0.35;
-    shake.values = @[@(-12), @(12), @(-8), @(8), @(-4), @(4), @(0)];
-    [self.glassView.layer addAnimation:shake forKey:@"shake"];
-    
-    // 2. Рисуем паутину трещин стекла
-    CAShapeLayer *crackLayer = [CAShapeLayer layer];
-    crackLayer.frame = self.glassView.bounds;
-    UIBezierPath *path = [UIBezierPath bezierPath];
-    
-    CGPoint center = CGPointMake(self.glassView.bounds.size.width / 2.0, self.glassView.bounds.size.height / 2.0 - 30);
-    
-    // Линии трещин от центра
-    for (NSInteger i = 0; i < 12; i++) {
-        CGFloat angle = (M_PI * 2.0 / 12.0) * i + (arc4random_uniform(20) - 10) * 0.02;
-        CGFloat len = 120.0 + arc4random_uniform(160);
-        CGPoint endPoint = CGPointMake(center.x + cosf(angle) * len, center.y + sinf(angle) * len);
-        
-        [path moveToPoint:center];
-        CGPoint midPoint = CGPointMake((center.x + endPoint.x)/2.0 + (arc4random_uniform(30) - 15), (center.y + endPoint.y)/2.0 + (arc4random_uniform(30) - 15));
-        [path addLineToPoint:midPoint];
-        [path addLineToPoint:endPoint];
-    }
-    
-    crackLayer.path = path.CGPath;
-    crackLayer.strokeColor = [UIColor colorWithWhite:1.0 alpha:0.9].CGColor;
-    crackLayer.lineWidth = 1.8;
-    crackLayer.fillColor = [UIColor clearColor].CGColor;
-    [self.glassView.layer addSublayer:crackLayer];
-    
-    // 3. Через мгновение осколки разлетаются и падают вниз
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [UIView animateWithDuration:0.75 delay:0.0 options:UIViewAnimationOptionCurveEaseIn animations:^{
-            self.glassView.transform = CGAffineTransformMakeScale(1.15, 1.15);
-            self.glassView.alpha = 0.0;
-            self.glassView.frame = CGRectMake(-40, self.view.bounds.size.height + 50, self.view.bounds.size.width + 80, self.view.bounds.size.height);
-        } completion:^(BOOL finished) {
-            [self.glassView removeFromSuperview];
-        }];
-    });
+- (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
+    [searchBar resignFirstResponder];
 }
 
-- (void)fixGlassAction {
-    // Анимация заклеивания скотчем и открытия диалогов
-    [UIView animateWithDuration:0.35 animations:^{
-        self.shatteredOverlayView.alpha = 0.0;
-    } completion:^(BOOL finished) {
-        [self.shatteredOverlayView removeFromSuperview];
-    }];
-}
-
-- (void)resetAndBreakGlass {
-    [self.shatteredOverlayView removeFromSuperview];
-    self.hasShattered = NO;
-    [self setupShatteredGlassOverlay];
-    [self triggerGlassBreakAnimation];
+- (void)searchBarCancelButtonClicked:(UISearchBar *)searchBar {
+    searchBar.text = @"";
+    self.isSearching = NO;
+    [self.filteredConversations removeAllObjects];
+    [searchBar resignFirstResponder];
+    [self.tableView reloadData];
 }
 
 #pragma mark - Загрузка диалогов
@@ -283,7 +148,7 @@
 #pragma mark - Table View Data Source
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return self.conversations.count;
+    return [self currentDataSource].count;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -293,7 +158,7 @@
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:CellId];
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         
-        UIImageView *avatar = [[UIImageView alloc] initWithFrame:CGRectMake(12, 13, 48, 48)];
+        UIImageView *avatar = [[UIImageView alloc] initWithFrame:CGRectMake(12, 12, 48, 48)];
         avatar.clipsToBounds = YES;
         avatar.backgroundColor = [UIColor colorWithWhite:0.92 alpha:1.0];
         avatar.tag = 301;
@@ -328,16 +193,15 @@
         UILabel *unreadBadge = [[UILabel alloc] initWithFrame:CGRectZero];
         unreadBadge.font = [UIFont boldSystemFontOfSize:12];
         unreadBadge.textColor = [UIColor whiteColor];
-        unreadBadge.backgroundColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
         unreadBadge.textAlignment = NSTextAlignmentCenter;
-        unreadBadge.layer.cornerRadius = 10.0;
+        unreadBadge.layer.cornerRadius = 9.0;
         unreadBadge.clipsToBounds = YES;
         unreadBadge.hidden = YES;
         unreadBadge.tag = 306;
         [cell.contentView addSubview:unreadBadge];
         
         UILabel *dateLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-        dateLabel.font = [UIFont systemFontOfSize:12];
+        dateLabel.font = [UIFont systemFontOfSize:11.5];
         dateLabel.textColor = [UIColor colorWithRed:145.0/255.0 green:150.0/255.0 blue:160.0/255.0 alpha:1.0];
         dateLabel.textAlignment = NSTextAlignmentRight;
         dateLabel.tag = 307;
@@ -352,9 +216,10 @@
         [cell.contentView addSubview:unreadDot];
     }
     
-    if (indexPath.row >= (NSInteger)self.conversations.count) return cell;
+    NSArray *data = [self currentDataSource];
+    if (indexPath.row >= (NSInteger)data.count) return cell;
     
-    VKConversation *conv = self.conversations[indexPath.row];
+    VKConversation *conv = data[indexPath.row];
     CGFloat width = tableView.bounds.size.width;
     
     UIImageView *avatar = (UIImageView *)[cell.contentView viewWithTag:301];
@@ -388,12 +253,12 @@
     
     nameLabel.text = conv.title ?: @"Беседа";
     CGSize nameSize = [nameLabel.text sizeWithFont:[UIFont boldSystemFontOfSize:15]];
-    nameLabel.frame = CGRectMake(72, 16, MIN(nameSize.width, width - 160), 20);
+    nameLabel.frame = CGRectMake(70, 14, MIN(nameSize.width, width - 150), 20);
     
     CGFloat nextX = CGRectGetMaxX(nameLabel.frame) + 4;
     if (conv.peerUser.isOfficial) {
         badgeVerified.hidden = NO;
-        badgeVerified.frame = CGRectMake(nextX, 19, 13, 13);
+        badgeVerified.frame = CGRectMake(nextX, 17, 13, 13);
         nextX += 17;
     } else {
         badgeVerified.hidden = YES;
@@ -402,7 +267,7 @@
     NSString *badgeURL = [[VKSupportersService sharedService] badgeIconURLForScreenName:conv.peerUser.username];
     if (badgeURL.length > 0) {
         supporterBadge.hidden = NO;
-        supporterBadge.frame = CGRectMake(nextX, 18, 14, 14);
+        supporterBadge.frame = CGRectMake(nextX, 16, 14, 14);
         [[VKImageLoader sharedLoader] loadImageWithURL:badgeURL completion:^(UIImage *img) {
             if (img) supporterBadge.image = img;
         }];
@@ -412,17 +277,17 @@
     
     // Дата последнего сообщения
     dateLabel.text = conv.lastMessage.timeString ?: @"";
-    dateLabel.frame = CGRectMake(width - 76, 17, 66, 16);
+    dateLabel.frame = CGRectMake(width - 80, 16, 70, 16);
     
     NSString *msgPrefix = conv.lastMessage.isOutgoing ? @"Вы: " : @"";
     msgLabel.text = [NSString stringWithFormat:@"%@%@", msgPrefix, conv.lastMessage.text ?: @"[Вложение]"];
-    msgLabel.frame = CGRectMake(72, 38, width - 140, 18);
+    msgLabel.frame = CGRectMake(70, 36, width - 130, 18);
     
     if (conv.unreadCount > 0) {
         unreadBadge.hidden = NO;
         unreadBadge.text = [NSString stringWithFormat:@"%ld", (long)conv.unreadCount];
-        unreadBadge.backgroundColor = [[VKThemeManager sharedManager] accentColor];
-        unreadBadge.frame = CGRectMake(width - 44, 38, 24, 18);
+        unreadBadge.backgroundColor = isSkeuomorph ? [UIColor colorWithRed:215.0/255.0 green:40.0/255.0 blue:40.0/255.0 alpha:1.0] : [UIColor colorWithRed:255.0/255.0 green:59.0/255.0 blue:48.0/255.0 alpha:1.0];
+        unreadBadge.frame = CGRectMake(width - 42, 36, 26, 18);
         unreadDot.hidden = YES;
         cell.backgroundColor = isSkeuomorph ? [UIColor colorWithRed:238.0/255.0 green:243.0/255.0 blue:250.0/255.0 alpha:1.0] : [UIColor colorWithRed:242.0/255.0 green:245.0/255.0 blue:252.0/255.0 alpha:1.0];
     } else {
@@ -431,7 +296,7 @@
         
         if (conv.lastMessage.isOutgoing && !conv.lastMessage.isRead) {
             unreadDot.hidden = NO;
-            unreadDot.frame = CGRectMake(width - 24, 43, 8, 8);
+            unreadDot.frame = CGRectMake(width - 24, 41, 8, 8);
             unreadDot.backgroundColor = [[VKThemeManager sharedManager] accentColor];
         } else {
             unreadDot.hidden = YES;
@@ -443,8 +308,9 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    if (indexPath.row < (NSInteger)self.conversations.count) {
-        VKConversation *conv = self.conversations[indexPath.row];
+    NSArray *data = [self currentDataSource];
+    if (indexPath.row < (NSInteger)data.count) {
+        VKConversation *conv = data[indexPath.row];
         VKChatViewController *chatVC = [[VKChatViewController alloc] initWithPeerId:conv.peerId peerUser:conv.peerUser title:conv.title];
         [self.navigationController pushViewController:chatVC animated:YES];
     }

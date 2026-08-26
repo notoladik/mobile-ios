@@ -2,6 +2,7 @@
 #import "VKFeedPostCell.h"
 #import "VKFeedService.h"
 #import "VKPostDetailViewController.h"
+#import "VKPostCommentsViewController.h"
 #import "VKProfileViewController.h"
 #import "VKNewPostViewController.h"
 #import "VKPhotoViewerViewController.h"
@@ -252,8 +253,8 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     };
     
     cell.onCommentTapped = ^(VKPost *p) {
-        VKPostDetailViewController *detailVC = [[VKPostDetailViewController alloc] initWithPost:p];
-        [weakSelf.navigationController pushViewController:detailVC animated:YES];
+        VKPostCommentsViewController *commVC = [[VKPostCommentsViewController alloc] initWithPost:p];
+        [weakSelf.navigationController pushViewController:commVC animated:YES];
     };
     
     cell.onRepostTapped = ^(VKPost *p) {
@@ -274,16 +275,34 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     
     cell.onToggleTextExpanded = ^(VKPost *p) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [weakSelf.tableView beginUpdates];
-            [weakSelf.tableView endUpdates];
+            NSInteger row = [weakSelf.posts indexOfObject:p];
+            if (row != NSNotFound) {
+                NSIndexPath *ip = [NSIndexPath indexPathForRow:row inSection:0];
+                [weakSelf.tableView reloadRowsAtIndexPaths:@[ip] withRowAnimation:UITableViewRowAnimationNone];
+            } else {
+                [weakSelf.tableView reloadData];
+            }
         });
     };
     
     cell.onToggleRepostTextExpanded = ^(VKPost *p) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [weakSelf.tableView beginUpdates];
-            [weakSelf.tableView endUpdates];
+            NSInteger row = [weakSelf.posts indexOfObject:p];
+            if (row != NSNotFound) {
+                NSIndexPath *ip = [NSIndexPath indexPathForRow:row inSection:0];
+                [weakSelf.tableView reloadRowsAtIndexPaths:@[ip] withRowAnimation:UITableViewRowAnimationNone];
+            } else {
+                [weakSelf.tableView reloadData];
+            }
         });
+    };
+    
+    cell.onCommentTapped = ^(VKPost *p) {
+        if (p) {
+            VKPostDetailViewController *detailVC = [[VKPostDetailViewController alloc] initWithPost:p];
+            detailVC.focusCommentInputOnAppear = YES;
+            [weakSelf.navigationController pushViewController:detailVC animated:YES];
+        }
     };
     
     cell.onAuthorTapped = ^(VKUser *author) {

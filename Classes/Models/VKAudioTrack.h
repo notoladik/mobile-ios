@@ -4,12 +4,17 @@
 
 @property (nonatomic, assign) NSInteger trackId;
 @property (nonatomic, assign) NSInteger audioId;
+@property (nonatomic, assign) NSInteger vkID;
 @property (nonatomic, assign) NSInteger ownerId;
+@property (nonatomic, assign) NSInteger ownerID;
+@property (nonatomic, assign) NSInteger lyricsID;
+@property (nonatomic, assign) NSInteger lyricsId;
 @property (nonatomic, copy) NSString *artist;
 @property (nonatomic, copy) NSString *title;
 @property (nonatomic, copy) NSString *duration;
 @property (nonatomic, assign) NSInteger durationSeconds;
 @property (nonatomic, copy) NSString *streamURL;
+@property (nonatomic, copy) NSString *url;
 @property (nonatomic, copy) NSString *coverURL;
 
 + (instancetype)trackFromDictionary:(NSDictionary *)dict;

@@ -432,7 +432,11 @@
             statusLabel.text = @"открытая группа";
             cityLabel.text = self.user.status.length > 0 ? self.user.status : @"";
         } else {
-            statusLabel.text = self.user.isOnline ? @"online" : (self.user.lastSeen ?: @"был(а) недавно");
+            NSString *onlText = self.user.isOnline ? @"online" : (self.user.lastSeen ?: @"был(а) недавно");
+            if (self.user.isOnline && self.user.onlinePlatform.length > 0) {
+                onlText = [NSString stringWithFormat:@"online %@", self.user.onlinePlatform];
+            }
+            statusLabel.text = onlText;
             statusLabel.textColor = self.user.isOnline ? [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] : [UIColor grayColor];
             cityLabel.text = self.user.city.length > 0 ? self.user.city : (self.user.status ?: @"");
         }

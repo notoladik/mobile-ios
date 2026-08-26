@@ -24,7 +24,13 @@
     id rawUrl = dict[@"url"] ?: dict[@"mp3"] ?: dict[@"stream_url"];
     if ([rawUrl isKindOfClass:[NSString class]] && [rawUrl length] > 0) {
         track.streamURL = rawUrl;
+        track.url = rawUrl;
     }
+    
+    track.vkID = track.trackId;
+    track.ownerID = track.ownerId;
+    track.lyricsID = [dict[@"lyrics_id"] ?: dict[@"lyricsId"] integerValue];
+    track.lyricsId = track.lyricsID;
     
     id rawCover = dict[@"thumb"] ?: dict[@"cover"] ?: dict[@"cover_url"] ?: dict[@"photo_300"] ?: dict[@"album"][@"thumb"] ?: dict[@"album"][@"cover"];
     if ([rawCover isKindOfClass:[NSString class]] && [rawCover length] > 0) {

@@ -499,9 +499,10 @@
                                constrainedToSize:CGSizeMake(contentWidth, CGFLOAT_MAX)
                                    lineBreakMode:NSLineBreakByWordWrapping];
         CGFloat fullH = ceilf(textSize.height);
-        BOOL isLongText = post.text.length > 250 || [post.text componentsSeparatedByString:@"\n"].count > 5;
+        CGFloat maxHeight = [UIFont systemFontOfSize:15].lineHeight * 6.0;
+        BOOL isLongText = (fullH > maxHeight + 4.0) || post.text.length > 250 || [post.text componentsSeparatedByString:@"\n"].count > 5;
         if (isLongText) {
-            CGFloat collapsedH = MIN(fullH, [UIFont systemFontOfSize:15].lineHeight * 6.0);
+            CGFloat collapsedH = MIN(fullH, maxHeight);
             CGFloat textH = post.isTextExpanded ? fullH : collapsedH;
             h += textH + 24.0 + 10.0;
         } else {
@@ -591,32 +592,32 @@
         // Прочие вложения репоста
         for (VKAttachment *att in rep.attachments) {
             if (att.type == VKAttachmentTypeAudio) {
-                repH += 38.0;
+                repH += 42.0;
             } else if (att.type == VKAttachmentTypeVideo) {
                 repH += 140.0;
             } else if (att.type == VKAttachmentTypePoll) {
                 repH += 30.0 + (att.pollOptions.count * 30.0) + 20.0;
             } else if (att.type == VKAttachmentTypeDoc) {
-                repH += 38.0;
+                repH += 42.0;
             } else if (att.type == VKAttachmentTypeGif) {
                 repH += 160.0;
             } else if (att.type == VKAttachmentTypeLink) {
                 repH += (att.linkImageURL.length > 0) ? 180.0 : 54.0;
             }
         }
-        h += repH + 10.0;
+        h += repH + 12.0;
     }
     
     // Источник и подпись
     if (post.copyrightName.length > 0) {
-        h += 22.0;
+        h += 24.0;
     }
     if (post.signerUser != nil) {
-        h += 22.0;
+        h += 24.0;
     }
     
-    h += 38.0; // Кнопки действий (лайк, комменты, репост)
-    h += 8.0;  // Нижний отступ разделителя
+    h += 44.0; // Кнопки действий (лайк, комменты, репост)
+    h += 10.0; // Нижний отступ разделителя
     return h;
 }
 
@@ -732,13 +733,14 @@
                                constrainedToSize:CGSizeMake(contentW, CGFLOAT_MAX)
                                    lineBreakMode:NSLineBreakByWordWrapping];
         CGFloat fullH = ceilf(textSize.height);
-        BOOL isLongText = post.text.length > 250 || [post.text componentsSeparatedByString:@"\n"].count > 5;
+        CGFloat maxHeight = [UIFont systemFontOfSize:15].lineHeight * 6.0;
+        BOOL isLongText = (fullH > maxHeight + 4.0) || post.text.length > 250 || [post.text componentsSeparatedByString:@"\n"].count > 5;
         
         if (isLongText) {
             self.expandTextButton.hidden = NO;
             [self.expandTextButton setTitle:(post.isTextExpanded ? @"Свернуть" : @"Показать полностью...") forState:UIControlStateNormal];
             
-            CGFloat collapsedH = MIN(fullH, [UIFont systemFontOfSize:15].lineHeight * 6.0);
+            CGFloat collapsedH = MIN(fullH, maxHeight);
             CGFloat textH = post.isTextExpanded ? fullH : collapsedH;
             self.postTextLabel.numberOfLines = post.isTextExpanded ? 0 : 6;
             self.postTextLabel.frame = CGRectMake(0, currentY, contentW, textH);
@@ -1556,7 +1558,9 @@
     }
     
     // Кнопки лайк / комменты / репост
-    self.actionsContainerView.frame = CGRectMake(12.0, currentY + 4.0, contentW, 30.0);
+    CGFloat cardH = totalHeight - bottomSpacing;
+    CGFloat actY = MAX(currentY + 6.0, cardH - 36.0);
+    self.actionsContainerView.frame = CGRectMake(12.0, actY, contentW, 30.0);
     
     UIColor *defIconColor = isSkeuomorph ? [UIColor colorWithRed:100.0/255.0 green:110.0/255.0 blue:125.0/255.0 alpha:1.0] : [UIColor colorWithRed:130.0/255.0 green:140.0/255.0 blue:155.0/255.0 alpha:1.0];
     UIColor *likeIconColor = post.isLiked ? (isSkeuomorph ? [UIColor colorWithRed:215.0/255.0 green:35.0/255.0 blue:55.0/255.0 alpha:1.0] : [UIColor colorWithRed:235.0/255.0 green:45.0/255.0 blue:70.0/255.0 alpha:1.0]) : defIconColor;
@@ -1680,9 +1684,6 @@
 
 - (void)toggleTextExpandedAction {
     if (!self.currentPost) return;
-    BOOL isLongText = self.currentPost.text.length > 250 || [self.currentPost.text componentsSeparatedByString:@"\n"].count > 5;
-    if (!isLongText) return;
-    
     self.currentPost.isTextExpanded = !self.currentPost.isTextExpanded;
     if (self.onToggleTextExpanded) {
         self.onToggleTextExpanded(self.currentPost);
@@ -1692,9 +1693,6 @@
 - (void)toggleRepostTextExpandedAction {
     if (!self.currentPost || self.currentPost.repostHistory.count == 0) return;
     VKPost *rep = self.currentPost.repostHistory[0];
-    BOOL isLongRep = rep.text.length > 250 || [rep.text componentsSeparatedByString:@"\n"].count > 5;
-    if (!isLongRep) return;
-    
     rep.isRepostTextExpanded = !rep.isRepostTextExpanded;
     if (self.onToggleRepostTextExpanded) {
         self.onToggleRepostTextExpanded(self.currentPost);

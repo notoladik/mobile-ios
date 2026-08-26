@@ -5,7 +5,7 @@ namespace MilkdropPreset {
 
 MilkdropStaticShaders::MilkdropStaticShaders(bool useGLES)
     : m_GLSLGeneratorVersion(M4::GLSLGenerator::Version_100_ES)
-    , m_header("precision mediump float;\n")
+    , m_header("#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n")
 {
 }
 
@@ -373,6 +373,19 @@ uniform float4x3 rot_rand4;
 #define lum(x) (dot(x,float3(0.32,0.49,0.29)))
 #define tex2d tex2D
 #define tex3d tex3D
+
+#define sat(x) clamp(x, 0.0, 1.0)
+#define saturate(x) clamp(x, 0.0, 1.0)
+#define frac(x) fract(x)
+#define lerp(a,b,t) mix(a,b,t)
+#define atan2(y,x) atan(y,x)
+#define fmod(x,y) mod(x,y)
+#define rsqrt(x) inversesqrt(x)
+#define tex2Dlod(s,uv) tex2D(s,(uv).xy)
+#define tex2Dbias(s,uv) tex2D(s,(uv).xy)
+#define tex3Dlod(s,uv) tex3D(s,(uv).xyz)
+#define tex3Dbias(s,uv) tex3D(s,(uv).xyz)
+#define clip(x) if ((x) < 0.0) discard;
 )";
 }
 

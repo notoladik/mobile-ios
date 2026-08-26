@@ -28,4 +28,7 @@ extern NSString *const VKAudioPlayerProgressNotification;
 - (void)previousTrack;
 - (void)seekToTime:(NSTimeInterval)time;
 
+// Извлечение PCM аудиоданных в реальном времени для визуализатора
+- (void)getLatestPCMData:(float *)outBuffer count:(NSUInteger)count;
+
 @end

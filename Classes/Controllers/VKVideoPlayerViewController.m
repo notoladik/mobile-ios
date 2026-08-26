@@ -60,9 +60,12 @@
     @try {
         NSError *audioError = nil;
         AVAudioSession *session = [AVAudioSession sharedInstance];
-        [session setCategory:AVAudioSessionCategoryPlayback withOptions:AVAudioSessionCategoryOptionMixWithOthers error:&audioError];
+        [session setCategory:AVAudioSessionCategoryPlayback error:&audioError];
+        if ([session respondsToSelector:@selector(setMode:error:)]) {
+            [session setMode:AVAudioSessionModeMoviePlayback error:nil];
+        }
         [session setActive:YES error:&audioError];
-        [VKCrashLogger log:@"[VKVideoPlayer] AudioSession category Playback configured."];
+        [VKCrashLogger log:@"[VKVideoPlayer] AudioSession set to CategoryPlayback (MoviePlayback mode)."];
     } @catch (NSException *ex) {
         [VKCrashLogger log:[NSString stringWithFormat:@"[VKVideoPlayer] AudioSession exception: %@", ex]];
     }

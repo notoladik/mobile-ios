@@ -1,4 +1,5 @@
 #import "VKProjectMGLView.h"
+#import "VKAudioPlayer.h"
 #import <QuartzCore/QuartzCore.h>
 #include "projectM-4/projectM.h"
 #include "projectM-4/render_opengl.h"
@@ -25,12 +26,23 @@ void operator delete(void* ptr, std::size_t size, std::align_val_t alignment) no
     free(ptr);
 }
 
+static void projectMLogCallback(const char* message, projectm_log_level log_level, void* user_data) {
+    if (log_level >= PROJECTM_LOG_LEVEL_WARN) {
+        NSLog(@"[libprojectM log lvl=%d] %s", (int)log_level, message);
+    }
+}
+
+static void projectMPresetFailedCallback(const char* preset_filename, const char* message, void* user_data) {
+    NSLog(@"[VKProjectMGLView] Preset note/failed: %s (error: %s)", preset_filename ? preset_filename : "unknown", message ? message : "unknown");
+}
+
 @interface VKProjectMGLView () {
     projectm_handle _pm;
     GLuint _defaultFramebuffer;
     GLuint _colorRenderbuffer;
     GLint _backingWidth;
     GLint _backingHeight;
+    NSTimeInterval _lastPresetSwitchTime;
 }
 @property (nonatomic, strong) EAGLContext *context;
 @property (nonatomic, strong) CADisplayLink *displayLink;
@@ -52,6 +64,7 @@ void operator delete(void* ptr, std::size_t size, std::align_val_t alignment) no
         _isPlaying = YES;
         _currentPresetIndex = 0;
         _presetPaths = [NSMutableArray array];
+        _lastPresetSwitchTime = [NSDate timeIntervalSinceReferenceDate];
         
         self.contentScaleFactor = [UIScreen mainScreen].scale;
         
@@ -78,7 +91,7 @@ void operator delete(void* ptr, std::size_t size, std::align_val_t alignment) no
         self.userInteractionEnabled = YES;
         
         _shuffleMode = YES;
-        _autoSwitchInterval = 20.0;
+        _autoSwitchInterval = 45.0; // Комфортный интервал в 45 секунд между пресетами
         
         UISwipeGestureRecognizer *swipeL = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(nextPreset)];
         swipeL.direction = UISwipeGestureRecognizerDirectionLeft;
@@ -152,12 +165,6 @@ void operator delete(void* ptr, std::size_t size, std::align_val_t alignment) no
     glGetRenderbufferParameteriv(GL_RENDERBUFFER, GL_RENDERBUFFER_HEIGHT, &_backingHeight);
 }
 
-static void projectMLogCallback(const char* message, projectm_log_level log_level, void* user_data) {
-    if (log_level >= PROJECTM_LOG_LEVEL_WARN) {
-        NSLog(@"[libprojectM log lvl=%d] %s", (int)log_level, message);
-    }
-}
-
 - (void)initProjectM {
     if (_pm) return;
     if (!_context) return;
@@ -173,8 +180,20 @@ static void projectMLogCallback(const char* message, projectm_log_level log_leve
     if (_pm) {
         projectm_set_window_size(_pm, (size_t)MAX(64, _backingWidth), (size_t)MAX(64, _backingHeight));
         projectm_set_fps(_pm, 60);
-        projectm_set_mesh_size(_pm, 24, 18);
+        projectm_set_mesh_size(_pm, 32, 24);
+        projectm_set_beat_sensitivity(_pm, 1.0f);
+        projectm_set_hard_cut_enabled(_pm, false);
+        projectm_set_hard_cut_duration(_pm, 120.0);
+        projectm_set_soft_cut_duration(_pm, 2.5);
+        projectm_set_preset_duration(_pm, 45.0);
         projectm_set_aspect_correction(_pm, false);
+        projectm_set_preset_switch_failed_event_callback(_pm, projectMPresetFailedCallback, (__bridge void *)self);
+        
+        NSString *texPath = [[NSBundle mainBundle] resourcePath];
+        if (texPath) {
+            const char *texPaths[] = { [texPath UTF8String] };
+            projectm_set_texture_search_paths(_pm, texPaths, 1);
+        }
     }
 }
 
@@ -301,6 +320,7 @@ static const char* kDefaultMilkdropPreset =
 
 - (void)loadPresetFromFile:(NSString *)filePath {
     if (!_pm || !filePath) return;
+    _lastPresetSwitchTime = [NSDate timeIntervalSinceReferenceDate];
     NSLog(@"[VKProjectMGLView] Loading preset: %@", filePath.lastPathComponent);
     projectm_load_preset_file(_pm, [filePath UTF8String], true);
     [self showPresetBadge];
@@ -368,8 +388,10 @@ static const char* kDefaultMilkdropPreset =
 - (void)startAnimation {
     if (self.displayLink) return;
     self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(renderFrame)];
-    if ([self.displayLink respondsToSelector:@selector(setPreferredFramesPerSecond:)]) {
-        [self.displayLink setPreferredFramesPerSecond:60];
+    if ([self.displayLink respondsToSelector:@selector(setFrameInterval:)]) {
+        [self.displayLink setFrameInterval:2]; // 30 FPS for silky-smooth battery-saving playback on A5/A6 devices
+    } else if ([self.displayLink respondsToSelector:@selector(setPreferredFramesPerSecond:)]) {
+        [self.displayLink setPreferredFramesPerSecond:30];
     }
     [self.displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 }
@@ -399,13 +421,8 @@ static const char* kDefaultMilkdropPreset =
 }
 
 - (void)renderFrame {
-    static NSUInteger frameCounter = 0;
-    static NSTimeInterval lastLogTime = 0;
-    static NSUInteger fpsCounter = 0;
-    static CGFloat currentFps = 0.0;
-    
     @try {
-        if (!_context) return;
+        if (!_context || !self.window || self.hidden || self.alpha < 0.01 || !_isPlaying) return;
         
         if ([EAGLContext currentContext] != _context) {
             [EAGLContext setCurrentContext:_context];
@@ -424,85 +441,24 @@ static const char* kDefaultMilkdropPreset =
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         
-        // Передача аудиоданных (PCM сэмплинг с мощными ритмичными битами)
-        float dummyPCM[512];
-        static float phase = 0.0f;
-        static float beatTimer = 0.0f;
-        phase += 0.12f;
-        beatTimer += 0.016f;
-        if (beatTimer > 0.45f) beatTimer -= 0.45f;
-        float beatKick = (beatTimer < 0.08f) ? (1.0f - beatTimer / 0.08f) * 1.5f : 0.0f;
-        float amp = self.isPlaying ? (0.75f + beatKick * 0.5f) : 0.35f;
-        for (int i = 0; i < 512; i++) {
-            float s1 = sinf(phase + i * 0.04f);
-            float s2 = sinf(phase * 2.3f + i * 0.08f) * 0.5f;
-            float s3 = sinf(phase * 0.7f + i * 0.02f) * 0.3f;
-            float bass = sinf((phase + i * 0.01f) * 0.5f) * (beatKick * 1.2f);
-            dummyPCM[i] = (s1 + s2 + s3 + bass) * amp;
-        }
-        projectm_pcm_add_float(_pm, dummyPCM, 512, PROJECTM_STEREO);
+        // Передача реальных PCM аудиоданных из плеера (моно буфер 512 сэмплов)
+        float livePCM[512];
+        [[VKAudioPlayer sharedPlayer] getLatestPCMData:livePCM count:512];
+        projectm_pcm_add_float(_pm, livePCM, 512, PROJECTM_MONO);
         
         projectm_opengl_render_frame_fbo(_pm, _defaultFramebuffer);
         
-        glBindFramebuffer(GL_FRAMEBUFFER, _defaultFramebuffer);
-        
-        // Probe center and corner pixels from the default framebuffer
-        GLubyte centerPx[4] = {0, 0, 0, 0};
-        glReadPixels(_backingWidth / 2, _backingHeight / 2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, centerPx);
-        
-        GLubyte cornerPx[4] = {0, 0, 0, 0};
-        glReadPixels(20, 20, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, cornerPx);
-        
         glBindRenderbuffer(GL_RENDERBUFFER, _colorRenderbuffer);
-        BOOL presented = [_context presentRenderbuffer:GL_RENDERBUFFER];
+        [_context presentRenderbuffer:GL_RENDERBUFFER];
         
-        frameCounter++;
-        fpsCounter++;
         NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-        
-        static NSTimeInterval lastAutoSwitchTime = 0;
-        if (lastAutoSwitchTime == 0) lastAutoSwitchTime = now;
-        if (self.autoSwitchInterval > 0 && self.isPlaying && (now - lastAutoSwitchTime) >= self.autoSwitchInterval) {
-            lastAutoSwitchTime = now;
+        if (self.autoSwitchInterval > 0 && self.isPlaying && _lastPresetSwitchTime > 0 && (now - _lastPresetSwitchTime) >= self.autoSwitchInterval) {
+            _lastPresetSwitchTime = now;
             [self nextPreset];
-        }
-        
-        if (now - lastLogTime >= 1.0) {
-            currentFps = (CGFloat)fpsCounter / (CGFloat)(now - lastLogTime);
-            fpsCounter = 0;
-            lastLogTime = now;
-            
-            GLenum fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-            GLenum glErr = glGetError();
-            
-            const char *glVer = (const char *)glGetString(GL_VERSION);
-            const char *glRend = (const char *)glGetString(GL_RENDERER);
-            
-            NSString *presetName = (self.presetPaths.count > 0 && self.currentPresetIndex < self.presetPaths.count)
-                ? [[self.presetPaths[self.currentPresetIndex] lastPathComponent] stringByDeletingPathExtension]
-                : @"Default";
-            
-            NSString *diag = [NSString stringWithFormat:
-                              @"FPS: %.1f | Frames: %lu | Size: %dx%d\n"
-                              @"API: %s | GPU: %s\n"
-                              @"FBO: 0x%x | Err: 0x%x | OK: %d\n"
-                              @"Center Px (RGBA): %3d,%3d,%3d,%3d\n"
-                              @"Corner Px (RGBA): %3d,%3d,%3d,%3d\n"
-                              @"Preset [%ld/%lu]: %@",
-                              currentFps, (unsigned long)frameCounter, _backingWidth, _backingHeight,
-                              glVer ? glVer : "N/A", glRend ? glRend : "N/A",
-                              fboStatus, glErr, presented,
-                              centerPx[0], centerPx[1], centerPx[2], centerPx[3],
-                              cornerPx[0], cornerPx[1], cornerPx[2], cornerPx[3],
-                              (long)(self.currentPresetIndex + 1), (unsigned long)self.presetPaths.count, presetName];
-            
-            NSLog(@"[VKProjectMGLView] %@", diag);
-            self.debugStatusLabel.text = diag;
         }
     }
     @catch (NSException *exception) {
         NSLog(@"[VKProjectMGLView] Exception in renderFrame: %@", exception);
-        self.debugStatusLabel.text = [NSString stringWithFormat:@"Exception: %@", exception.reason];
     }
 }
 

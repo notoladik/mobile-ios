@@ -83,6 +83,18 @@ auto PresetFileParser::GetCode(const std::string& keyPrefix) const -> std::strin
 
     key.replace(0, lowerKey.length(), lowerKey);
 
+    // Check index 0 first (some presets use 0-based indices)
+    key.replace(lowerKey.length(), 5, "0");
+    if (m_presetValues.find(key) != m_presetValues.end())
+    {
+        auto line = m_presetValues.at(key);
+        if (!line.empty() && line.at(0) == '`')
+        {
+            line.erase(0, 1);
+        }
+        code << line << std::endl;
+    }
+
     for (int index{1}; index <= 99999; ++index)
     {
         key.replace(lowerKey.length(), 5, std::to_string(index));

@@ -29,28 +29,31 @@ auto TransitionShaderManager::RandomTransition() -> std::shared_ptr<Shader>
 auto TransitionShaderManager::CompileTransitionShader(const std::string& shaderBodyCode) -> std::shared_ptr<Shader>
 {
 #ifdef USE_GLES
-    // GLES also requires a precision specifier for variables and 3D samplers
-    constexpr char versionHeader[] = "#version 300 es\n\nprecision mediump float;\nprecision mediump sampler3D;\n";
+    #ifdef USE_GLES2
+        constexpr char versionHeader[] = "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n";
+    #else
+        constexpr char versionHeader[] = "#version 300 es\n\n#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\nprecision mediump sampler3D;\n";
+    #endif
 #else
     constexpr char versionHeader[] = "#version 330\n\n";
 #endif
 
     std::string fragmentShaderSource(static_cast<const char*>(versionHeader));
-    fragmentShaderSource.append(kTransitionShaderHeaderGlsl330);
+    fragmentShaderSource.append(kTransitionShaderHeaderGlsl);
     fragmentShaderSource.append("\n");
     fragmentShaderSource.append(shaderBodyCode);
     fragmentShaderSource.append("\n");
-    fragmentShaderSource.append(kTransitionShaderMainGlsl330);
+    fragmentShaderSource.append(kTransitionShaderMainGlsl);
 
     try
     {
         auto transitionShader = std::make_shared<Shader>();
-        transitionShader->CompileProgram(static_cast<const char*>(versionHeader) + kTransitionVertexShaderGlsl330, fragmentShaderSource);
+        transitionShader->CompileProgram(static_cast<const char*>(versionHeader) + kTransitionVertexShaderGlsl, fragmentShaderSource);
         return transitionShader;
     }
     catch (const ShaderException&)
     {
-        // ToDo: Log proper shader compile error once logging API is in place
+        // Fallback
         return {};
     }
 }

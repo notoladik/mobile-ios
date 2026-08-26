@@ -8,6 +8,23 @@
 #import "VKThemeManager.h"
 #import "VKSideMenuManager.h"
 #import "VKCrashLogger.h"
+#import "VKMiniPlayerBar.h"
+#import "VKAudioPlayer.h"
+
+@interface VKNavigationController : UINavigationController <UIGestureRecognizerDelegate>
+@end
+
+@implementation VKNavigationController
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    if ([self respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
+        self.interactivePopGestureRecognizer.delegate = self;
+    }
+}
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
+    return self.viewControllers.count > 1;
+}
+@end
 
 @implementation VKAppDelegate
 
@@ -27,6 +44,7 @@
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(countersUpdated:) name:VKCountersDidUpdateNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(themeChanged:) name:VKThemeDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(sideMenuStateChanged:) name:VKSideMenuStateDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(audioPlayerStateChanged:) name:VKAudioPlayerStateDidChangeNotification object:nil];
     
     [self updateRootViewController];
     [[VKSideMenuManager sharedManager] setupWithRootWindow:self.window];
@@ -34,6 +52,17 @@
     
     [self.window makeKeyAndVisible];
     return YES;
+}
+
+- (void)audioPlayerStateChanged:(NSNotification *)note {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if ([VKAudioPlayer sharedPlayer].currentTrack != nil) {
+            CGFloat offset = (self.tabBarController != nil) ? 49.0 : 0.0;
+            [[VKMiniPlayerBar sharedBar] showInView:self.window bottomOffset:offset];
+        } else {
+            [[VKMiniPlayerBar sharedBar] hideAnimated:YES];
+        }
+    });
 }
 
 - (void)sideMenuStateChanged:(NSNotification *)notification {
@@ -90,22 +119,22 @@
             // Режим бокового меню: чистый полноэкранный стек без таббара
             self.tabBarController = nil;
             VKFeedViewController *feedVC = [[VKFeedViewController alloc] init];
-            UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:feedVC];
+            VKNavigationController *nav = [[VKNavigationController alloc] initWithRootViewController:feedVC];
             self.window.rootViewController = nav;
         } else {
             // Режим вкладок: классический таббар
             self.tabBarController = [[UITabBarController alloc] init];
             
             VKFeedViewController *feedVC = [[VKFeedViewController alloc] init];
-            UINavigationController *feedNav = [[UINavigationController alloc] initWithRootViewController:feedVC];
+            VKNavigationController *feedNav = [[VKNavigationController alloc] initWithRootViewController:feedVC];
             feedNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Лента" image:[self tabBarIconForIndex:0] tag:0];
             
             VKSearchViewController *searchVC = [[VKSearchViewController alloc] init];
-            UINavigationController *searchNav = [[UINavigationController alloc] initWithRootViewController:searchVC];
+            VKNavigationController *searchNav = [[VKNavigationController alloc] initWithRootViewController:searchVC];
             searchNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Поиск" image:[self tabBarIconForIndex:1] tag:1];
             
             VKMessagesViewController *msgVC = [[VKMessagesViewController alloc] init];
-            UINavigationController *msgNav = [[UINavigationController alloc] initWithRootViewController:msgVC];
+            VKNavigationController *msgNav = [[VKNavigationController alloc] initWithRootViewController:msgVC];
             msgNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Сообщения" image:[self tabBarIconForIndex:2] tag:2];
             
             NSInteger msgCount = [[VKAuthService sharedService] messagesCount];
@@ -114,7 +143,7 @@
             }
             
             VKMoreViewController *moreVC = [[VKMoreViewController alloc] initWithStyle:UITableViewStyleGrouped];
-            UINavigationController *moreNav = [[UINavigationController alloc] initWithRootViewController:moreVC];
+            VKNavigationController *moreNav = [[VKNavigationController alloc] initWithRootViewController:moreVC];
             moreNav.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Прочее" image:[self tabBarIconForIndex:3] tag:3];
             
             NSInteger notifCount = [[VKAuthService sharedService] notificationsCount];
@@ -128,7 +157,7 @@
     } else {
         self.tabBarController = nil;
         VKLoginViewController *loginVC = [[VKLoginViewController alloc] init];
-        UINavigationController *loginNav = [[UINavigationController alloc] initWithRootViewController:loginVC];
+        VKNavigationController *loginNav = [[VKNavigationController alloc] initWithRootViewController:loginVC];
         self.window.rootViewController = loginNav;
     }
 }

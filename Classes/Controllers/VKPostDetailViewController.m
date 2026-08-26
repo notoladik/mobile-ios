@@ -205,6 +205,7 @@
 
 @interface VKPostDetailViewController () <UIActionSheetDelegate, UIAlertViewDelegate>
 @property (nonatomic, strong) UITableView *tableView;
+@property (nonatomic, strong) UIRefreshControl *refreshControl;
 @property (nonatomic, strong) NSMutableArray *comments;
 @property (nonatomic, strong) UIView *inputContainerView;
 @property (nonatomic, strong) UIButton *attachButton;
@@ -217,6 +218,10 @@
 @end
 
 @implementation VKPostDetailViewController
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
 
 - (BOOL)shouldAutorotate {
     return YES;
@@ -236,6 +241,7 @@
     if (self) {
         _post = post;
         _comments = [NSMutableArray array];
+        self.hidesBottomBarWhenPushed = YES;
     }
     return self;
 }
@@ -262,6 +268,14 @@
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applyThemeStyle) name:VKThemeDidChangeNotification object:nil];
 }
 
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    if (self.focusCommentInputOnAppear) {
+        self.focusCommentInputOnAppear = NO;
+        [self.commentTextField becomeFirstResponder];
+    }
+}
+
 - (void)setupNavigationItems {
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"•••" style:UIBarButtonItemStylePlain target:self action:@selector(postOptionsAction)];
 }
@@ -269,6 +283,7 @@
 - (void)applyThemeStyle {
     self.view.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
     self.tableView.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
+    [self.tableView reloadData];
 }
 
 - (void)setupTableView {
@@ -279,6 +294,13 @@
     self.tableView.delegate = self;
     self.tableView.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
     self.tableView.separatorColor = [UIColor colorWithRed:235.0/255.0 green:237.0/255.0 blue:240.0/255.0 alpha:1.0];
+    
+    if (NSClassFromString(@"UIRefreshControl")) {
+        self.refreshControl = [[UIRefreshControl alloc] init];
+        [self.refreshControl addTarget:self action:@selector(loadComments) forControlEvents:UIControlEventValueChanged];
+        [self.tableView addSubview:self.refreshControl];
+    }
+    
     [self.view addSubview:self.tableView];
     
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissKeyboard)];
@@ -411,6 +433,7 @@
     
     [[VKCommentsService sharedService] fetchCommentsForOwnerId:self.post.ownerID postId:self.post.vkID offset:0 count:50 completion:^(NSArray *comments, NSInteger totalCount, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
+            [self.refreshControl endRefreshing];
             self.isLoading = NO;
             if (!error && comments) {
                 [self.comments removeAllObjects];
@@ -462,7 +485,36 @@
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return 1;
-    return self.comments.count;
+    return MAX(1, self.comments.count);
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    if (section == 1) {
+        return 32.0;
+    }
+    return 0.0;
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    if (section == 1) {
+        UIView *hView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 32.0)];
+        BOOL isSkeuo = [[VKThemeManager sharedManager] isSkeuomorphic];
+        hView.backgroundColor = isSkeuo ? [UIColor colorWithRed:236.0/255.0 green:239.0/255.0 blue:243.0/255.0 alpha:0.98] : [UIColor colorWithRed:245.0/255.0 green:247.0/255.0 blue:250.0/255.0 alpha:0.98];
+        
+        UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(12, 7, tableView.bounds.size.width - 24, 18)];
+        lbl.font = [UIFont boldSystemFontOfSize:12.5];
+        lbl.textColor = [UIColor colorWithRed:120.0/255.0 green:130.0/255.0 blue:145.0/255.0 alpha:1.0];
+        lbl.text = self.comments.count > 0 ? [NSString stringWithFormat:@"Комментарии (%ld)", (long)self.comments.count] : @"Комментарии";
+        [hView addSubview:lbl];
+        
+        UIView *bottomSep = [[UIView alloc] initWithFrame:CGRectMake(0, 31.5, tableView.bounds.size.width, 0.5)];
+        bottomSep.backgroundColor = [UIColor colorWithRed:215.0/255.0 green:218.0/255.0 blue:224.0/255.0 alpha:1.0];
+        bottomSep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [hView addSubview:bottomSep];
+        
+        return hView;
+    }
+    return nil;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -470,7 +522,7 @@
     if (indexPath.section == 0) {
         return [VKFeedPostCell heightForPost:self.post width:width isRevealed:YES];
     } else {
-        if (indexPath.row >= (NSInteger)self.comments.count) return 44.0;
+        if (self.comments.count == 0) return 70.0;
         VKComment *c = self.comments[indexPath.row];
         return [VKCommentCell heightForComment:c width:width];
     }
@@ -555,6 +607,22 @@
         
         return cell;
     } else {
+        if (self.comments.count == 0) {
+            static NSString *EmptyCellId = @"VKCommentEmptyCell";
+            UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:EmptyCellId];
+            if (!cell) {
+                cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:EmptyCellId];
+                cell.selectionStyle = UITableViewCellSelectionStyleNone;
+                cell.backgroundColor = [UIColor clearColor];
+                cell.textLabel.font = [UIFont systemFontOfSize:13.5];
+                cell.textLabel.textColor = [UIColor colorWithRed:150.0/255.0 green:160.0/255.0 blue:170.0/255.0 alpha:1.0];
+                cell.textLabel.textAlignment = NSTextAlignmentCenter;
+                cell.textLabel.numberOfLines = 2;
+            }
+            cell.textLabel.text = self.isLoading ? @"Загрузка комментариев..." : @"Комментариев пока нет.\nОставьте первый комментарий!";
+            return cell;
+        }
+        
         static NSString *CommentCellId = @"VKCommentCell";
         VKCommentCell *cell = [tableView dequeueReusableCellWithIdentifier:CommentCellId];
         if (!cell) {

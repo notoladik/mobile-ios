@@ -269,11 +269,31 @@
 }
 
 - (void)savePhotoAction {
+    UIImage *img = nil;
     if (self.currentIndex < (NSInteger)self.imageViews.count) {
-        UIImage *img = self.imageViews[self.currentIndex].image;
-        if (img) {
-            UIImageWriteToSavedPhotosAlbum(img, self, @selector(image:didFinishSavingWithError:contextInfo:), nil);
-        }
+        img = self.imageViews[self.currentIndex].image;
+    }
+    
+    if (img) {
+        // Нормализуем в стандартный RGB bitmap для гарантированного сохранения на всех версиях iOS
+        UIGraphicsBeginImageContextWithOptions(img.size, NO, img.scale);
+        [img drawInRect:CGRectMake(0, 0, img.size.width, img.size.height)];
+        UIImage *normalizedImage = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+        
+        UIImageWriteToSavedPhotosAlbum(normalizedImage ?: img, self, @selector(image:didFinishSavingWithError:contextInfo:), nil);
+    } else if (self.currentIndex < (NSInteger)self.photoURLs.count) {
+        NSString *urlStr = self.photoURLs[self.currentIndex];
+        [[VKImageLoader sharedLoader] loadImageWithURL:urlStr completion:^(UIImage *loadedImg) {
+            if (loadedImg) {
+                UIGraphicsBeginImageContextWithOptions(loadedImg.size, NO, loadedImg.scale);
+                [loadedImg drawInRect:CGRectMake(0, 0, loadedImg.size.width, loadedImg.size.height)];
+                UIImage *normalizedImage = UIGraphicsGetImageFromCurrentImageContext();
+                UIGraphicsEndImageContext();
+                
+                UIImageWriteToSavedPhotosAlbum(normalizedImage ?: loadedImg, self, @selector(image:didFinishSavingWithError:contextInfo:), nil);
+            }
+        }];
     }
 }
 

@@ -1,6 +1,7 @@
 #import "VKChatViewController.h"
 #import "VKMessagesService.h"
 #import "VKProfileViewController.h"
+#import "VKPhotoViewerViewController.h"
 #import "VKImageLoader.h"
 #import "VKSupportersService.h"
 #import "VKThemeManager.h"
@@ -387,8 +388,12 @@
     if (indexPath.row >= (NSInteger)self.messages.count) return 44.0;
     VKMessage *msg = self.messages[indexPath.row];
     NSString *displayText = [self textForMessage:msg];
+    
+    BOOL hasPhoto = (msg.attachments.count > 0 && [msg.attachments[0] isKindOfClass:[VKAttachment class]] && ((VKAttachment *)msg.attachments[0]).type == VKAttachmentTypePhoto);
+    CGFloat extraH = hasPhoto ? 140.0 : 0.0;
+    
     CGSize size = [displayText sizeWithFont:[UIFont systemFontOfSize:15] constrainedToSize:CGSizeMake(tableView.bounds.size.width - 100, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
-    return MAX(44.0, ceilf(size.height) + 26.0);
+    return MAX(44.0 + extraH, ceilf(size.height) + 26.0 + extraH);
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -403,6 +408,18 @@
         bubble.tag = 1001;
         bubble.userInteractionEnabled = YES;
         [cell.contentView addSubview:bubble];
+        
+        UIImageView *photoIV = [[UIImageView alloc] initWithFrame:CGRectZero];
+        photoIV.tag = 1004;
+        photoIV.contentMode = UIViewContentModeScaleAspectFill;
+        photoIV.clipsToBounds = YES;
+        photoIV.layer.cornerRadius = 8.0;
+        photoIV.userInteractionEnabled = YES;
+        photoIV.hidden = YES;
+        [bubble addSubview:photoIV];
+        
+        UITapGestureRecognizer *photoTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(chatPhotoTapped:)];
+        [photoIV addGestureRecognizer:photoTap];
         
         UILabel *textLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         textLabel.tag = 1002;
@@ -422,8 +439,12 @@
     
     VKMessage *msg = self.messages[indexPath.row];
     UIImageView *bubble = (UIImageView *)[cell.contentView viewWithTag:1001];
+    UIImageView *photoIV = (UIImageView *)[bubble viewWithTag:1004];
     UILabel *textLabel = (UILabel *)[bubble viewWithTag:1002];
     UILabel *timeLabel = (UILabel *)[bubble viewWithTag:1003];
+    
+    BOOL hasPhoto = (msg.attachments.count > 0 && [msg.attachments[0] isKindOfClass:[VKAttachment class]] && ((VKAttachment *)msg.attachments[0]).type == VKAttachmentTypePhoto);
+    VKAttachment *photoAtt = hasPhoto ? (VKAttachment *)msg.attachments[0] : nil;
     
     NSString *displayText = [self textForMessage:msg];
     textLabel.text = displayText;
@@ -431,10 +452,27 @@
     
     CGFloat width = tableView.bounds.size.width;
     CGSize size = [displayText sizeWithFont:[UIFont systemFontOfSize:15] constrainedToSize:CGSizeMake(width - 100, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
-    CGFloat bubbleWidth = MAX(76.0, ceilf(size.width) + 26.0);
-    CGFloat bubbleHeight = ceilf(size.height) + 22.0;
+    
+    CGFloat photoW = hasPhoto ? 180.0 : 0.0;
+    CGFloat photoH = hasPhoto ? 130.0 : 0.0;
+    
+    CGFloat bubbleWidth = MAX(hasPhoto ? 196.0 : 76.0, ceilf(size.width) + 26.0);
+    CGFloat bubbleHeight = ceilf(size.height) + 22.0 + (hasPhoto ? photoH + 8.0 : 0.0);
     
     BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
+    
+    if (hasPhoto) {
+        photoIV.hidden = NO;
+        photoIV.image = nil;
+        NSString *url = photoAtt.photoURL;
+        if (url.length > 0) {
+            [[VKImageLoader sharedLoader] loadImageWithURL:url completion:^(UIImage *img) {
+                if (img) photoIV.image = img;
+            }];
+        }
+    } else {
+        photoIV.hidden = YES;
+    }
     
     if (msg.isOutgoing) {
         // Исходящие (справа)
@@ -456,7 +494,6 @@
             if (outImg) {
                 bubble.image = [outImg resizableImageWithCapInsets:UIEdgeInsetsMake(15, 15, 15, 20) resizingMode:UIImageResizingModeStretch];
                 bubble.backgroundColor = [UIColor clearColor];
-                // В плоском стиле iOS 7 исходящий бабл светло-голубой, текст ТЁМНЫЙ для идеальной читаемости
                 textLabel.textColor = [UIColor colorWithRed:20.0/255.0 green:20.0/255.0 blue:24.0/255.0 alpha:1.0];
                 timeLabel.textColor = [UIColor colorWithRed:120.0/255.0 green:135.0/255.0 blue:155.0/255.0 alpha:1.0];
             } else {
@@ -466,7 +503,13 @@
                 timeLabel.textColor = [UIColor colorWithWhite:0.85 alpha:1.0];
             }
         }
-        textLabel.frame = CGRectMake(12, 6, ceilf(size.width), ceilf(size.height));
+        
+        CGFloat topY = 6.0;
+        if (hasPhoto) {
+            photoIV.frame = CGRectMake(8, topY, bubbleWidth - 20, photoH);
+            topY += photoH + 6.0;
+        }
+        textLabel.frame = CGRectMake(12, topY, ceilf(size.width), ceilf(size.height));
         timeLabel.frame = CGRectMake(bubbleWidth - 44, bubbleHeight - 16, 34, 12);
     } else {
         // Входящие (слева)
@@ -495,11 +538,25 @@
             textLabel.textColor = [UIColor blackColor];
             timeLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
         }
-        textLabel.frame = CGRectMake(16, 6, ceilf(size.width), ceilf(size.height));
+        
+        CGFloat topY = 6.0;
+        if (hasPhoto) {
+            photoIV.frame = CGRectMake(14, topY, bubbleWidth - 22, photoH);
+            topY += photoH + 6.0;
+        }
+        textLabel.frame = CGRectMake(16, topY, ceilf(size.width), ceilf(size.height));
         timeLabel.frame = CGRectMake(bubbleWidth - 40, bubbleHeight - 16, 34, 12);
     }
     
     return cell;
+}
+
+- (void)chatPhotoTapped:(UITapGestureRecognizer *)gesture {
+    UIImageView *iv = (UIImageView *)gesture.view;
+    if (iv.image) {
+        VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithImageURL:nil initialImage:iv.image];
+        [self presentViewController:viewer animated:YES completion:nil];
+    }
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {

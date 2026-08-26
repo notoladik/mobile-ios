@@ -23,10 +23,6 @@
 @property (nonatomic, strong) NSArray<VKAudioTrack *> *filteredTracks;
 @property (nonatomic, strong) NSArray<VKAudioAlbum *> *albums;
 
-@property (nonatomic, strong) UIView *miniPlayerView;
-@property (nonatomic, strong) UILabel *miniTitleLabel;
-@property (nonatomic, strong) UIButton *miniPlayButton;
-
 @property (nonatomic, assign) NSInteger selectedTab; // 0: My, 1: Albums, 2: Popular, 3: Recommendations
 @property (nonatomic, assign) BOOL isLoadingMore;
 @property (nonatomic, assign) BOOL hasMore;
@@ -92,12 +88,13 @@
     }
     
     // 2. TableView
-    CGFloat bottomPlayerH = 50.0;
-    self.tableView = [[UITableView alloc] initWithFrame:CGRectMake(0, topOffset, width, height - topOffset - bottomPlayerH) style:UITableViewStylePlain];
+    self.tableView = [[UITableView alloc] initWithFrame:CGRectMake(0, topOffset, width, height - topOffset) style:UITableViewStylePlain];
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
     self.tableView.rowHeight = 56.0;
+    self.tableView.contentInset = UIEdgeInsetsMake(0, 0, 52.0, 0);
+    self.tableView.scrollIndicatorInsets = UIEdgeInsetsMake(0, 0, 52.0, 0);
     
     self.refreshControl = [[UIRefreshControl alloc] init];
     [self.refreshControl addTarget:self action:@selector(loadAudios) forControlEvents:UIControlEventValueChanged];
@@ -113,35 +110,6 @@
     
     [self.view addSubview:self.tableView];
     
-    // 3. Мини-плеер внизу
-    self.miniPlayerView = [[UIView alloc] initWithFrame:CGRectMake(0, height - bottomPlayerH, width, bottomPlayerH)];
-    self.miniPlayerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
-    self.miniPlayerView.backgroundColor = [UIColor colorWithRed:245.0/255.0 green:247.0/255.0 blue:250.0/255.0 alpha:0.98];
-    self.miniPlayerView.layer.borderWidth = 0.5;
-    self.miniPlayerView.layer.borderColor = [UIColor colorWithWhite:0.8 alpha:1.0].CGColor;
-    
-    UITapGestureRecognizer *tapMini = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openFullPlayer)];
-    [self.miniPlayerView addGestureRecognizer:tapMini];
-    
-    self.miniTitleLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 6, width - 76, 38)];
-    self.miniTitleLabel.font = [UIFont boldSystemFontOfSize:13];
-    self.miniTitleLabel.textColor = [UIColor colorWithRed:40.0/255.0 green:40.0/255.0 blue:50.0/255.0 alpha:1.0];
-    self.miniTitleLabel.text = @"Выберите трек для воспроизведения";
-    [self.miniPlayerView addSubview:self.miniTitleLabel];
-    
-    self.miniPlayButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.miniPlayButton.frame = CGRectMake(width - 48, 8, 34, 34);
-    self.miniPlayButton.backgroundColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
-    self.miniPlayButton.layer.cornerRadius = 17.0;
-    self.miniPlayButton.clipsToBounds = YES;
-    [self.miniPlayButton setTitle:@"▶" forState:UIControlStateNormal];
-    [self.miniPlayButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    self.miniPlayButton.titleLabel.font = [UIFont boldSystemFontOfSize:15];
-    [self.miniPlayButton addTarget:self action:@selector(miniPlayTapped) forControlEvents:UIControlEventTouchUpInside];
-    [self.miniPlayerView addSubview:self.miniPlayButton];
-    
-    [self.view addSubview:self.miniPlayerView];
-    
     [self applyThemeStyle];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applyThemeStyle) name:VKThemeDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(playerStateChanged) name:VKAudioPlayerStateDidChangeNotification object:nil];
@@ -152,7 +120,6 @@
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self setupNavigationItems];
-    [self updateMiniPlayerUI];
 }
 
 - (void)setupNavigationItems {
@@ -180,7 +147,6 @@
     self.tableView.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
     self.segmentedControl.tintColor = [[VKThemeManager sharedManager] accentColor];
     [self.tableView reloadData];
-    [self updateMiniPlayerUI];
 }
 
 - (void)segmentChanged:(UISegmentedControl *)seg {
@@ -300,32 +266,8 @@
     }
 }
 
-- (void)miniPlayTapped {
-    [[VKAudioPlayer sharedPlayer] togglePlayPause];
-}
-
-- (void)openFullPlayer {
-    if ([VKAudioPlayer sharedPlayer].currentTrack) {
-        VKAudioPlayerViewController *vc = [[VKAudioPlayerViewController alloc] init];
-        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
-        [self presentViewController:nav animated:YES completion:nil];
-    }
-}
-
 - (void)playerStateChanged {
-    [self updateMiniPlayerUI];
     [self.tableView reloadData];
-}
-
-- (void)updateMiniPlayerUI {
-    VKAudioTrack *t = [VKAudioPlayer sharedPlayer].currentTrack;
-    if (t) {
-        self.miniTitleLabel.text = [NSString stringWithFormat:@"%@ — %@", t.artist, t.title];
-        [self.miniPlayButton setTitle:[VKAudioPlayer sharedPlayer].isPlaying ? @"❚❚" : @"▶" forState:UIControlStateNormal];
-    } else {
-        self.miniTitleLabel.text = @"Аудиозаписи";
-        [self.miniPlayButton setTitle:@"▶" forState:UIControlStateNormal];
-    }
 }
 
 #pragma mark - Table View Data Source
@@ -392,12 +334,9 @@
     static NSString *AudioCellId = @"VKAudioListTrackCell";
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:AudioCellId];
     if (!cell) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:AudioCellId];
-        cell.textLabel.font = [UIFont boldSystemFontOfSize:14];
-        cell.detailTextLabel.font = [UIFont systemFontOfSize:12];
-        cell.detailTextLabel.textColor = [UIColor colorWithWhite:0.5 alpha:1.0];
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:AudioCellId];
         
-        UIImageView *coverIv = [[UIImageView alloc] initWithFrame:CGRectMake(10, 8, 40, 40)];
+        UIImageView *coverIv = [[UIImageView alloc] initWithFrame:CGRectMake(12, 8, 40, 40)];
         coverIv.tag = 501;
         coverIv.layer.cornerRadius = 4.0;
         coverIv.clipsToBounds = YES;
@@ -405,32 +344,60 @@
         coverIv.contentMode = UIViewContentModeScaleAspectFill;
         [cell.contentView addSubview:coverIv];
         
-        UILabel *noteLbl = [[UILabel alloc] initWithFrame:CGRectMake(10, 8, 40, 40)];
+        UILabel *noteLbl = [[UILabel alloc] initWithFrame:CGRectMake(12, 8, 40, 40)];
         noteLbl.tag = 502;
         noteLbl.text = @"♫";
         noteLbl.textAlignment = NSTextAlignmentCenter;
         noteLbl.font = [UIFont systemFontOfSize:20];
         noteLbl.textColor = [UIColor colorWithRed:170.0/255.0 green:175.0/255.0 blue:185.0/255.0 alpha:1.0];
         [cell.contentView addSubview:noteLbl];
+        
+        UILabel *titleLbl = [[UILabel alloc] initWithFrame:CGRectZero];
+        titleLbl.tag = 503;
+        titleLbl.font = [UIFont boldSystemFontOfSize:14];
+        [cell.contentView addSubview:titleLbl];
+        
+        UILabel *artistLbl = [[UILabel alloc] initWithFrame:CGRectZero];
+        artistLbl.tag = 504;
+        artistLbl.font = [UIFont systemFontOfSize:12];
+        artistLbl.textColor = [UIColor colorWithWhite:0.5 alpha:1.0];
+        [cell.contentView addSubview:artistLbl];
+        
+        UILabel *durLbl = [[UILabel alloc] initWithFrame:CGRectZero];
+        durLbl.tag = 505;
+        durLbl.font = [UIFont systemFontOfSize:11.5];
+        durLbl.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+        durLbl.textAlignment = NSTextAlignmentRight;
+        [cell.contentView addSubview:durLbl];
     }
     
+    CGFloat width = tableView.bounds.size.width;
     UIImageView *coverIv = (UIImageView *)[cell.contentView viewWithTag:501];
     UILabel *noteLbl = (UILabel *)[cell.contentView viewWithTag:502];
+    UILabel *titleLbl = (UILabel *)[cell.contentView viewWithTag:503];
+    UILabel *artistLbl = (UILabel *)[cell.contentView viewWithTag:504];
+    UILabel *durLbl = (UILabel *)[cell.contentView viewWithTag:505];
     
     VKAudioTrack *track = self.filteredTracks[indexPath.row];
     BOOL isPlayingThis = [[VKAudioPlayer sharedPlayer].currentTrack.title isEqualToString:track.title] && [[VKAudioPlayer sharedPlayer].currentTrack.artist isEqualToString:track.artist];
     
-    cell.textLabel.text = [NSString stringWithFormat:@"     %@", track.title ?: @"Трек"];
-    if (isPlayingThis) {
-        cell.textLabel.text = [NSString stringWithFormat:@"  ▶  %@", track.title ?: @"Трек"];
-        cell.textLabel.textColor = [[VKThemeManager sharedManager] accentColor];
-    } else if (isSkeuomorph) {
-        cell.textLabel.textColor = [UIColor colorWithRed:43.0/255.0 green:88.0/255.0 blue:122.0/255.0 alpha:1.0];
-    } else {
-        cell.textLabel.textColor = [UIColor colorWithRed:25.0/255.0 green:25.0/255.0 blue:26.0/255.0 alpha:1.0];
-    }
+    titleLbl.frame = CGRectMake(60, 9, width - 125, 19);
+    artistLbl.frame = CGRectMake(60, 29, width - 125, 17);
+    durLbl.frame = CGRectMake(width - 60, 18, 50, 20);
     
-    cell.detailTextLabel.text = [NSString stringWithFormat:@"     %@ • %@", track.artist ?: @"Исполнитель", track.duration ?: @"3:00"];
+    durLbl.text = track.duration ?: @"";
+    artistLbl.text = track.artist ?: @"Исполнитель";
+    
+    if (isPlayingThis) {
+        titleLbl.text = [NSString stringWithFormat:@"▶ %@", track.title ?: @"Трек"];
+        titleLbl.textColor = [[VKThemeManager sharedManager] accentColor];
+    } else if (isSkeuomorph) {
+        titleLbl.text = track.title ?: @"Трек";
+        titleLbl.textColor = [UIColor colorWithRed:43.0/255.0 green:88.0/255.0 blue:122.0/255.0 alpha:1.0];
+    } else {
+        titleLbl.text = track.title ?: @"Трек";
+        titleLbl.textColor = [UIColor colorWithRed:25.0/255.0 green:25.0/255.0 blue:26.0/255.0 alpha:1.0];
+    }
     
     if (track.coverURL.length > 0) {
         noteLbl.hidden = YES;

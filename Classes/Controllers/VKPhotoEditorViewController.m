@@ -3,21 +3,30 @@
 #import <QuartzCore/QuartzCore.h>
 #import <CoreImage/CoreImage.h>
 
-// Модель одного штриха рисования (закрашка)
+// Тип кисти рисования
+typedef NS_ENUM(NSInteger, VKBrushType) {
+    VKBrushTypeMarker = 0,
+    VKBrushTypeNeon   = 1,
+    VKBrushTypeEraser = 2
+};
+
+// Модель одного штриха рисования
 @interface VKDrawingStroke : NSObject
 @property (nonatomic, strong) UIBezierPath *path;
 @property (nonatomic, strong) UIColor *color;
 @property (nonatomic, assign) CGFloat width;
+@property (nonatomic, assign) VKBrushType brushType;
 @end
 
 @implementation VKDrawingStroke
 @end
 
-// Холст для рисования кистью
+// Холст для рисования кистью (SketchDrawView)
 @interface VKDrawingCanvasView : UIView
 @property (nonatomic, strong) NSMutableArray<VKDrawingStroke *> *strokes;
 @property (nonatomic, strong) UIColor *currentColor;
 @property (nonatomic, assign) CGFloat currentWidth;
+@property (nonatomic, assign) VKBrushType currentBrushType;
 @property (nonatomic, strong) VKDrawingStroke *activeStroke;
 @end
 
@@ -30,6 +39,7 @@
         self.strokes = [NSMutableArray array];
         self.currentColor = [UIColor colorWithRed:1.0 green:0.25 blue:0.25 alpha:1.0];
         self.currentWidth = 6.0;
+        self.currentBrushType = VKBrushTypeMarker;
         self.userInteractionEnabled = YES;
         self.multipleTouchEnabled = NO;
     }
@@ -43,6 +53,7 @@
     self.activeStroke = [[VKDrawingStroke alloc] init];
     self.activeStroke.color = self.currentColor;
     self.activeStroke.width = self.currentWidth;
+    self.activeStroke.brushType = self.currentBrushType;
     self.activeStroke.path = [UIBezierPath bezierPath];
     self.activeStroke.path.lineWidth = self.currentWidth;
     self.activeStroke.path.lineCapStyle = kCGLineCapRound;
@@ -77,8 +88,29 @@
     CGContextSetLineJoin(ctx, kCGLineJoinRound);
     
     for (VKDrawingStroke *stroke in self.strokes) {
-        [stroke.color setStroke];
-        [stroke.path stroke];
+        if (stroke.brushType == VKBrushTypeEraser) {
+            CGContextSetBlendMode(ctx, kCGBlendModeClear);
+            [[UIColor clearColor] setStroke];
+            stroke.path.lineWidth = stroke.width * 1.5;
+            [stroke.path stroke];
+            CGContextSetBlendMode(ctx, kCGBlendModeNormal);
+        } else if (stroke.brushType == VKBrushTypeNeon) {
+            CGContextSaveGState(ctx);
+            CGContextSetShadowWithColor(ctx, CGSizeZero, stroke.width * 1.8, stroke.color.CGColor);
+            [stroke.color setStroke];
+            stroke.path.lineWidth = stroke.width;
+            [stroke.path stroke];
+            
+            // Внутренний белый неоновый стержень
+            [[UIColor whiteColor] setStroke];
+            stroke.path.lineWidth = MAX(1.5, stroke.width * 0.35);
+            [stroke.path stroke];
+            CGContextRestoreGState(ctx);
+        } else {
+            [stroke.color setStroke];
+            stroke.path.lineWidth = stroke.width;
+            [stroke.path stroke];
+        }
     }
 }
 
@@ -105,7 +137,154 @@ typedef NS_ENUM(NSInteger, VKPhotoEditorMode) {
     VKPhotoEditorModeMagic     // ✨ Автоулучшение (photo_panel_magic)
 };
 
-@interface VKPhotoEditorViewController () <UITextFieldDelegate>
+// Интерактивная рамка кадрирования VKPPCropBorderView
+@interface VKPPCropBorderView : UIView
+@property (nonatomic, assign) CGRect cropRect;
+@property (nonatomic, assign) NSInteger activeTouchHandle; // -1 none, 0..3 corners, 4..7 edges, 8 pan
+@property (nonatomic, assign) CGPoint lastTouchPoint;
+@property (nonatomic, copy) void (^onCropChanged)(CGRect newCropRect);
+@end
+
+@implementation VKPPCropBorderView
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.backgroundColor = [UIColor clearColor];
+        self.userInteractionEnabled = YES;
+        self.cropRect = CGRectInset(self.bounds, 24, 24);
+        self.activeTouchHandle = -1;
+    }
+    return self;
+}
+
+- (void)setCropRect:(CGRect)cropRect {
+    _cropRect = cropRect;
+    [self setNeedsDisplay];
+    if (self.onCropChanged) {
+        self.onCropChanged(cropRect);
+    }
+}
+
+- (void)drawRect:(CGRect)rect {
+    CGContextRef ctx = UIGraphicsGetCurrentContext();
+    
+    // 1. Полупрозрачное затемнение вне области кадрирования
+    CGContextSaveGState(ctx);
+    [[UIColor colorWithWhite:0.0 alpha:0.6] setFill];
+    UIRectFill(rect);
+    
+    // Вырезаем яркое окно кадрирования
+    CGContextSetBlendMode(ctx, kCGBlendModeClear);
+    [[UIColor clearColor] setFill];
+    UIRectFill(self.cropRect);
+    CGContextRestoreGState(ctx);
+    
+    // 2. Белая рамка вокруг cropRect
+    [[UIColor whiteColor] setStroke];
+    CGContextSetLineWidth(ctx, 1.5);
+    CGContextStrokeRect(ctx, self.cropRect);
+    
+    // 3. Тонкие линии правила третей 3x3
+    CGContextSetLineWidth(ctx, 0.5);
+    [[UIColor colorWithWhite:1.0 alpha:0.5] setStroke];
+    
+    CGFloat thirdW = self.cropRect.size.width / 3.0;
+    CGFloat thirdH = self.cropRect.size.height / 3.0;
+    
+    CGContextMoveToPoint(ctx, self.cropRect.origin.x + thirdW, self.cropRect.origin.y);
+    CGContextAddLineToPoint(ctx, self.cropRect.origin.x + thirdW, self.cropRect.origin.y + self.cropRect.size.height);
+    CGContextMoveToPoint(ctx, self.cropRect.origin.x + thirdW * 2, self.cropRect.origin.y);
+    CGContextAddLineToPoint(ctx, self.cropRect.origin.x + thirdW * 2, self.cropRect.origin.y + self.cropRect.size.height);
+    
+    CGContextMoveToPoint(ctx, self.cropRect.origin.x, self.cropRect.origin.y + thirdH);
+    CGContextAddLineToPoint(ctx, self.cropRect.origin.x + self.cropRect.size.width, self.cropRect.origin.y + thirdH);
+    CGContextMoveToPoint(ctx, self.cropRect.origin.x, self.cropRect.origin.y + thirdH * 2);
+    CGContextAddLineToPoint(ctx, self.cropRect.origin.x + self.cropRect.size.width, self.cropRect.origin.y + thirdH * 2);
+    CGContextStrokePath(ctx);
+    
+    // 4. Угловые засечки (аутентичные 3pt углы)
+    [[UIColor whiteColor] setStroke];
+    CGContextSetLineWidth(ctx, 3.5);
+    CGFloat cornerL = 16.0;
+    
+    // Top-Left
+    CGContextMoveToPoint(ctx, self.cropRect.origin.x, self.cropRect.origin.y + cornerL);
+    CGContextAddLineToPoint(ctx, self.cropRect.origin.x, self.cropRect.origin.y);
+    CGContextAddLineToPoint(ctx, self.cropRect.origin.x + cornerL, self.cropRect.origin.y);
+    // Top-Right
+    CGContextMoveToPoint(ctx, self.cropRect.origin.x + self.cropRect.size.width - cornerL, self.cropRect.origin.y);
+    CGContextAddLineToPoint(ctx, self.cropRect.origin.x + self.cropRect.size.width, self.cropRect.origin.y);
+    CGContextAddLineToPoint(ctx, self.cropRect.origin.x + self.cropRect.size.width, self.cropRect.origin.y + cornerL);
+    // Bottom-Left
+    CGContextMoveToPoint(ctx, self.cropRect.origin.x, self.cropRect.origin.y + self.cropRect.size.height - cornerL);
+    CGContextAddLineToPoint(ctx, self.cropRect.origin.x, self.cropRect.origin.y + self.cropRect.size.height);
+    CGContextAddLineToPoint(ctx, self.cropRect.origin.x + cornerL, self.cropRect.origin.y + self.cropRect.size.height);
+    // Bottom-Right
+    CGContextMoveToPoint(ctx, self.cropRect.origin.x + self.cropRect.size.width - cornerL, self.cropRect.origin.y + self.cropRect.size.height);
+    CGContextAddLineToPoint(ctx, self.cropRect.origin.x + self.cropRect.size.width, self.cropRect.origin.y + self.cropRect.size.height);
+    CGContextAddLineToPoint(ctx, self.cropRect.origin.x + self.cropRect.size.width, self.cropRect.origin.y + self.cropRect.size.height - cornerL);
+    CGContextStrokePath(ctx);
+}
+
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    UITouch *t = [touches anyObject];
+    CGPoint p = [t locationInView:self];
+    self.lastTouchPoint = p;
+    
+    CGFloat touchRadius = 24.0;
+    CGRect r = self.cropRect;
+    
+    if (hypotf(p.x - r.origin.x, p.y - r.origin.y) < touchRadius) self.activeTouchHandle = 0; // TL
+    else if (hypotf(p.x - (r.origin.x + r.size.width), p.y - r.origin.y) < touchRadius) self.activeTouchHandle = 1; // TR
+    else if (hypotf(p.x - r.origin.x, p.y - (r.origin.y + r.size.height)) < touchRadius) self.activeTouchHandle = 2; // BL
+    else if (hypotf(p.x - (r.origin.x + r.size.width), p.y - (r.origin.y + r.size.height)) < touchRadius) self.activeTouchHandle = 3; // BR
+    else if (CGRectContainsPoint(r, p)) self.activeTouchHandle = 8; // Pan
+    else self.activeTouchHandle = -1;
+}
+
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if (self.activeTouchHandle == -1) return;
+    UITouch *t = [touches anyObject];
+    CGPoint p = [t locationInView:self];
+    CGFloat dx = p.x - self.lastTouchPoint.x;
+    CGFloat dy = p.y - self.lastTouchPoint.y;
+    self.lastTouchPoint = p;
+    
+    CGRect r = self.cropRect;
+    CGFloat minSize = 60.0;
+    
+    if (self.activeTouchHandle == 0) { // TL
+        r.origin.x = MIN(r.origin.x + dx, r.origin.x + r.size.width - minSize);
+        r.origin.y = MIN(r.origin.y + dy, r.origin.y + r.size.height - minSize);
+        r.size.width = MAX(minSize, r.size.width - dx);
+        r.size.height = MAX(minSize, r.size.height - dy);
+    } else if (self.activeTouchHandle == 1) { // TR
+        r.origin.y = MIN(r.origin.y + dy, r.origin.y + r.size.height - minSize);
+        r.size.width = MAX(minSize, r.size.width + dx);
+        r.size.height = MAX(minSize, r.size.height - dy);
+    } else if (self.activeTouchHandle == 2) { // BL
+        r.origin.x = MIN(r.origin.x + dx, r.origin.x + r.size.width - minSize);
+        r.size.width = MAX(minSize, r.size.width - dx);
+        r.size.height = MAX(minSize, r.size.height + dy);
+    } else if (self.activeTouchHandle == 3) { // BR
+        r.size.width = MAX(minSize, r.size.width + dx);
+        r.size.height = MAX(minSize, r.size.height + dy);
+    } else if (self.activeTouchHandle == 8) { // Pan
+        r.origin.x = MAX(0, MIN(self.bounds.size.width - r.size.width, r.origin.x + dx));
+        r.origin.y = MAX(0, MIN(self.bounds.size.height - r.size.height, r.origin.y + dy));
+    }
+    
+    self.cropRect = r;
+}
+
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    self.activeTouchHandle = -1;
+}
+
+@end
+
+@interface VKPhotoEditorViewController () <UITextFieldDelegate, UIActionSheetDelegate>
 
 @property (nonatomic, strong) UIImage *originalImage;
 @property (nonatomic, strong) UIImage *baseOrientedImage;
@@ -115,12 +294,14 @@ typedef NS_ENUM(NSInteger, VKPhotoEditorMode) {
 
 @property (nonatomic, strong) UIImageView *mainImageView;
 @property (nonatomic, strong) VKDrawingCanvasView *drawingCanvas;
-@property (nonatomic, strong) NSMutableArray<UILabel *> *textLabels;
+@property (nonatomic, strong) VKPPCropBorderView *cropBorderView;
+@property (nonatomic, strong) NSMutableArray<UIView *> *textLabels;
 
 @property (nonatomic, strong) UIView *topBar;
 @property (nonatomic, strong) UIView *bottomBar;
 @property (nonatomic, strong) UIView *filtersContainerView;
 @property (nonatomic, strong) UIView *brushContainerView;
+@property (nonatomic, strong) UIView *cropToolbarView;
 @property (nonatomic, strong) UIScrollView *filtersScrollView;
 @property (nonatomic, strong) UIScrollView *brushColorsScrollView;
 
@@ -319,6 +500,139 @@ typedef NS_ENUM(NSInteger, VKPhotoEditorMode) {
     [self.view addSubview:self.brushContainerView];
     
     [self setupBrushToolbar];
+    [self setupCropToolbar];
+}
+
+#pragma mark - Crop Toolbar (VKPPCropView)
+
+- (void)setupCropToolbar {
+    CGFloat width = self.view.bounds.size.width;
+    CGFloat height = self.view.bounds.size.height;
+    
+    self.cropToolbarView = [[UIView alloc] initWithFrame:CGRectMake(0, height - 50 - 84, width, 84)];
+    self.cropToolbarView.backgroundColor = [UIColor colorWithWhite:0.04 alpha:0.95];
+    self.cropToolbarView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+    self.cropToolbarView.hidden = YES;
+    [self.view addSubview:self.cropToolbarView];
+    
+    // Ряд 1: Пропорции кадрирования
+    NSArray *ratios = @[@"Свободный", @"1:1", @"3:4", @"4:3", @"16:9"];
+    CGFloat rW = (width - 20) / ratios.count;
+    for (NSInteger i = 0; i < (NSInteger)ratios.count; i++) {
+        UIButton *rBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        rBtn.frame = CGRectMake(10 + i * rW, 6, rW, 30);
+        [rBtn setTitle:ratios[i] forState:UIControlStateNormal];
+        [rBtn setTitleColor:[UIColor colorWithWhite:0.85 alpha:1.0] forState:UIControlStateNormal];
+        rBtn.titleLabel.font = [UIFont systemFontOfSize:12];
+        rBtn.tag = i;
+        [rBtn addTarget:self action:@selector(cropRatioSelected:) forControlEvents:UIControlEventTouchUpInside];
+        [self.cropToolbarView addSubview:rBtn];
+    }
+    
+    // Ряд 2: Поворот, Сброс, Применить
+    CGFloat subW = (width - 40) / 3.0;
+    
+    UIButton *rotBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    rotBtn.frame = CGRectMake(15, 44, subW, 32);
+    [rotBtn setTitle:@"⟳ 90°" forState:UIControlStateNormal];
+    [rotBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    rotBtn.titleLabel.font = [UIFont boldSystemFontOfSize:13];
+    [rotBtn addTarget:self action:@selector(rotateImage90Degrees) forControlEvents:UIControlEventTouchUpInside];
+    [self.cropToolbarView addSubview:rotBtn];
+    
+    UIButton *resetBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    resetBtn.frame = CGRectMake(15 + subW + 5, 44, subW, 32);
+    [resetBtn setTitle:@"✕ Сброс" forState:UIControlStateNormal];
+    [resetBtn setTitleColor:[UIColor colorWithRed:255.0/255.0 green:80.0/255.0 blue:80.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+    resetBtn.titleLabel.font = [UIFont boldSystemFontOfSize:13];
+    [resetBtn addTarget:self action:@selector(cancelCropAction) forControlEvents:UIControlEventTouchUpInside];
+    [self.cropToolbarView addSubview:resetBtn];
+    
+    UIButton *applyBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    applyBtn.frame = CGRectMake(15 + (subW + 5) * 2, 44, subW, 32);
+    [applyBtn setTitle:@"✓ Применить" forState:UIControlStateNormal];
+    [applyBtn setTitleColor:[UIColor colorWithRed:74.0/255.0 green:160.0/255.0 blue:245.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+    applyBtn.titleLabel.font = [UIFont boldSystemFontOfSize:13];
+    [applyBtn addTarget:self action:@selector(applyCropAction) forControlEvents:UIControlEventTouchUpInside];
+    [self.cropToolbarView addSubview:applyBtn];
+}
+
+- (void)cropRatioSelected:(UIButton *)btn {
+    if (!self.cropBorderView) return;
+    CGRect bounds = self.cropBorderView.bounds;
+    CGFloat pad = 24.0;
+    CGFloat availW = bounds.size.width - pad * 2.0;
+    CGFloat availH = bounds.size.height - pad * 2.0;
+    
+    CGFloat targetRatio = 0.0;
+    switch (btn.tag) {
+        case 1: targetRatio = 1.0; break;       // 1:1
+        case 2: targetRatio = 3.0 / 4.0; break; // 3:4
+        case 3: targetRatio = 4.0 / 3.0; break; // 4:3
+        case 4: targetRatio = 16.0 / 9.0; break;// 16:9
+        default: targetRatio = 0.0; break;      // Freeform
+    }
+    
+    if (targetRatio <= 0.0) {
+        self.cropBorderView.cropRect = CGRectInset(bounds, pad, pad);
+    } else {
+        CGFloat cropW = availW;
+        CGFloat cropH = cropW / targetRatio;
+        if (cropH > availH) {
+            cropH = availH;
+            cropW = cropH * targetRatio;
+        }
+        CGFloat cx = (bounds.size.width - cropW) / 2.0;
+        CGFloat cy = (bounds.size.height - cropH) / 2.0;
+        self.cropBorderView.cropRect = CGRectMake(cx, cy, cropW, cropH);
+    }
+}
+
+- (void)cancelCropAction {
+    if (self.cropBorderView) {
+        [self.cropBorderView removeFromSuperview];
+        self.cropBorderView = nil;
+    }
+    [self modeButtonTapped:self.modeButtons[0]];
+}
+
+- (void)applyCropAction {
+    if (!self.cropBorderView) return;
+    CGRect cropRect = self.cropBorderView.cropRect;
+    CGRect ivBounds = self.mainImageView.bounds;
+    CGSize imgSize = self.baseOrientedImage.size;
+    
+    CGFloat scaleW = ivBounds.size.width / imgSize.width;
+    CGFloat scaleH = ivBounds.size.height / imgSize.height;
+    CGFloat fitScale = MIN(scaleW, scaleH);
+    
+    CGFloat displayedW = imgSize.width * fitScale;
+    CGFloat displayedH = imgSize.height * fitScale;
+    CGFloat originX = (ivBounds.size.width - displayedW) / 2.0;
+    CGFloat originY = (ivBounds.size.height - displayedH) / 2.0;
+    
+    CGFloat imgCropX = MAX(0, (cropRect.origin.x - originX) / fitScale);
+    CGFloat imgCropY = MAX(0, (cropRect.origin.y - originY) / fitScale);
+    CGFloat imgCropW = MIN(imgSize.width - imgCropX, cropRect.size.width / fitScale);
+    CGFloat imgCropH = MIN(imgSize.height - imgCropY, cropRect.size.height / fitScale);
+    
+    if (imgCropW > 20 && imgCropH > 20) {
+        CGRect finalCropRect = CGRectMake(imgCropX, imgCropY, imgCropW, imgCropH);
+        CGImageRef imageRef = CGImageCreateWithImageInRect([self.baseOrientedImage CGImage], finalCropRect);
+        if (imageRef) {
+            self.baseOrientedImage = [UIImage imageWithCGImage:imageRef scale:self.baseOrientedImage.scale orientation:self.baseOrientedImage.imageOrientation];
+            CGImageRelease(imageRef);
+        }
+    }
+    
+    self.filteredImage = [self applyFilterAtIndex:self.currentFilterIndex toImage:self.baseOrientedImage];
+    if (self.isMagicEnhanced) {
+        self.filteredImage = [self applyMagicEnhanceToImage:self.filteredImage];
+    }
+    self.mainImageView.image = self.filteredImage;
+    
+    [self cancelCropAction];
+    [self setupFiltersCarousel];
 }
 
 #pragma mark - Filter Carousel with Authentic VK Borders
@@ -496,12 +810,35 @@ typedef NS_ENUM(NSInteger, VKPhotoEditorMode) {
     VKPhotoEditorMode mode = (VKPhotoEditorMode)btn.tag;
     
     if (mode == VKPhotoEditorModeCrop) {
-        [self rotateImage90Degrees];
+        if (!self.cropBorderView) {
+            self.cropBorderView = [[VKPPCropBorderView alloc] initWithFrame:self.mainImageView.superview.bounds];
+            [self.mainImageView.superview addSubview:self.cropBorderView];
+        }
+        self.cropToolbarView.hidden = NO;
+        self.filtersContainerView.hidden = YES;
+        self.brushContainerView.hidden = YES;
+        self.drawingCanvas.userInteractionEnabled = NO;
+        
+        for (UIButton *b in self.modeButtons) {
+            b.backgroundColor = (b == btn) ? [UIColor colorWithWhite:1.0 alpha:0.15] : [UIColor clearColor];
+        }
         return;
+    } else {
+        if (self.cropBorderView) {
+            [self.cropBorderView removeFromSuperview];
+            self.cropBorderView = nil;
+        }
+        self.cropToolbarView.hidden = YES;
     }
     
     if (mode == VKPhotoEditorModeText) {
-        [self showAddTextDialog];
+        UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:@"Добавить на фото"
+                                                           delegate:self
+                                                  cancelButtonTitle:@"Отмена"
+                                             destructiveButtonTitle:nil
+                                                  otherButtonTitles:@"✍️ Добавить текст", @"🐶 Стикеры ВКонтакте", nil];
+        sheet.tag = 3000;
+        [sheet showInView:self.view];
         return;
     }
     
@@ -532,6 +869,27 @@ typedef NS_ENUM(NSInteger, VKPhotoEditorMode) {
         self.filtersContainerView.hidden = YES;
         self.brushContainerView.hidden = NO;
         self.drawingCanvas.userInteractionEnabled = YES;
+    }
+}
+
+- (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
+    if (actionSheet.tag == 3000) {
+        if (buttonIndex == 0) {
+            [self showAddTextDialog];
+        } else if (buttonIndex == 1) {
+            UIActionSheet *stkSheet = [[UIActionSheet alloc] initWithTitle:@"Выберите стикер"
+                                                                  delegate:self
+                                                         cancelButtonTitle:@"Отмена"
+                                                    destructiveButtonTitle:nil
+                                                         otherButtonTitles:@"🔥 Огонь", @"❤️ Сердце", @"🐶 Спотти", @"🐱 Персик", @"😎 Крутой", @"👑 Корона", @"✨ Блеск", @"💯 Сотка", nil];
+            stkSheet.tag = 3002;
+            [stkSheet showInView:self.view];
+        }
+    } else if (actionSheet.tag == 3002) {
+        NSArray *stkList = @[@"🔥", @"❤️", @"🐶", @"🐱", @"😎", @"👑", @"✨", @"💯"];
+        if (buttonIndex >= 0 && buttonIndex < (NSInteger)stkList.count) {
+            [self addTextLabelWithText:stkList[buttonIndex]];
+        }
     }
 }
 
@@ -597,11 +955,37 @@ typedef NS_ENUM(NSInteger, VKPhotoEditorMode) {
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleTextPan:)];
     [lbl addGestureRecognizer:pan];
     
+    UIPinchGestureRecognizer *pinch = [[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(handleTextPinch:)];
+    [lbl addGestureRecognizer:pinch];
+    
+    UIRotationGestureRecognizer *rot = [[UIRotationGestureRecognizer alloc] initWithTarget:self action:@selector(handleTextRotation:)];
+    [lbl addGestureRecognizer:rot];
+    
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTextTap:)];
     [lbl addGestureRecognizer:tap];
     
+    UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleTextLongPress:)];
+    [lbl addGestureRecognizer:lp];
+    
     [self.mainImageView.superview addSubview:lbl];
     [self.textLabels addObject:lbl];
+}
+
+- (void)handleTextPinch:(UIPinchGestureRecognizer *)gesture {
+    gesture.view.transform = CGAffineTransformScale(gesture.view.transform, gesture.scale, gesture.scale);
+    gesture.scale = 1.0;
+}
+
+- (void)handleTextRotation:(UIRotationGestureRecognizer *)gesture {
+    gesture.view.transform = CGAffineTransformRotate(gesture.view.transform, gesture.rotation);
+    gesture.rotation = 0.0;
+}
+
+- (void)handleTextLongPress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        [gesture.view removeFromSuperview];
+        [self.textLabels removeObject:(UILabel *)gesture.view];
+    }
 }
 
 - (void)handleTextTap:(UITapGestureRecognizer *)gesture {
@@ -759,34 +1143,45 @@ typedef NS_ENUM(NSInteger, VKPhotoEditorMode) {
             CGContextTranslateCTM(ctx, -originX, -originY);
             
             for (VKDrawingStroke *stroke in self.drawingCanvas.strokes) {
-                [stroke.color setStroke];
-                stroke.path.lineWidth = stroke.width * (displayedW / baseSize.width);
-                [stroke.path stroke];
+                if (stroke.brushType == VKBrushTypeNeon) {
+                    CGContextSaveGState(ctx);
+                    CGFloat scaledWidth = stroke.width * (displayedW / baseSize.width);
+                    CGContextSetShadowWithColor(ctx, CGSizeZero, scaledWidth * 1.8, stroke.color.CGColor);
+                    [stroke.color setStroke];
+                    stroke.path.lineWidth = scaledWidth;
+                    [stroke.path stroke];
+                    
+                    [[UIColor whiteColor] setStroke];
+                    stroke.path.lineWidth = MAX(1.5, scaledWidth * 0.35);
+                    [stroke.path stroke];
+                    CGContextRestoreGState(ctx);
+                } else if (stroke.brushType == VKBrushTypeEraser) {
+                    // Eraser does not draw
+                } else {
+                    [stroke.color setStroke];
+                    stroke.path.lineWidth = stroke.width * (displayedW / baseSize.width);
+                    [stroke.path stroke];
+                }
             }
             CGContextRestoreGState(ctx);
         }
         
-        // 3. Отрисовка текстовых подписей
-        for (UILabel *lbl in self.textLabels) {
-            CGPoint labelPos = [lbl convertPoint:CGPointZero toView:self.mainImageView];
-            CGFloat targetX = (labelPos.x - originX) * (baseSize.width / displayedW);
-            CGFloat targetY = (labelPos.y - originY) * (baseSize.height / displayedH);
-            CGFloat targetW = lbl.bounds.size.width * (baseSize.width / displayedW);
-            CGFloat targetH = lbl.bounds.size.height * (baseSize.height / displayedH);
+        // 3. Отрисовка текстовых подписей и стикеров с учетом масштабирования и поворота
+        for (UIView *lbl in self.textLabels) {
+            CGContextSaveGState(ctx);
+            CGPoint labelCenter = [lbl.superview convertPoint:lbl.center toView:self.mainImageView];
+            CGFloat targetCX = (labelCenter.x - originX) * (baseSize.width / displayedW);
+            CGFloat targetCY = (labelCenter.y - originY) * (baseSize.height / displayedH);
             
-            CGRect drawRect = CGRectMake(targetX, targetY, targetW, targetH);
+            CGContextTranslateCTM(ctx, targetCX, targetCY);
+            CGContextConcatCTM(ctx, lbl.transform);
             
-            [[UIColor colorWithWhite:0.0 alpha:0.55] setFill];
-            UIBezierPath *bgPath = [UIBezierPath bezierPathWithRoundedRect:drawRect cornerRadius:6.0 * (baseSize.width / displayedW)];
-            [bgPath fill];
+            CGFloat scaleFactor = baseSize.width / displayedW;
+            CGContextScaleCTM(ctx, scaleFactor, scaleFactor);
+            CGContextTranslateCTM(ctx, -lbl.bounds.size.width / 2.0, -lbl.bounds.size.height / 2.0);
             
-            UIFont *font = [self fontForIndex:lbl.tag size:22.0 * (baseSize.width / displayedW)];
-            CGSize tSize = [lbl.text sizeWithFont:font];
-            CGRect textDrawRect = CGRectMake(drawRect.origin.x + (drawRect.size.width - tSize.width) / 2.0,
-                                             drawRect.origin.y + (drawRect.size.height - tSize.height) / 2.0,
-                                             tSize.width, tSize.height);
-            [[UIColor whiteColor] setFill];
-            [lbl.text drawInRect:textDrawRect withFont:font lineBreakMode:NSLineBreakByClipping alignment:NSTextAlignmentCenter];
+            [lbl.layer renderInContext:ctx];
+            CGContextRestoreGState(ctx);
         }
     }
     

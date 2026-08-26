@@ -25,6 +25,16 @@
     }
     
     user.isOnline = [dict[@"online"] integerValue] == 1;
+    if ([dict[@"last_seen"] isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *ls = dict[@"last_seen"];
+        NSInteger platform = [ls[@"platform"] integerValue];
+        if (platform == 1 || platform == 2 || platform == 3) user.onlinePlatform = @"📱";
+        else if (platform == 4) user.onlinePlatform = @"🤖";
+        else if (platform == 7) user.onlinePlatform = @"💻";
+    }
+    if ([dict[@"online_mobile"] integerValue] == 1 && user.onlinePlatform.length == 0) {
+        user.onlinePlatform = @"📱";
+    }
     user.isOfficial = [dict[@"verified"] integerValue] == 1;
     user.status = dict[@"status"];
     user.about = dict[@"about"];
