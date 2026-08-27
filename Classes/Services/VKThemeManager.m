@@ -48,21 +48,38 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
     [[NSUserDefaults standardUserDefaults] setInteger:type forKey:kOpenVKThemeKey];
     [[NSUserDefaults standardUserDefaults] synchronize];
     
+    BOOL hasBarTintColor = [[UINavigationBar appearance] respondsToSelector:@selector(setBarTintColor:)];
+    BOOL isIOS7 = ([[[UIDevice currentDevice] systemVersion] floatValue] >= 7.0);
+    
     if (type == VKThemeTypeClassicUIKit) {
-        [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleLightContent animated:NO];
+        if (isIOS7) {
+            [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleLightContent animated:NO];
+        } else {
+            [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleBlackOpaque animated:NO];
+        }
         [[UINavigationBar appearance] setBarStyle:UIBarStyleBlack];
         [[UINavigationBar appearance] setBackgroundImage:nil forBarMetrics:UIBarMetricsDefault];
-        [[UINavigationBar appearance] setBarTintColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
-        [[UINavigationBar appearance] setTintColor:[UIColor whiteColor]];
+        if (hasBarTintColor) {
+            [[UINavigationBar appearance] setBarTintColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
+            [[UINavigationBar appearance] setTintColor:[UIColor whiteColor]];
+        } else {
+            [[UINavigationBar appearance] setTintColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
+        }
         [[UINavigationBar appearance] setTitleTextAttributes:@{
             NSForegroundColorAttributeName: [UIColor whiteColor],
             NSFontAttributeName: [UIFont boldSystemFontOfSize:17]
         }];
         [[UITabBar appearance] setBackgroundImage:nil];
-        [[UITabBar appearance] setBarTintColor:[UIColor colorWithWhite:0.98 alpha:1.0]];
+        if (hasBarTintColor) {
+            [[UITabBar appearance] setBarTintColor:[UIColor colorWithWhite:0.98 alpha:1.0]];
+        }
         [[UITabBar appearance] setTintColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
     } else if (type == VKThemeTypeiOS6Legacy) {
-        [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleLightContent animated:NO];
+        if (isIOS7) {
+            [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleLightContent animated:NO];
+        } else {
+            [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleBlackOpaque animated:NO];
+        }
         [[UINavigationBar appearance] setBarStyle:UIBarStyleBlack];
         UIImage *navImg = [self navBarBackgroundImageForHeight:64.0];
         [[UINavigationBar appearance] setBackgroundImage:navImg forBarMetrics:UIBarMetricsDefault];
@@ -84,14 +101,20 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
         [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleDefault animated:NO];
         [[UINavigationBar appearance] setBarStyle:UIBarStyleDefault];
         [[UINavigationBar appearance] setBackgroundImage:nil forBarMetrics:UIBarMetricsDefault];
-        [[UINavigationBar appearance] setBarTintColor:[UIColor whiteColor]];
-        [[UINavigationBar appearance] setTintColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
+        if (hasBarTintColor) {
+            [[UINavigationBar appearance] setBarTintColor:[UIColor whiteColor]];
+            [[UINavigationBar appearance] setTintColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
+        } else {
+            [[UINavigationBar appearance] setTintColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
+        }
         [[UINavigationBar appearance] setTitleTextAttributes:@{
             NSForegroundColorAttributeName: [UIColor colorWithRed:20.0/255.0 green:20.0/255.0 blue:20.0/255.0 alpha:1.0],
             NSFontAttributeName: [UIFont boldSystemFontOfSize:17]
         }];
         [[UITabBar appearance] setBackgroundImage:nil];
-        [[UITabBar appearance] setBarTintColor:[UIColor whiteColor]];
+        if (hasBarTintColor) {
+            [[UITabBar appearance] setBarTintColor:[UIColor whiteColor]];
+        }
         [[UITabBar appearance] setTintColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
     }
     

@@ -148,8 +148,15 @@
     CGFloat textWidth = MAX(50.0, width - 68.0);
     NSAttributedString *attr = [self attributedTextForComment:comment.text];
     
-    CGRect rect = [attr boundingRectWithSize:CGSizeMake(textWidth, CGFLOAT_MAX) options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading context:nil];
-    return MAX(54.0, ceilf(rect.size.height) + 44.0);
+    CGFloat textH = 0;
+    if ([attr respondsToSelector:@selector(boundingRectWithSize:options:context:)]) {
+        CGRect rect = [attr boundingRectWithSize:CGSizeMake(textWidth, CGFLOAT_MAX) options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading context:nil];
+        textH = ceilf(rect.size.height);
+    } else {
+        CGSize sz = [comment.text sizeWithFont:[UIFont systemFontOfSize:14] constrainedToSize:CGSizeMake(textWidth, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
+        textH = ceilf(sz.height);
+    }
+    return MAX(54.0, textH + 44.0);
 }
 
 - (void)configureWithComment:(VKComment *)comment width:(CGFloat)width {
@@ -177,10 +184,17 @@
     self.commentTextLabel.attributedText = attr;
     
     CGFloat textWidth = MAX(50.0, width - 68.0);
-    CGRect rect = [attr boundingRectWithSize:CGSizeMake(textWidth, CGFLOAT_MAX) options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading context:nil];
-    self.commentTextLabel.frame = CGRectMake(58, 28, textWidth, ceilf(rect.size.height));
+    CGFloat textH = 0;
+    if ([attr respondsToSelector:@selector(boundingRectWithSize:options:context:)]) {
+        CGRect rect = [attr boundingRectWithSize:CGSizeMake(textWidth, CGFLOAT_MAX) options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading context:nil];
+        textH = ceilf(rect.size.height);
+    } else {
+        CGSize sz = [comment.text sizeWithFont:[UIFont systemFontOfSize:14] constrainedToSize:CGSizeMake(textWidth, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
+        textH = ceilf(sz.height);
+    }
+    self.commentTextLabel.frame = CGRectMake(58, 28, textWidth, textH);
     
-    CGFloat bottomY = 28 + ceilf(rect.size.height) + 4.0;
+    CGFloat bottomY = 28 + textH + 4.0;
     NSString *dateStr = comment.timeAgo ?: @"сегодня";
     CGSize dateSize = [dateStr sizeWithFont:[UIFont systemFontOfSize:11.5]];
     self.dateLabel.text = dateStr;

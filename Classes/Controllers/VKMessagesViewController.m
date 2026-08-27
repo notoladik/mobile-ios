@@ -28,7 +28,9 @@
     self.conversations = [NSMutableArray array];
     self.filteredConversations = [NSMutableArray array];
     self.tableView.rowHeight = 72.0;
-    self.tableView.separatorInset = UIEdgeInsetsMake(0, 70, 0, 0);
+    if ([self.tableView respondsToSelector:@selector(setSeparatorInset:)]) {
+        self.tableView.separatorInset = UIEdgeInsetsMake(0, 70, 0, 0);
+    }
     
     if ([self respondsToSelector:@selector(setEdgesForExtendedLayout:)]) {
         self.edgesForExtendedLayout = UIRectEdgeNone;

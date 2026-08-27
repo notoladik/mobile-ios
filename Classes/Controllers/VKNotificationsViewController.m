@@ -154,7 +154,9 @@
     
     self.title = [[VKThemeManager sharedManager] isSkeuomorphic] ? @"Ответы" : @"Уведомления";
     self.notifications = [NSMutableArray array];
-    self.tableView.separatorInset = UIEdgeInsetsMake(0, 66, 0, 0);
+    if ([self.tableView respondsToSelector:@selector(setSeparatorInset:)]) {
+        self.tableView.separatorInset = UIEdgeInsetsMake(0, 66, 0, 0);
+    }
     
     [self setupNavigationItems];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(setupNavigationItems) name:VKSideMenuStateDidChangeNotification object:nil];

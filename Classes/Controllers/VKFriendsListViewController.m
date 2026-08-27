@@ -44,7 +44,9 @@
     self.view.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
     self.tableView.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
     self.tableView.rowHeight = 60.0;
-    self.tableView.separatorInset = UIEdgeInsetsMake(0, 68, 0, 0);
+    if ([self.tableView respondsToSelector:@selector(setSeparatorInset:)]) {
+        self.tableView.separatorInset = UIEdgeInsetsMake(0, 68, 0, 0);
+    }
     
     [self setupNavigationItems];
     [self setupHeaderView];
