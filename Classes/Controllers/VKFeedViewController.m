@@ -2,10 +2,10 @@
 #import "VKFeedPostCell.h"
 #import "VKFeedService.h"
 #import "VKPostDetailViewController.h"
-#import "VKPostCommentsViewController.h"
 #import "VKProfileViewController.h"
 #import "VKNewPostViewController.h"
 #import "VKPhotoViewerViewController.h"
+#import "VKGifViewerViewController.h"
 #import "VKVideoPlayerViewController.h"
 #import "VKThemeManager.h"
 #import "VKSideMenuManager.h"
@@ -253,8 +253,11 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     };
     
     cell.onCommentTapped = ^(VKPost *p) {
-        VKPostCommentsViewController *commVC = [[VKPostCommentsViewController alloc] initWithPost:p];
-        [weakSelf.navigationController pushViewController:commVC animated:YES];
+        if (p) {
+            VKPostDetailViewController *detailVC = [[VKPostDetailViewController alloc] initWithPost:p];
+            detailVC.focusCommentInputOnAppear = YES;
+            [weakSelf.navigationController pushViewController:detailVC animated:YES];
+        }
     };
     
     cell.onRepostTapped = ^(VKPost *p) {
@@ -297,14 +300,6 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
         });
     };
     
-    cell.onCommentTapped = ^(VKPost *p) {
-        if (p) {
-            VKPostDetailViewController *detailVC = [[VKPostDetailViewController alloc] initWithPost:p];
-            detailVC.focusCommentInputOnAppear = YES;
-            [weakSelf.navigationController pushViewController:detailVC animated:YES];
-        }
-    };
-    
     cell.onAuthorTapped = ^(VKUser *author) {
         VKProfileViewController *profVC = [[VKProfileViewController alloc] initWithUser:author];
         [weakSelf.navigationController pushViewController:profVC animated:YES];
@@ -337,6 +332,11 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
         if (docAttachment.docURL.length > 0) {
             [[UIApplication sharedApplication] openURL:[NSURL URLWithString:docAttachment.docURL]];
         }
+    };
+    
+    cell.onGifTapped = ^(VKAttachment *gifAttachment) {
+        VKGifViewerViewController *gifVC = [[VKGifViewerViewController alloc] initWithAttachment:gifAttachment];
+        [weakSelf presentViewController:gifVC animated:YES completion:nil];
     };
     
     cell.onLinkTapped = ^(NSString *url) {

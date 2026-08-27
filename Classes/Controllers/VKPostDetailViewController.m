@@ -5,6 +5,7 @@
 #import "VKFeedPostCell.h"
 #import "VKProfileViewController.h"
 #import "VKPhotoViewerViewController.h"
+#import "VKGifViewerViewController.h"
 #import "VKVideoPlayerViewController.h"
 #import <MediaPlayer/MediaPlayer.h>
 #import "VKAudioPlayer.h"
@@ -570,6 +571,11 @@
             if (docAttachment.docURL.length > 0) {
                 [[UIApplication sharedApplication] openURL:[NSURL URLWithString:docAttachment.docURL]];
             }
+        };
+        
+        cell.onGifTapped = ^(VKAttachment *gifAttachment) {
+            VKGifViewerViewController *gifVC = [[VKGifViewerViewController alloc] initWithAttachment:gifAttachment];
+            [weakSelf presentViewController:gifVC animated:YES completion:nil];
         };
         
         cell.onLinkTapped = ^(NSString *url) {

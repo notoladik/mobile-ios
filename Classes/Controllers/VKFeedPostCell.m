@@ -4,6 +4,7 @@
 #import "VKThemeManager.h"
 #import "VKAudioPlayer.h"
 #import "VKAPIClient.h"
+#import "VKAnimatedImageView.h"
 #import <QuartzCore/QuartzCore.h>
 
 @interface VKFeedPostCell ()
@@ -431,7 +432,10 @@
     }
     if (index >= 0 && index < (NSInteger)gifs.count) {
         VKAttachment *att = gifs[index];
-        if (self.onPhotoTapped) {
+        if (self.onGifTapped) {
+            self.onGifTapped(att);
+        } else if (self.onPhotoTapped) {
+            // Fallback: open preview as static image
             self.onPhotoTapped(att.gifPreviewURL ?: att.docURL, nil);
         }
     }
@@ -1093,7 +1097,11 @@
             attY += 44.0;
             docIndex++;
         } else if (att.type == VKAttachmentTypeGif) {
+            // Calculate proportional height (up to 240pt)
             CGFloat gifH = 180.0;
+            if (att.gifWidth > 0 && att.gifHeight > 0) {
+                gifH = MAX(100.0, MIN(240.0, floorf(contentW * (att.gifHeight / att.gifWidth))));
+            }
             UIView *gifView = [[UIView alloc] initWithFrame:CGRectMake(0, attY, contentW, gifH)];
             gifView.backgroundColor = [UIColor colorWithWhite:0.05 alpha:1.0];
             gifView.layer.cornerRadius = 6.0;
@@ -1102,19 +1110,17 @@
             gifView.userInteractionEnabled = YES;
             UITapGestureRecognizer *gTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(gifAttachmentTapped:)];
             [gifView addGestureRecognizer:gTap];
-            
-            UIImageView *gifImg = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, contentW, gifH)];
+
+            // Animated GIF view (shows preview → then plays full GIF)
+            VKAnimatedImageView *gifImg = [[VKAnimatedImageView alloc] initWithFrame:CGRectMake(0, 0, contentW, gifH)];
             gifImg.contentMode = UIViewContentModeScaleAspectFit;
             gifImg.backgroundColor = [UIColor colorWithWhite:0.05 alpha:1.0];
             gifImg.clipsToBounds = YES;
-            NSString *imgURL = att.gifPreviewURL.length > 0 ? att.gifPreviewURL : att.docURL;
-            if (imgURL.length > 0) {
-                [[VKImageLoader sharedLoader] loadImageWithURL:imgURL completion:^(UIImage *img) {
-                    if (img) gifImg.image = img;
-                }];
-            }
+            gifImg.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            [gifImg loadGIFFromURL:att.docURL previewURL:att.gifPreviewURL];
             [gifView addSubview:gifImg];
-            
+
+            // "GIF" badge (bottom-left)
             UILabel *gifBadge = [[UILabel alloc] initWithFrame:CGRectMake(8, gifH - 28, 36, 20)];
             gifBadge.text = @"GIF";
             gifBadge.textColor = [UIColor whiteColor];
@@ -1123,8 +1129,18 @@
             gifBadge.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.7];
             gifBadge.layer.cornerRadius = 3.0;
             gifBadge.clipsToBounds = YES;
+            gifBadge.autoresizingMask = UIViewAutoresizingFlexibleTopMargin;
             [gifView addSubview:gifBadge];
-            
+
+            // Fullscreen expand icon (top-right)
+            UILabel *expandIcon = [[UILabel alloc] initWithFrame:CGRectMake(contentW - 34, 8, 26, 20)];
+            expandIcon.text = @"⛶";
+            expandIcon.textColor = [UIColor colorWithWhite:1.0 alpha:0.85];
+            expandIcon.font = [UIFont systemFontOfSize:14];
+            expandIcon.textAlignment = NSTextAlignmentCenter;
+            expandIcon.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+            [gifView addSubview:expandIcon];
+
             [self.attachmentsContainerView addSubview:gifView];
             attY += gifH + 8.0;
             gifIndex++;

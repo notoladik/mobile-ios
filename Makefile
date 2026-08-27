@@ -54,7 +54,7 @@ VISUALIZER_SRC =
 endif
 
 OpenVK_FILES = $(wildcard Classes/*.m) $(wildcard Classes/Controllers/*.m) $(wildcard Classes/Models/*.m) $(wildcard Classes/Services/*.m) $(VISUALIZER_SRC)
-OpenVK_FRAMEWORKS = UIKit Foundation CoreGraphics QuartzCore Security SystemConfiguration MediaPlayer AVFoundation OpenGLES CoreImage MediaToolbox AudioToolbox
+OpenVK_FRAMEWORKS = UIKit Foundation CoreGraphics QuartzCore Security SystemConfiguration MediaPlayer AVFoundation OpenGLES CoreImage MediaToolbox AudioToolbox ImageIO
 OpenVK_CFLAGS = -fobjc-arc -IClasses -IClasses/Controllers -IClasses/Models -IClasses/Services -IClasses/Milkdrop $(PROJECTM_INCLUDES) $(VISUALIZER_CFLAGS) -Wno-deprecated-declarations -Wno-enum-conversion -Wno-unused-variable -Wno-unused-function -Wno-unused-private-field -Wno-error
 OpenVK_CXXFLAGS = -std=c++17 -stdlib=libc++ -faligned-allocation -IClasses -IClasses/Milkdrop $(PROJECTM_INCLUDES) $(VISUALIZER_CFLAGS) -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-function -Wno-unused-private-field -Wno-error
 OpenVK_CCFLAGS = $(OpenVK_CXXFLAGS)

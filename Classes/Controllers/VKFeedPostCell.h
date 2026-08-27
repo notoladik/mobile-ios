@@ -60,6 +60,7 @@
 @property (nonatomic, copy) void (^onAudioTapped)(VKAttachment *audioAttachment);
 @property (nonatomic, copy) void (^onPollVoted)(VKAttachment *pollAttachment, NSInteger optionId);
 @property (nonatomic, copy) void (^onDocTapped)(VKAttachment *docAttachment);
+@property (nonatomic, copy) void (^onGifTapped)(VKAttachment *gifAttachment);
 @property (nonatomic, copy) void (^onLinkTapped)(NSString *url);
 @property (nonatomic, copy) void (^onCopyrightTapped)(NSString *url);
 
