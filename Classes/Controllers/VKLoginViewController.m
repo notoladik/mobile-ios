@@ -1,4 +1,4 @@
-#import "VKLoginViewController.h"
+﻿#import "VKLoginViewController.h"
 #import "VKAuthService.h"
 #import "VKAppConfig.h"
 #import "VKCrashLogger.h"
@@ -35,30 +35,29 @@
     tap.cancelsTouchesInView = NO;
     [self.scrollView addGestureRecognizer:tap];
     
-    // Logo
+    // — Компактная шапка: лого + заголовок в одну строку —
     self.logoImageView = [[UIImageView alloc] initWithFrame:CGRectZero];
     self.logoImageView.image = [UIImage imageNamed:@"logo.png"] ?: [UIImage imageNamed:@"Icon.png"];
-    self.logoImageView.layer.cornerRadius = 16.0;
+    self.logoImageView.layer.cornerRadius = 10.0;
     self.logoImageView.clipsToBounds = YES;
     [self.scrollView addSubview:self.logoImageView];
     
-    // Title & Subtitle
     self.titleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     self.titleLabel.text = @"Welcome to OpenVK";
-    self.titleLabel.font = [UIFont boldSystemFontOfSize:26];
-    self.titleLabel.textAlignment = NSTextAlignmentCenter;
+    self.titleLabel.font = [UIFont boldSystemFontOfSize:18];
+    self.titleLabel.textAlignment = NSTextAlignmentLeft;
     self.titleLabel.textColor = [UIColor colorWithRed:20.0/255.0 green:20.0/255.0 blue:20.0/255.0 alpha:1.0];
     [self.scrollView addSubview:self.titleLabel];
     
     self.subtitleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-    self.subtitleLabel.text = @"Not-yet-federated open source\nsocial network inspired by VK.";
-    self.subtitleLabel.font = [UIFont systemFontOfSize:14];
-    self.subtitleLabel.textAlignment = NSTextAlignmentCenter;
-    self.subtitleLabel.textColor = [UIColor colorWithWhite:0.5 alpha:1.0];
-    self.subtitleLabel.numberOfLines = 2;
+    self.subtitleLabel.text = @"Open source social network inspired by VK";
+    self.subtitleLabel.font = [UIFont systemFontOfSize:12];
+    self.subtitleLabel.textAlignment = NSTextAlignmentLeft;
+    self.subtitleLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+    self.subtitleLabel.numberOfLines = 1;
     [self.scrollView addSubview:self.subtitleLabel];
     
-    // Card Form
+    // — Карточка формы —
     self.cardView = [[UIView alloc] initWithFrame:CGRectZero];
     self.cardView.backgroundColor = [UIColor colorWithRed:244.0/255.0 green:245.0/255.0 blue:247.0/255.0 alpha:1.0];
     self.cardView.layer.cornerRadius = 12.0;
@@ -68,7 +67,7 @@
     // Instance button
     self.instanceButton = [UIButton buttonWithType:UIButtonTypeCustom];
     [self.instanceButton setTitleColor:[UIColor colorWithRed:30.0/255.0 green:30.0/255.0 blue:30.0/255.0 alpha:1.0] forState:UIControlStateNormal];
-    self.instanceButton.titleLabel.font = [UIFont systemFontOfSize:15];
+    self.instanceButton.titleLabel.font = [UIFont systemFontOfSize:14];
     self.instanceButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
     [self.instanceButton addTarget:self action:@selector(selectInstanceAction) forControlEvents:UIControlEventTouchUpInside];
     [self updateInstanceTitle];
@@ -82,7 +81,7 @@
     // Username Field
     self.usernameField = [[UITextField alloc] initWithFrame:CGRectZero];
     self.usernameField.placeholder = @"Email или логин";
-    self.usernameField.font = [UIFont systemFontOfSize:16];
+    self.usernameField.font = [UIFont systemFontOfSize:15];
     self.usernameField.autocapitalizationType = UITextAutocapitalizationTypeNone;
     self.usernameField.autocorrectionType = UITextAutocorrectionTypeNo;
     self.usernameField.returnKeyType = UIReturnKeyNext;
@@ -97,13 +96,13 @@
     // Password Field
     self.passwordField = [[UITextField alloc] initWithFrame:CGRectZero];
     self.passwordField.placeholder = @"Пароль";
-    self.passwordField.font = [UIFont systemFontOfSize:16];
+    self.passwordField.font = [UIFont systemFontOfSize:15];
     self.passwordField.secureTextEntry = YES;
     self.passwordField.returnKeyType = UIReturnKeyGo;
     self.passwordField.delegate = self;
     [self.cardView addSubview:self.passwordField];
     
-    // Login Button
+    // Login Button — сразу под карточкой
     self.loginButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.loginButton.backgroundColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
     self.loginButton.layer.cornerRadius = 12.0;
@@ -127,15 +126,59 @@
     self.activityIndicator.hidesWhenStopped = YES;
     [self.loginButton addSubview:self.activityIndicator];
     
-    // Disclaimer
+    // Disclaimer — одна строка, внизу
     self.disclaimerLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-    self.disclaimerLabel.text = @"OpenVK — любительский проект, никак не связанный с ВКонтакте и компанией VK LLC.";
+    self.disclaimerLabel.text = @"OpenVK — любительский проект, не связанный с VK LLC.";
     self.disclaimerLabel.font = [UIFont systemFontOfSize:11];
     self.disclaimerLabel.textColor = [UIColor colorWithWhite:0.65 alpha:1.0];
     self.disclaimerLabel.textAlignment = NSTextAlignmentCenter;
-    self.disclaimerLabel.numberOfLines = 2;
+    self.disclaimerLabel.numberOfLines = 1;
+    self.disclaimerLabel.adjustsFontSizeToFitWidth = YES;
     [self.scrollView addSubview:self.disclaimerLabel];
+    
+    // — Подписка на клавиатуру —
+    [[NSNotificationCenter defaultCenter] addObserver:self
+        selector:@selector(keyboardWillShow:)
+        name:UIKeyboardWillShowNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+        selector:@selector(keyboardWillHide:)
+        name:UIKeyboardWillHideNotification object:nil];
 }
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+#pragma mark - Keyboard handling
+
+- (void)keyboardWillShow:(NSNotification *)notification {
+    NSDictionary *info = notification.userInfo;
+    CGRect kbFrame = [[info objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    CGFloat kbH = kbFrame.size.height;
+    UIEdgeInsets insets = UIEdgeInsetsMake(0, 0, kbH, 0);
+    self.scrollView.contentInset = insets;
+    self.scrollView.scrollIndicatorInsets = insets;
+    // Scroll active field into view
+    UIView *activeField = nil;
+    if ([self.usernameField isFirstResponder]) activeField = self.usernameField;
+    else if ([self.passwordField isFirstResponder]) activeField = self.passwordField;
+    else if ([self.codeField isFirstResponder]) activeField = self.codeField;
+    if (activeField) {
+        CGRect fieldRect = [self.scrollView convertRect:activeField.frame fromView:activeField.superview];
+        // Also scroll login button into view
+        CGRect btnRect = self.loginButton.frame;
+        CGRect targetRect = CGRectUnion(fieldRect, btnRect);
+        targetRect = CGRectInset(targetRect, 0, -12);
+        [self.scrollView scrollRectToVisible:targetRect animated:YES];
+    }
+}
+
+- (void)keyboardWillHide:(NSNotification *)notification {
+    self.scrollView.contentInset = UIEdgeInsetsZero;
+    self.scrollView.scrollIndicatorInsets = UIEdgeInsetsZero;
+}
+
+#pragma mark - Instance picker
 
 - (void)updateInstanceTitle {
     [self.instanceButton setTitle:[NSString stringWithFormat:@"Инстанция:  %@  ▾", [VKAppConfig currentHost]] forState:UIControlStateNormal];
@@ -167,34 +210,55 @@
     }
 }
 
+#pragma mark - Layout
+
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     
     CGFloat width = self.view.bounds.size.width;
-    CGFloat cardWidth = width - 48.0;
+    CGFloat hPad = 20.0;                      // горизонтальный отступ
+    CGFloat contentW = width - hPad * 2.0;    // ширина контента
     
-    self.logoImageView.frame = CGRectMake((width - 72) / 2.0, 36, 72, 72);
-    self.titleLabel.frame = CGRectMake(24, 120, cardWidth, 32);
-    self.subtitleLabel.frame = CGRectMake(24, 156, cardWidth, 40);
+    // — Компактная шапка: лого 44pt слева + заголовок справа —
+    CGFloat logoSize = 44.0;
+    CGFloat headerTop = 14.0;
+    self.logoImageView.frame = CGRectMake(hPad, headerTop, logoSize, logoSize);
     
-    self.cardView.frame = CGRectMake(24, 210, cardWidth, 140);
+    CGFloat titleX = hPad + logoSize + 10.0;
+    CGFloat titleW = width - titleX - hPad;
+    self.titleLabel.frame = CGRectMake(titleX, headerTop + 2.0, titleW, 22.0);
+    self.subtitleLabel.frame = CGRectMake(titleX, headerTop + 26.0, titleW, 16.0);
     
-    self.instanceButton.frame = CGRectMake(16, 0, cardWidth - 32, 46);
-    [self.cardView viewWithTag:101].frame = CGRectMake(16, 46, cardWidth - 16, 1);
+    // — Карточка формы — сразу под шапкой —
+    CGFloat cardTop = headerTop + logoSize + 10.0;
+    CGFloat rowH = 46.0;
+    CGFloat cardH = rowH * 3.0; // 3 строки: инстанция, логин, пароль
+    self.cardView.frame = CGRectMake(hPad, cardTop, contentW, cardH);
     
-    self.usernameField.frame = CGRectMake(16, 47, cardWidth - 32, 46);
-    [self.cardView viewWithTag:102].frame = CGRectMake(16, 93, cardWidth - 16, 1);
+    self.instanceButton.frame = CGRectMake(14, 0, contentW - 28.0, rowH);
+    [self.cardView viewWithTag:101].frame = CGRectMake(14, rowH, contentW - 14.0, 0.5);
+    self.usernameField.frame = CGRectMake(14, rowH + 0.5, contentW - 28.0, rowH);
+    [self.cardView viewWithTag:102].frame = CGRectMake(14, rowH * 2.0 + 0.5, contentW - 14.0, 0.5);
+    self.passwordField.frame = CGRectMake(14, rowH * 2.0 + 1.0, contentW - 28.0, rowH - 1.0);
     
-    self.passwordField.frame = CGRectMake(16, 94, cardWidth - 32, 46);
+    // — Кнопка «Войти» — сразу под карточкой (10pt отступ) —
+    CGFloat btnTop = cardTop + cardH + 10.0;
+    CGFloat btnH = 46.0;
+    self.loginButton.frame = CGRectMake(hPad, btnTop, contentW, btnH);
+    self.activityIndicator.center = CGPointMake(contentW / 2.0, btnH / 2.0);
     
-    self.loginButton.frame = CGRectMake(24, 366, cardWidth, 50);
-    self.activityIndicator.center = CGPointMake(cardWidth / 2.0, 25);
+    // — 2FA поле — под кнопкой (показывается при необходимости) —
+    self.codeField.frame = CGRectMake(hPad, btnTop + btnH + 10.0, contentW, 40.0);
     
-    self.codeField.frame = CGRectMake(24, 426, cardWidth, 44);
-    self.disclaimerLabel.frame = CGRectMake(24, 480, cardWidth, 36);
+    // — Disclaimer — под 2FA —
+    CGFloat disclaimerTop = btnTop + btnH + (self.codeField.hidden ? 14.0 : 62.0);
+    self.disclaimerLabel.frame = CGRectMake(hPad, disclaimerTop, contentW, 16.0);
     
-    self.scrollView.contentSize = CGSizeMake(width, 540);
+    CGFloat totalH = disclaimerTop + 16.0 + 16.0;
+    self.scrollView.contentSize = CGSizeMake(width, MAX(totalH, self.view.bounds.size.height));
 }
+
+#pragma mark - Actions
 
 - (void)dismissKeyboard {
     [self.view endEditing:YES];
@@ -229,6 +293,8 @@
             
             if (need2FA) {
                 self.codeField.hidden = NO;
+                [self.view setNeedsLayout];
+                [self.view layoutIfNeeded];
                 UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Двухфакторная защита"
                                                                 message:@"Введите полученный код подтверждения в поле ниже"
                                                                delegate:nil

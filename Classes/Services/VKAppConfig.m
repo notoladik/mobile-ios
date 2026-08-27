@@ -1,13 +1,12 @@
 #import "VKAppConfig.h"
 
 static NSString *const kOpenVKInstanceKey = @"openvk.instance_host";
-static NSString *const kDefaultInstance = @"openvk.su";
+static NSString *const kDefaultInstance = @"api.openvk.org";
 
 @implementation VKAppConfig
 
 + (NSArray *)availableInstances {
     return @[
-        @"openvk.su",
         @"openvk.xyz",
         @"api.openvk.org",
         @"vepurovk.xyz",
