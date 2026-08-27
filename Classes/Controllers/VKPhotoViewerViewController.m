@@ -3,7 +3,7 @@
 #import "VKImageLoader.h"
 #import <QuartzCore/QuartzCore.h>
 
-@interface VKPhotoViewerViewController () <UIScrollViewDelegate, UIActionSheetDelegate>
+@interface VKPhotoViewerViewController () <UIScrollViewDelegate, UIActionSheetDelegate, UIGestureRecognizerDelegate>
 @property (nonatomic, strong) NSArray<NSString *> *photoURLs;
 @property (nonatomic, assign) NSInteger currentIndex;
 @property (nonatomic, strong) UIImage *initialSingleImage;
@@ -102,6 +102,7 @@
         
         // Свайп вниз для закрытия
         UIPanGestureRecognizer *panDismiss = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePanDismiss:)];
+        panDismiss.delegate = self;  // нужно для gestureRecognizerShouldBegin:
         [zoomScroll addGestureRecognizer:panDismiss];
         
         [zoomScroll addSubview:imgView];
@@ -362,6 +363,32 @@
 
 - (void)closeAction {
     [self dismissViewControllerAnimated:YES completion:nil];
+}
+
+#pragma mark - UIGestureRecognizerDelegate
+
+// Не запускать pan-dismiss когда scrollView уже зумнут — тогда работает нативный pan UIScrollView
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
+    if (![gestureRecognizer isKindOfClass:[UIPanGestureRecognizer class]]) return YES;
+    // Ищем в каком zoomScroll живёт этот recognizer
+    for (UIScrollView *zs in self.zoomScrollViews) {
+        if ([zs.gestureRecognizers containsObject:gestureRecognizer]) {
+            // Если зумнуто — не перехватываем, пусть UIScrollView панирует
+            if (zs.zoomScale > 1.01) return NO;
+            // Если горизонтальный свайп — не мешаем горизонтальному пейджингу
+            UIPanGestureRecognizer *pan = (UIPanGestureRecognizer *)gestureRecognizer;
+            CGPoint vel = [pan velocityInView:zs];
+            if (ABS(vel.x) > ABS(vel.y) * 1.5) return NO;
+            break;
+        }
+    }
+    return YES;
+}
+
+// Разрешаем double-tap и pan работать одновременно со scroll
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)a
+shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)b {
+    return NO; // scroll views сами разбираются; одновременность только через scroll delegate
 }
 
 #pragma mark - UIScrollViewDelegate
