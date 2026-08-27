@@ -547,7 +547,11 @@
         } else if (att.type == VKAttachmentTypeDoc) {
             h += 44.0;
         } else if (att.type == VKAttachmentTypeGif) {
-            h += 188.0;
+            CGFloat gifH = 180.0;
+            if (att.gifWidth > 0 && att.gifHeight > 0) {
+                gifH = MAX(100.0, MIN(240.0, floorf(contentWidth * (att.gifHeight / att.gifWidth))));
+            }
+            h += gifH + 8.0;
         } else if (att.type == VKAttachmentTypeLink) {
             h += (att.linkImageURL.length > 0) ? 188.0 : 62.0;
         }
@@ -714,20 +718,20 @@
     }
     
     CGFloat headerLeft = 60.0;
-    CGFloat headerRight = cardWidth - 36.0;
+    CGFloat headerRight = cardWidth - 44.0;
     self.avatarContainerView.frame = CGRectMake(12.0, 10.0, 40.0, 40.0);
     self.avatarImageView.frame = CGRectMake(0.0, 0.0, 40.0, 40.0);
     self.wallOwnerAvatarImageView.frame = CGRectMake(24.0, 24.0, 18.0, 18.0);
     
     self.authorNameLabel.frame = CGRectMake(headerLeft, 10.0, headerRight - headerLeft, 19.0);
     self.dateAndPlatformLabel.frame = CGRectMake(headerLeft, 31.0, headerRight - headerLeft, 15.0);
-    self.moreButton.frame = CGRectMake(cardWidth - 36.0, 8.0, 28.0, 28.0);
+    self.moreButton.frame = CGRectMake(cardWidth - 44.0, 4.0, 40.0, 36.0);
     
     // Контент
     CGFloat contentX = 12.0;
     CGFloat contentW = cardWidth - 24.0;
     CGFloat currentY = 60.0;
-    self.contentContainerView.frame = CGRectMake(contentX, 0, contentW, totalHeight);
+    self.contentContainerView.frame = CGRectMake(contentX, 0, contentW, totalHeight - bottomSpacing - 36.0);
     
     // Текст поста
     if (post.text.length > 0) {
@@ -1575,8 +1579,13 @@
     
     // Кнопки лайк / комменты / репост
     CGFloat cardH = totalHeight - bottomSpacing;
-    CGFloat actY = MAX(currentY + 6.0, cardH - 36.0);
-    self.actionsContainerView.frame = CGRectMake(12.0, actY, contentW, 30.0);
+    CGFloat actY = cardH - 36.0;
+    self.contentContainerView.frame = CGRectMake(contentX, 0, contentW, actY);
+    self.actionsContainerView.frame = CGRectMake(12.0, actY, contentW, 32.0);
+    [self.cardBackgroundView bringSubviewToFront:self.actionsContainerView];
+    [self.cardBackgroundView bringSubviewToFront:self.moreButton];
+    [self.cardBackgroundView bringSubviewToFront:self.avatarContainerView];
+    [self.cardBackgroundView bringSubviewToFront:self.authorNameLabel];
     
     UIColor *defIconColor = isSkeuomorph ? [UIColor colorWithRed:100.0/255.0 green:110.0/255.0 blue:125.0/255.0 alpha:1.0] : [UIColor colorWithRed:130.0/255.0 green:140.0/255.0 blue:155.0/255.0 alpha:1.0];
     UIColor *likeIconColor = post.isLiked ? (isSkeuomorph ? [UIColor colorWithRed:215.0/255.0 green:35.0/255.0 blue:55.0/255.0 alpha:1.0] : [UIColor colorWithRed:235.0/255.0 green:45.0/255.0 blue:70.0/255.0 alpha:1.0]) : defIconColor;
