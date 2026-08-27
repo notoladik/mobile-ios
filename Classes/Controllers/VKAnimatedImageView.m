@@ -1,4 +1,4 @@
-#import "VKAnimatedImageView.h"
+﻿#import "VKAnimatedImageView.h"
 #import "VKImageLoader.h"
 #import <ImageIO/ImageIO.h>
 
@@ -16,7 +16,9 @@
 @property (nonatomic, assign) BOOL _isAnimatingGIF;
 @property (nonatomic, assign) BOOL _isGIFLoaded;
 @property (nonatomic, copy) NSString *pendingGIFURL;
-@property (nonatomic, strong) NSURLSessionDataTask *downloadTask;
+// NSURLSession for iOS 7+; iOS 6 uses NSURLConnection (synchronous in background queue)
+@property (nonatomic, strong) NSURLSessionDataTask *downloadTask; // nil on iOS 6
+@property (nonatomic, assign) BOOL _isFetchCancelled;
 @end
 
 @implementation VKAnimatedImageView
@@ -29,6 +31,7 @@
 - (void)loadGIFFromURL:(NSString *)gifURL previewURL:(NSString *)previewURL {
     [self resetGIF];
     self.pendingGIFURL = gifURL;
+    self._isFetchCancelled = NO;
 
     if (previewURL.length > 0) {
         [[VKImageLoader sharedLoader] loadImageWithURL:previewURL completion:^(UIImage *img) {
@@ -44,25 +47,45 @@
     NSURL *url = [NSURL URLWithString:gifURL];
     if (!url) return;
 
-    NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration defaultSessionConfiguration];
-    cfg.requestCachePolicy = NSURLRequestReturnCacheDataElseLoad;
-    NSURLSession *session = [NSURLSession sessionWithConfiguration:cfg];
     __weak typeof(self) weakSelf = self;
-    self.downloadTask = [session dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
-        if (err || data.length == 0) return;
-        NSArray<VKGIFFrame *> *frames = [weakSelf framesFromData:data];
-        if (frames.count == 0) return;
-        dispatch_async(dispatch_get_main_queue(), ^{
+
+    if (NSClassFromString(@"NSURLSession")) {
+        // iOS 7+: use NSURLSession
+        NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration defaultSessionConfiguration];
+        cfg.requestCachePolicy = NSURLRequestReturnCacheDataElseLoad;
+        NSURLSession *session = [NSURLSession sessionWithConfiguration:cfg];
+        self.downloadTask = [session dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
+            if (err || data.length == 0) return;
+            [weakSelf _applyGIFData:data forURL:gifURL];
+        }];
+        [self.downloadTask resume];
+    } else {
+        // iOS 6 fallback: NSURLConnection (synchronous on background queue)
+        NSURLRequest *req = [NSURLRequest requestWithURL:url
+                                            cachePolicy:NSURLRequestReturnCacheDataElseLoad
+                                        timeoutInterval:30.0];
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             typeof(weakSelf) strong = weakSelf;
-            if (!strong || ![strong.pendingGIFURL isEqualToString:gifURL]) return;
-            strong.frames = frames;
-            strong._isGIFLoaded = YES;
-            strong.currentFrameIndex = 0;
-            strong.image = frames[0].image;
-            [strong startGIFAnimation];
+            if (!strong || strong._isFetchCancelled) return;
+            NSError *err = nil;
+            NSData *data = [NSURLConnection sendSynchronousRequest:req returningResponse:nil error:&err];
+            if (err || data.length == 0 || strong._isFetchCancelled) return;
+            [strong _applyGIFData:data forURL:gifURL];
         });
-    }];
-    [self.downloadTask resume];
+    }
+}
+
+- (void)_applyGIFData:(NSData *)data forURL:(NSString *)gifURL {
+    NSArray<VKGIFFrame *> *frames = [self framesFromData:data];
+    if (frames.count == 0) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self._isFetchCancelled || ![self.pendingGIFURL isEqualToString:gifURL]) return;
+        self.frames = frames;
+        self._isGIFLoaded = YES;
+        self.currentFrameIndex = 0;
+        self.image = frames[0].image;
+        [self startGIFAnimation];
+    });
 }
 
 - (void)loadGIFFromData:(NSData *)data {
@@ -102,6 +125,7 @@
 - (void)resetGIF {
     [self.downloadTask cancel];
     self.downloadTask = nil;
+    self._isFetchCancelled = YES;
     [self stopGIFAnimation];
     self.frames = nil;
     self._isGIFLoaded = NO;

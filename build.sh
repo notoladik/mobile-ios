@@ -6,7 +6,7 @@ SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "Source: $SRC_DIR, THEOS: $THEOS"
 cp -r "$SRC_DIR/"* ~/OpenVK-Legacy/
 cd ~/OpenVK-Legacy
-make -j2 ipa FINALPACKAGE=1
+make -j2 ipa FINALPACKAGE=1 ENABLE_VISUALIZER="${ENABLE_VISUALIZER:-1}"
 if [ -f "packages/"*.deb ]; then
     echo "DEB packages created in ~/OpenVK-Legacy/packages/"
 fi

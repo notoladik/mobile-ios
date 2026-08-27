@@ -1,4 +1,4 @@
-﻿#import "VKGifViewerViewController.h"
+#import "VKGifViewerViewController.h"
 #import "VKAnimatedImageView.h"
 
 @interface VKGifViewerViewController ()
@@ -30,7 +30,8 @@
         _gifURL = gifURL;
         _previewURL = previewURL;
         _gifTitle = title;
-        self.modalPresentationStyle = UIModalPresentationOverFullScreen;
+        // UIModalPresentationOverFullScreen is iOS 8+; use FullScreen for iOS 6 compatibility
+        self.modalPresentationStyle = UIModalPresentationFullScreen;
         self.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
     }
     return self;
@@ -156,10 +157,17 @@
                 [self dismissViewControllerAnimated:NO completion:nil];
             }];
         } else {
-            [UIView animateWithDuration:0.3 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:0 animations:^{
-                self.gifImageView.transform = CGAffineTransformIdentity;
-                self.backgroundView.alpha = 1.0;
-            } completion:nil];
+            if ([UIView respondsToSelector:@selector(animateWithDuration:delay:usingSpringWithDamping:initialSpringVelocity:options:animations:completion:)]) {
+                [UIView animateWithDuration:0.3 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:0 animations:^{
+                    self.gifImageView.transform = CGAffineTransformIdentity;
+                    self.backgroundView.alpha = 1.0;
+                } completion:nil];
+            } else {
+                [UIView animateWithDuration:0.3 animations:^{
+                    self.gifImageView.transform = CGAffineTransformIdentity;
+                    self.backgroundView.alpha = 1.0;
+                }];
+            }
         }
     }
 }
