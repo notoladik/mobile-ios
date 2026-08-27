@@ -123,7 +123,8 @@
 }
 
 - (void)setupNavigationItems {
-    if (self.navigationController.viewControllers.firstObject == self) {
+    BOOL isRoot = (self.navigationController.viewControllers.count > 0 && self.navigationController.viewControllers[0] == self);
+    if (isRoot) {
         if ([[VKSideMenuManager sharedManager] isSideMenuEnabled]) {
             self.navigationItem.leftBarButtonItem = [[VKThemeManager sharedManager] navBarMenuBarButtonItemWithTarget:self action:@selector(leftMenuButtonAction)];
         } else {

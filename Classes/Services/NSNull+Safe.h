@@ -21,6 +21,7 @@
 @end
 
 @interface NSArray (Safe)
+- (id)firstObject;
 - (NSUInteger)length;
 - (NSInteger)integerValue;
 - (BOOL)boolValue;

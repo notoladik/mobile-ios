@@ -39,7 +39,8 @@
 }
 
 - (NSString *)cacheFilePath {
-    NSString *cacheDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
+    NSString *cacheDir = (paths.count > 0) ? paths[0] : NSTemporaryDirectory();
     return [cacheDir stringByAppendingPathComponent:@"openvk_supporters.json"];
 }
 

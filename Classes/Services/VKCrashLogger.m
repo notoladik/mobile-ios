@@ -73,12 +73,14 @@ static void HandleSignal(int sig) {
 }
 
 + (NSString *)logFilePath {
-    NSString *doc = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString *doc = (paths.count > 0) ? paths[0] : NSTemporaryDirectory();
     return [doc stringByAppendingPathComponent:@"app_log.txt"];
 }
 
 + (NSString *)crashLogFilePath {
-    NSString *doc = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString *doc = (paths.count > 0) ? paths[0] : NSTemporaryDirectory();
     return [doc stringByAppendingPathComponent:@"crash_log.txt"];
 }
 

@@ -211,7 +211,7 @@ static VKAuthService *_sharedInstance = nil;
     
     if ([self.currentUserModel.username isEqualToString:username]) {
         if (self.accountsList.count > 0) {
-            [self switchToAccount:self.accountsList.firstObject];
+            [self switchToAccount:self.accountsList[0]];
         } else {
             [self logout];
         }

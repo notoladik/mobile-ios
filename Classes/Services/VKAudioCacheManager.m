@@ -22,7 +22,7 @@
     self = [super init];
     if (self) {
         NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-        NSString *docDir = paths.firstObject;
+        NSString *docDir = (paths.count > 0) ? paths[0] : NSTemporaryDirectory();
         _cacheDirectory = [docDir stringByAppendingPathComponent:@"AudioCache"];
         _indexFilePath = [_cacheDirectory stringByAppendingPathComponent:@"cache_index.json"];
         
