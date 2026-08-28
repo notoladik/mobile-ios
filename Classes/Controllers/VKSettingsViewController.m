@@ -114,10 +114,13 @@
             }
             
             VKAuthAccount *acc = accounts[indexPath.row];
-            BOOL isActive = [acc.user.username isEqualToString:[[VKAuthService sharedService] currentUserModel].username];
+            NSString *accHost = (acc.instanceHost.length > 0) ? acc.instanceHost : [VKAppConfig currentHost];
+            BOOL isSameUser = [acc.user.username isEqualToString:[[VKAuthService sharedService] currentUserModel].username];
+            BOOL isSameHost = (acc.instanceHost.length == 0) || [acc.instanceHost isEqualToString:[VKAppConfig currentHost]];
+            BOOL isActive = isSameUser && isSameHost;
             
             cell.textLabel.text = acc.user.displayName;
-            cell.detailTextLabel.text = acc.user.username ? [NSString stringWithFormat:@"@%@  •  %@", acc.user.username, [VKAppConfig currentHost]] : [VKAppConfig currentHost];
+            cell.detailTextLabel.text = acc.user.username ? [NSString stringWithFormat:@"@%@  •  %@", acc.user.username, accHost] : accHost;
             cell.accessoryType = isActive ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
             
             cell.imageView.image = nil;
