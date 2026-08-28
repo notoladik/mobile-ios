@@ -1,4 +1,4 @@
-﻿#import "VKNetworkBannerView.h"
+#import "VKNetworkBannerView.h"
 #import "VKNetworkStatusManager.h"
 #import "VKThemeManager.h"
 #import <QuartzCore/QuartzCore.h>
@@ -78,7 +78,8 @@
 - (void)attachToWindow:(UIWindow *)window {
     self.attachedWindow = window;
     if (!self.superview && window) {
-        CGFloat topY = 20.0; // прямо под статус-баром или над контентом
+        BOOL isIOS7 = ([[[UIDevice currentDevice] systemVersion] floatValue] >= 7.0);
+        CGFloat topY = isIOS7 ? 64.0 : 44.0;
         self.frame = CGRectMake(0, topY, window.bounds.size.width, 28.0);
         [window addSubview:self];
     }
@@ -130,10 +131,15 @@
         return;
     }
     
+    BOOL isIOS7 = ([[[UIDevice currentDevice] systemVersion] floatValue] >= 7.0);
+    CGFloat topY = isIOS7 ? 64.0 : 44.0;
+    
     if (self.attachedWindow && !self.superview) {
+        self.frame = CGRectMake(0, topY, self.attachedWindow.bounds.size.width, 28.0);
         [self.attachedWindow addSubview:self];
     }
     if (self.superview) {
+        self.frame = CGRectMake(0, topY, self.superview.bounds.size.width, 28.0);
         [self.superview bringSubviewToFront:self];
     }
     

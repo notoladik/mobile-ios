@@ -57,7 +57,7 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
         } else {
             [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleBlackOpaque animated:NO];
         }
-        [[UINavigationBar appearance] setBarStyle:UIBarStyleBlack];
+        [[UINavigationBar appearance] setBarStyle:UIBarStyleDefault];
         [[UINavigationBar appearance] setBackgroundImage:nil forBarMetrics:UIBarMetricsDefault];
         if (hasBarTintColor) {
             [[UINavigationBar appearance] setBarTintColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
@@ -65,10 +65,16 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
         } else {
             [[UINavigationBar appearance] setTintColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
         }
+        if ([[UINavigationBar appearance] respondsToSelector:@selector(setTranslucent:)]) {
+            [[UINavigationBar appearance] setTranslucent:NO];
+        }
         [[UINavigationBar appearance] setTitleTextAttributes:@{
             NSForegroundColorAttributeName: [UIColor whiteColor],
             NSFontAttributeName: [UIFont boldSystemFontOfSize:17]
         }];
+        if ([UIBarButtonItem respondsToSelector:@selector(appearanceWhenContainedIn:)]) {
+            [[UIBarButtonItem appearanceWhenContainedIn:[UINavigationBar class], nil] setTintColor:[UIColor whiteColor]];
+        }
         [[UITabBar appearance] setBackgroundImage:nil];
         if (hasBarTintColor) {
             [[UITabBar appearance] setBarTintColor:[UIColor colorWithWhite:0.98 alpha:1.0]];
@@ -577,6 +583,9 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
         return [[UIBarButtonItem alloc] initWithCustomView:btn];
     } else {
         UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithTitle:title style:UIBarButtonItemStylePlain target:target action:action];
+        if (self.isClassicFlat) {
+            item.tintColor = [UIColor whiteColor];
+        }
         return item;
     }
 }
@@ -604,11 +613,11 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
         return [[UIBarButtonItem alloc] initWithCustomView:btn];
     } else {
         UIImage *menuImg = [UIImage imageNamed:@"7_menu_icon"];
-        if (menuImg) {
-            return [[UIBarButtonItem alloc] initWithImage:menuImg style:UIBarButtonItemStylePlain target:target action:action];
-        } else {
-            return [[UIBarButtonItem alloc] initWithTitle:@"≡" style:UIBarButtonItemStylePlain target:target action:action];
+        UIBarButtonItem *item = menuImg ? [[UIBarButtonItem alloc] initWithImage:menuImg style:UIBarButtonItemStylePlain target:target action:action] : [[UIBarButtonItem alloc] initWithTitle:@"≡" style:UIBarButtonItemStylePlain target:target action:action];
+        if (self.isClassicFlat) {
+            item.tintColor = [UIColor whiteColor];
         }
+        return item;
     }
 }
 
@@ -629,7 +638,11 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
         [btn addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
         return [[UIBarButtonItem alloc] initWithCustomView:btn];
     } else {
-        return [[UIBarButtonItem alloc] initWithTitle:@"Запись" style:UIBarButtonItemStylePlain target:target action:action];
+        UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithTitle:@"Запись" style:UIBarButtonItemStylePlain target:target action:action];
+        if (self.isClassicFlat) {
+            item.tintColor = [UIColor whiteColor];
+        }
+        return item;
     }
 }
 
@@ -650,7 +663,11 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
         [btn addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
         return [[UIBarButtonItem alloc] initWithCustomView:btn];
     } else {
-        return [[UIBarButtonItem alloc] initWithTitle:@"Обновить" style:UIBarButtonItemStylePlain target:target action:action];
+        UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithTitle:@"Обновить" style:UIBarButtonItemStylePlain target:target action:action];
+        if (self.isClassicFlat) {
+            item.tintColor = [UIColor whiteColor];
+        }
+        return item;
     }
 }
 
