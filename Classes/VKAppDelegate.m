@@ -10,6 +10,8 @@
 #import "VKCrashLogger.h"
 #import "VKMiniPlayerBar.h"
 #import "VKAudioPlayer.h"
+#import "VKNetworkStatusManager.h"
+#import "VKNetworkBannerView.h"
 
 @interface VKNavigationController : UINavigationController <UIGestureRecognizerDelegate>
 @end
@@ -31,6 +33,9 @@
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     [VKCrashLogger log:@"[VKAppDelegate] App launched."];
     
+    // Мониторинг сети
+    [[VKNetworkStatusManager sharedManager] startMonitoring];
+    
     // Инициализация темы оформления
     [[VKThemeManager sharedManager] applyTheme:[[VKThemeManager sharedManager] currentTheme]];
     
@@ -49,6 +54,8 @@
     [self updateRootViewController];
     [[VKSideMenuManager sharedManager] setupWithRootWindow:self.window];
     [self updateTabBarVisibility];
+    
+    [[VKNetworkBannerView sharedBanner] attachToWindow:self.window];
     
     [self.window makeKeyAndVisible];
     return YES;

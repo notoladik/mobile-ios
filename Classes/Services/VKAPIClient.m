@@ -2,6 +2,7 @@
 #import "VKAppConfig.h"
 #import "VKAuthService.h"
 #import "VKCrashLogger.h"
+#import "VKNetworkStatusManager.h"
 
 static NSString *VKPercentEscapedString(NSString *string) {
     if (!string) return @"";
@@ -120,12 +121,25 @@ static NSString *VKPercentEscapedString(NSString *string) {
 
 - (void)handleResponseData:(NSData *)data response:(NSURLResponse *)response error:(NSError *)error completionHandler:(VKAPICompletionBlock)completionHandler {
     if (error) {
+        [[VKNetworkStatusManager sharedManager] reportRequestFailedWithError:error];
         if (completionHandler) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 completionHandler(nil, error);
             });
         }
         return;
+    }
+    
+    if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+        NSInteger statusCode = [(NSHTTPURLResponse *)response statusCode];
+        if (statusCode >= 500) {
+            NSError *serverErr = [NSError errorWithDomain:@"VKAPIClient" code:statusCode userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"HTTP error %ld", (long)statusCode]}];
+            [[VKNetworkStatusManager sharedManager] reportRequestFailedWithError:serverErr];
+        } else {
+            [[VKNetworkStatusManager sharedManager] reportRequestSucceeded];
+        }
+    } else {
+        [[VKNetworkStatusManager sharedManager] reportRequestSucceeded];
     }
     
     if (!data || data.length == 0) {

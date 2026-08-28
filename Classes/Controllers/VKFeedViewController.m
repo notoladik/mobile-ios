@@ -12,6 +12,8 @@
 #import "VKAuthService.h"
 #import "VKCrashLogger.h"
 #import "VKPost.h"
+#import "VKOfflinePlaceholderView.h"
+#import "VKNetworkStatusManager.h"
 
 typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     VKFeedTypeModeMyNews = 0,
@@ -65,6 +67,7 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     
     [self applyCurrentThemeStyle];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applyCurrentThemeStyle) name:VKThemeDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(networkStatusDidChange:) name:VKNetworkStatusDidChangeNotification object:nil];
     
     [self setupNavigationItems];
     
@@ -75,6 +78,12 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     }
     
     [self loadFeedFromStart:YES];
+}
+
+- (void)networkStatusDidChange:(NSNotification *)note {
+    if ([[VKNetworkStatusManager sharedManager] isServerReachable] && self.posts.count == 0 && !self.isLoading) {
+        [self refreshFeed];
+    }
 }
 
 - (void)applyCurrentThemeStyle {
@@ -201,10 +210,17 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
             
             if (error) {
                 [VKCrashLogger log:@"[VKFeedViewController] Error loading feed: %@", error.localizedDescription];
+                if (self.posts.count == 0) {
+                    __weak typeof(self) weakSelf = self;
+                    self.tableView.backgroundView = [VKOfflinePlaceholderView offlinePlaceholderWithFrame:self.tableView.bounds onRetry:^{
+                        [weakSelf refreshFeed];
+                    }];
+                }
                 return;
             }
             
             if (posts) {
+                self.tableView.backgroundView = nil;
                 if (fromStart) {
                     [self.posts removeAllObjects];
                 }
