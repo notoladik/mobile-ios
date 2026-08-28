@@ -117,6 +117,9 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
             NSForegroundColorAttributeName: [UIColor colorWithRed:20.0/255.0 green:20.0/255.0 blue:20.0/255.0 alpha:1.0],
             NSFontAttributeName: [UIFont boldSystemFontOfSize:17]
         }];
+        if ([UIBarButtonItem respondsToSelector:@selector(appearanceWhenContainedIn:)]) {
+            [[UIBarButtonItem appearanceWhenContainedIn:[UINavigationBar class], nil] setTintColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
+        }
         [[UITabBar appearance] setBackgroundImage:nil];
         if (hasBarTintColor) {
             [[UITabBar appearance] setBarTintColor:[UIColor whiteColor]];

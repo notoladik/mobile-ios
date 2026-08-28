@@ -21,16 +21,31 @@
     [VKCrashLogger log:@"[VKSettingsViewController] viewDidLoad started."];
     
     self.title = @"Настройки";
-    self.tableView.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
+    [self applyThemeStyle];
     
     [self setupNavigationItems];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applyThemeStyle) name:VKThemeDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(setupNavigationItems) name:VKSideMenuStateDidChangeNotification object:nil];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    [self applyThemeStyle];
     [self setupNavigationItems];
     [self.tableView reloadData];
+}
+
+- (void)applyThemeStyle {
+    self.tableView.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
+    UINavigationBar *bar = self.navigationController.navigationBar;
+    if (bar) {
+        bar.barTintColor = [[VKThemeManager sharedManager] navBarBackgroundColor];
+        bar.tintColor = [[VKThemeManager sharedManager] navBarTintColor];
+        bar.titleTextAttributes = @{
+            NSForegroundColorAttributeName: [[VKThemeManager sharedManager] navBarTitleColor],
+            NSFontAttributeName: [UIFont boldSystemFontOfSize:17]
+        };
+    }
 }
 
 - (void)setupNavigationItems {
