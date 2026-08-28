@@ -75,13 +75,21 @@
     self.navigationItem.rightBarButtonItem = [[VKThemeManager sharedManager] barButtonItemWithTitle:@"Обновить" target:self action:@selector(loadDialogs) isBack:NO];
 }
 
-- (void)leftMenuButtonAction {
-    [[VKSideMenuManager sharedManager] toggleMenu];
-}
-
 - (void)applyThemeStyle {
     self.view.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
     self.tableView.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
+    
+    UINavigationBar *bar = self.navigationController.navigationBar;
+    if (bar) {
+        bar.barTintColor = [[VKThemeManager sharedManager] navBarBackgroundColor];
+        bar.tintColor = [[VKThemeManager sharedManager] navBarTintColor];
+        bar.titleTextAttributes = @{
+            NSForegroundColorAttributeName: [[VKThemeManager sharedManager] navBarTitleColor],
+            NSFontAttributeName: [UIFont boldSystemFontOfSize:17]
+        };
+    }
+    
+    [self setupNavigationItems];
     [self.tableView reloadData];
 }
 

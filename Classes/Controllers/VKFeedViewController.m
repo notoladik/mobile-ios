@@ -80,6 +80,11 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     [self loadFeedFromStart:YES];
 }
 
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self applyCurrentThemeStyle];
+}
+
 - (void)networkStatusDidChange:(NSNotification *)note {
     if ([[VKNetworkStatusManager sharedManager] isServerReachable] && self.posts.count == 0 && !self.isLoading) {
         [self refreshFeed];
@@ -100,6 +105,16 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     } else {
         self.titleButton.titleLabel.shadowColor = nil;
         self.titleButton.titleLabel.shadowOffset = CGSizeZero;
+    }
+    
+    UINavigationBar *bar = self.navigationController.navigationBar;
+    if (bar) {
+        bar.barTintColor = [[VKThemeManager sharedManager] navBarBackgroundColor];
+        bar.tintColor = [[VKThemeManager sharedManager] navBarTintColor];
+        bar.titleTextAttributes = @{
+            NSForegroundColorAttributeName: [[VKThemeManager sharedManager] navBarTitleColor],
+            NSFontAttributeName: [UIFont boldSystemFontOfSize:17]
+        };
     }
     
     [self setupNavigationItems];

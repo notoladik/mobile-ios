@@ -14,6 +14,7 @@
 #import "VKNetworkBannerView.h"
 
 @interface VKNavigationController : UINavigationController <UIGestureRecognizerDelegate>
+- (void)updateNavBarTheme;
 @end
 
 @implementation VKNavigationController
@@ -22,7 +23,75 @@
     if ([self respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
         self.interactivePopGestureRecognizer.delegate = self;
     }
+    [self updateNavBarTheme];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(updateNavBarTheme) name:VKThemeDidChangeNotification object:nil];
 }
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self updateNavBarTheme];
+}
+
+- (void)updateNavBarTheme {
+    VKThemeManager *tm = [VKThemeManager sharedManager];
+    UINavigationBar *bar = self.navigationBar;
+    if (!bar) return;
+    
+    BOOL hasBarTintColor = [bar respondsToSelector:@selector(setBarTintColor:)];
+    if ([tm isSkeuomorphic]) {
+        bar.barStyle = UIBarStyleBlack;
+        UIImage *navImg = [tm navBarBackgroundImageForHeight:64.0];
+        [bar setBackgroundImage:navImg forBarMetrics:UIBarMetricsDefault];
+        bar.tintColor = [UIColor whiteColor];
+        
+        NSShadow *navShadow = [[NSShadow alloc] init];
+        navShadow.shadowColor = [UIColor colorWithWhite:0.0 alpha:0.65];
+        navShadow.shadowOffset = CGSizeMake(0, -1);
+        bar.titleTextAttributes = @{
+            NSForegroundColorAttributeName: [UIColor whiteColor],
+            NSFontAttributeName: [UIFont boldSystemFontOfSize:18],
+            NSShadowAttributeName: navShadow
+        };
+    } else if ([tm isClassicFlat]) {
+        bar.barStyle = UIBarStyleDefault;
+        [bar setBackgroundImage:nil forBarMetrics:UIBarMetricsDefault];
+        if (hasBarTintColor) {
+            bar.barTintColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
+            bar.tintColor = [UIColor whiteColor];
+        } else {
+            bar.tintColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
+        }
+        if ([bar respondsToSelector:@selector(setTranslucent:)]) {
+            bar.translucent = NO;
+        }
+        bar.titleTextAttributes = @{
+            NSForegroundColorAttributeName: [UIColor whiteColor],
+            NSFontAttributeName: [UIFont boldSystemFontOfSize:17]
+        };
+    } else {
+        // Modern Swift
+        bar.barStyle = UIBarStyleDefault;
+        [bar setBackgroundImage:nil forBarMetrics:UIBarMetricsDefault];
+        if (hasBarTintColor) {
+            bar.barTintColor = [UIColor whiteColor];
+            bar.tintColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
+        } else {
+            bar.tintColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
+        }
+        if ([bar respondsToSelector:@selector(setTranslucent:)]) {
+            bar.translucent = NO;
+        }
+        bar.titleTextAttributes = @{
+            NSForegroundColorAttributeName: [UIColor colorWithRed:20.0/255.0 green:20.0/255.0 blue:20.0/255.0 alpha:1.0],
+            NSFontAttributeName: [UIFont boldSystemFontOfSize:17]
+        };
+    }
+}
+
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
     return self.viewControllers.count > 1;
 }

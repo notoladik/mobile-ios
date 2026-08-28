@@ -298,6 +298,17 @@
     }
     
     [self updateCategoryButtonsStyle];
+    
+    UINavigationBar *bar = self.navigationController.navigationBar;
+    if (bar) {
+        bar.barTintColor = [[VKThemeManager sharedManager] navBarBackgroundColor];
+        bar.tintColor = [[VKThemeManager sharedManager] navBarTintColor];
+        bar.titleTextAttributes = @{
+            NSForegroundColorAttributeName: [[VKThemeManager sharedManager] navBarTitleColor],
+            NSFontAttributeName: [UIFont boldSystemFontOfSize:17]
+        };
+    }
+    
     [self.tableView reloadData];
 }
 

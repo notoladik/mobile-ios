@@ -15,6 +15,7 @@
 #import "VKThemeManager.h"
 #import "VKSideMenuManager.h"
 #import "VKCrashLogger.h"
+#import "VKAppConfig.h"
 
 @interface VKMoreViewController () <UIActionSheetDelegate>
 @property (nonatomic, strong) UIButton *accountTitleButton;
@@ -27,9 +28,11 @@
     
     [VKCrashLogger log:@"[VKMoreViewController] viewDidLoad started."];
     
-    self.view.backgroundColor = [UIColor colorWithRed:238.0/255.0 green:240.0/255.0 blue:243.0/255.0 alpha:1.0];
+    self.view.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
     
     [self setupNavigationItems];
+    [self applyThemeStyle];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applyThemeStyle) name:VKThemeDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(setupNavigationItems) name:VKSideMenuStateDidChangeNotification object:nil];
     
     [[VKAuthService sharedService] fetchBalance];
@@ -38,17 +41,40 @@
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    [self applyThemeStyle];
     [self setupNavigationItems];
     [self updateAccountTitle];
+    [self.tableView reloadData];
+}
+
+- (void)applyThemeStyle {
+    self.view.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
+    self.tableView.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
+    
+    UIColor *titleColor = [[VKThemeManager sharedManager] navBarTitleColor];
+    [self.accountTitleButton setTitleColor:titleColor forState:UIControlStateNormal];
+    
+    UINavigationBar *bar = self.navigationController.navigationBar;
+    if (bar) {
+        bar.barTintColor = [[VKThemeManager sharedManager] navBarBackgroundColor];
+        bar.tintColor = [[VKThemeManager sharedManager] navBarTintColor];
+        bar.titleTextAttributes = @{
+            NSForegroundColorAttributeName: [[VKThemeManager sharedManager] navBarTitleColor],
+            NSFontAttributeName: [UIFont boldSystemFontOfSize:17]
+        };
+    }
+    
     [self.tableView reloadData];
 }
 
 - (void)setupNavigationItems {
     self.accountTitleButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.accountTitleButton.frame = CGRectMake(0, 0, 180, 32);
-    [self.accountTitleButton setTitleColor:[UIColor colorWithRed:20.0/255.0 green:20.0/255.0 blue:20.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+    [self.accountTitleButton setTitleColor:[[VKThemeManager sharedManager] navBarTitleColor] forState:UIControlStateNormal];
     self.accountTitleButton.titleLabel.font = [UIFont boldSystemFontOfSize:16];
     [self.accountTitleButton addTarget:self action:@selector(selectAccountAction) forControlEvents:UIControlEventTouchUpInside];
+    self.navigationItem.titleView = self.accountTitleButton;
+    
     if ([[VKSideMenuManager sharedManager] isSideMenuEnabled]) {
         self.navigationItem.leftBarButtonItem = [[VKThemeManager sharedManager] navBarMenuBarButtonItemWithTarget:self action:@selector(leftMenuButtonAction)];
     } else {
@@ -75,8 +101,11 @@
                                           destructiveButtonTitle:nil
                                                otherButtonTitles:nil];
     for (VKAuthAccount *acc in accounts) {
-        BOOL isActive = [acc.user.username isEqualToString:[[VKAuthService sharedService] currentUserModel].username];
-        NSString *name = [NSString stringWithFormat:@"%@ %@", acc.user.displayName, isActive ? @"✓" : @""];
+        NSString *host = (acc.instanceHost.length > 0) ? acc.instanceHost : [VKAppConfig currentHost];
+        BOOL isSameUser = [acc.user.username isEqualToString:[[VKAuthService sharedService] currentUserModel].username];
+        BOOL isSameHost = (acc.instanceHost.length == 0) || [acc.instanceHost isEqualToString:[VKAppConfig currentHost]];
+        BOOL isActive = isSameUser && isSameHost;
+        NSString *name = [NSString stringWithFormat:@"%@ (%@) %@", acc.user.displayName, host, isActive ? @"✓" : @""];
         [sheet addButtonWithTitle:name];
     }
     [sheet addButtonWithTitle:@"+ Добавить аккаунт"];
