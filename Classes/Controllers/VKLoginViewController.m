@@ -1,10 +1,10 @@
-﻿#import "VKLoginViewController.h"
+#import "VKLoginViewController.h"
 #import "VKAuthService.h"
 #import "VKAppConfig.h"
 #import "VKCrashLogger.h"
 #import <QuartzCore/QuartzCore.h>
 
-@interface VKLoginViewController () <UIActionSheetDelegate>
+@interface VKLoginViewController () <UIActionSheetDelegate, UIAlertViewDelegate>
 @property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) UIImageView *logoImageView;
 @property (nonatomic, strong) UILabel *titleLabel;
@@ -194,8 +194,9 @@
     for (NSString *inst in instances) {
         [sheet addButtonWithTitle:inst];
     }
+    [sheet addButtonWithTitle:@"✏️ Указать свой инстанс..."];
     [sheet addButtonWithTitle:@"Отмена"];
-    sheet.cancelButtonIndex = instances.count;
+    sheet.cancelButtonIndex = instances.count + 1;
     sheet.tag = 301;
     [sheet showInView:self.view];
 }
@@ -206,6 +207,36 @@
         if (buttonIndex >= 0 && buttonIndex < (NSInteger)instances.count) {
             [VKAppConfig setCurrentHost:instances[buttonIndex]];
             [self updateInstanceTitle];
+        } else if (buttonIndex == (NSInteger)instances.count) {
+            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Свой инстанс"
+                                                            message:@"Введите домен или URL сервера OpenVK:\n(например: openvk.su или myvk.ru)"
+                                                           delegate:self
+                                                  cancelButtonTitle:@"Отмена"
+                                                  otherButtonTitles:@"Сохранить", nil];
+            if ([alert respondsToSelector:@selector(setAlertViewStyle:)]) {
+                alert.alertViewStyle = UIAlertViewStylePlainTextInput;
+                UITextField *tf = [alert textFieldAtIndex:0];
+                tf.placeholder = @"openvk.su";
+                tf.autocapitalizationType = UITextAutocapitalizationTypeNone;
+                tf.autocorrectionType = UITextAutocorrectionTypeNo;
+                tf.keyboardType = UIKeyboardTypeURL;
+                tf.text = [VKAppConfig currentHost];
+            }
+            alert.tag = 302;
+            [alert show];
+        }
+    }
+}
+
+- (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex {
+    if (alertView.tag == 302 && buttonIndex != alertView.cancelButtonIndex) {
+        if ([alertView respondsToSelector:@selector(textFieldAtIndex:)]) {
+            UITextField *tf = [alertView textFieldAtIndex:0];
+            NSString *text = tf.text;
+            if (text.length > 0) {
+                [VKAppConfig addCustomInstance:text];
+                [self updateInstanceTitle];
+            }
         }
     }
 }

@@ -1,17 +1,88 @@
 #import "VKAppConfig.h"
 
 static NSString *const kOpenVKInstanceKey = @"openvk.instance_host";
+static NSString *const kOpenVKCustomInstancesKey = @"openvk.custom_instances";
 static NSString *const kDefaultInstance = @"api.openvk.org";
 
 @implementation VKAppConfig
 
-+ (NSArray *)availableInstances {
-    return @[
++ (NSString *)cleanHostString:(NSString *)host {
+    if (!host) return @"";
+    NSString *cleaned = [host stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    
+    // Убираем протоколы http:// и https://
+    if ([cleaned hasPrefix:@"https://"]) {
+        cleaned = [cleaned substringFromIndex:8];
+    } else if ([cleaned hasPrefix:@"http://"]) {
+        cleaned = [cleaned substringFromIndex:7];
+    }
+    
+    // Убираем хвостовые слеши и /api
+    while ([cleaned hasSuffix:@"/"]) {
+        cleaned = [cleaned substringToIndex:cleaned.length - 1];
+    }
+    if ([cleaned hasSuffix:@"/api"]) {
+        cleaned = [cleaned substringToIndex:cleaned.length - 4];
+    }
+    while ([cleaned hasSuffix:@"/"]) {
+        cleaned = [cleaned substringToIndex:cleaned.length - 1];
+    }
+    
+    return [cleaned stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
++ (NSArray<NSString *> *)availableInstances {
+    NSArray *defaultInstances = @[
         @"openvk.xyz",
         @"api.openvk.org",
         @"vepurovk.xyz",
         @"api.vepurovk.fun"
     ];
+    
+    NSArray *custom = [[NSUserDefaults standardUserDefaults] arrayForKey:kOpenVKCustomInstancesKey];
+    if (!custom || custom.count == 0) {
+        return defaultInstances;
+    }
+    
+    NSMutableArray *result = [NSMutableArray arrayWithArray:defaultInstances];
+    for (NSString *host in custom) {
+        if ([host isKindOfClass:[NSString class]] && host.length > 0 && ![result containsObject:host]) {
+            [result addObject:host];
+        }
+    }
+    return result;
+}
+
++ (void)addCustomInstance:(NSString *)host {
+    NSString *cleaned = [self cleanHostString:host];
+    if (cleaned.length == 0) return;
+    
+    NSMutableArray *custom = [NSMutableArray array];
+    NSArray *saved = [[NSUserDefaults standardUserDefaults] arrayForKey:kOpenVKCustomInstancesKey];
+    if (saved) {
+        [custom addObjectsFromArray:saved];
+    }
+    
+    if (![custom containsObject:cleaned]) {
+        [custom addObject:cleaned];
+        [[NSUserDefaults standardUserDefaults] setObject:custom forKey:kOpenVKCustomInstancesKey];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
+    
+    [self setCurrentHost:cleaned];
+}
+
++ (void)removeCustomInstance:(NSString *)host {
+    NSString *cleaned = [self cleanHostString:host];
+    if (cleaned.length == 0) return;
+    
+    NSArray *saved = [[NSUserDefaults standardUserDefaults] arrayForKey:kOpenVKCustomInstancesKey];
+    if (saved) {
+        NSMutableArray *custom = [NSMutableArray arrayWithArray:saved];
+        [custom removeObject:cleaned];
+        [[NSUserDefaults standardUserDefaults] setObject:custom forKey:kOpenVKCustomInstancesKey];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
 }
 
 + (NSString *)currentHost {
@@ -23,10 +94,11 @@ static NSString *const kDefaultInstance = @"api.openvk.org";
 }
 
 + (void)setCurrentHost:(NSString *)host {
-    if (!host || host.length == 0) {
-        host = kDefaultInstance;
+    NSString *cleaned = [self cleanHostString:host];
+    if (!cleaned || cleaned.length == 0) {
+        cleaned = kDefaultInstance;
     }
-    [[NSUserDefaults standardUserDefaults] setObject:host forKey:kOpenVKInstanceKey];
+    [[NSUserDefaults standardUserDefaults] setObject:cleaned forKey:kOpenVKInstanceKey];
     [[NSUserDefaults standardUserDefaults] synchronize];
 }
 

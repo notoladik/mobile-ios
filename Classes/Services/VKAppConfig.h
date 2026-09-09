@@ -5,6 +5,9 @@
 + (NSString *)currentHost;
 + (void)setCurrentHost:(NSString *)host;
 + (NSURL *)apiBaseURL;
-+ (NSArray *)availableInstances;
++ (NSArray<NSString *> *)availableInstances;
++ (void)addCustomInstance:(NSString *)host;
++ (void)removeCustomInstance:(NSString *)host;
++ (NSString *)cleanHostString:(NSString *)host;
 
 @end
