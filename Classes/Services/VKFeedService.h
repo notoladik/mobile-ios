@@ -9,6 +9,10 @@
                 startFrom:(NSString *)startFrom
                completion:(void (^)(NSArray *posts, NSString *nextFrom, NSError *error))completion;
 
+- (void)fetchFeedMode:(NSInteger)feedMode
+            startFrom:(NSString *)startFrom
+           completion:(void (^)(NSArray *posts, NSString *nextFrom, NSError *error))completion;
+
 - (void)likePost:(VKPost *)post
       completion:(void (^)(VKPost *updatedPost, NSError *error))completion;
 

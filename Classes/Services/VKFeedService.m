@@ -15,10 +15,22 @@
 - (void)fetchFeedIsGlobal:(BOOL)isGlobal
                 startFrom:(NSString *)startFrom
                completion:(void (^)(NSArray *posts, NSString *nextFrom, NSError *error))completion {
+    [self fetchFeedMode:(isGlobal ? 1 : 0) startFrom:startFrom completion:completion];
+}
+
+- (void)fetchFeedMode:(NSInteger)feedMode
+            startFrom:(NSString *)startFrom
+           completion:(void (^)(NSArray *posts, NSString *nextFrom, NSError *error))completion {
     
-    NSString *method = isGlobal ? @"newsfeed.getGlobal" : @"newsfeed.get";
+    NSString *method = @"newsfeed.get";
+    if (feedMode == 1) {
+        method = @"newsfeed.getGlobal";
+    } else if (feedMode == 2) {
+        method = @"newsfeed.getRecommended";
+    }
+    
     NSMutableDictionary *params = [NSMutableDictionary dictionaryWithDictionary:@{
-        @"count": @"20",
+        @"count": @"25",
         @"extended": @"1",
         @"with_alien_wall_posts": @"1",
         @"filters": @"post"
@@ -87,7 +99,9 @@
         return;
     }
     
-    NSString *method = post.isLiked ? @"likes.delete" : @"likes.add";
+    // post.isLiked уже содержит новое (целевое) состояние после нажатия в интерфейсе ячейки
+    BOOL targetLiked = post.isLiked;
+    NSString *method = targetLiked ? @"likes.add" : @"likes.delete";
     NSDictionary *params = @{
         @"type": @"post",
         @"owner_id": @(post.ownerID),
@@ -96,15 +110,21 @@
     
     [[VKAPIClient sharedClient] callMethod:method parameters:params completionHandler:^(id response, NSError *error) {
         if (error) {
+            // При сетевой ошибке откатываем локальное состояние
+            post.isLiked = !targetLiked;
+            if (post.isLiked) {
+                post.likesCount += 1;
+            } else {
+                post.likesCount = MAX(0, post.likesCount - 1);
+            }
             if (completion) completion(post, error);
             return;
         }
         
-        post.isLiked = !post.isLiked;
-        if (post.isLiked) {
-            post.likesCount += 1;
-        } else {
-            post.likesCount = MAX(0, post.likesCount - 1);
+        // Сервер OpenVK возвращает response.likes с актуальным числом лайков
+        NSDictionary *resp = [response isKindOfClass:[NSDictionary class]] ? (response[@"response"] ?: response) : nil;
+        if (resp && resp[@"likes"] != nil) {
+            post.likesCount = [resp[@"likes"] integerValue];
         }
         
         if (completion) completion(post, nil);

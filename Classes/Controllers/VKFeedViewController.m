@@ -209,44 +209,109 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
 }
 
 - (void)loadFeedFromStart:(BOOL)fromStart {
-    if (self.isLoading) return;
-    self.isLoading = YES;
+    if (fromStart) {
+        if (self.isLoading) return;
+        self.isLoading = YES;
+        self.nextFrom = nil;
+        
+        [VKCrashLogger log:@"[VKFeedViewController] Loading feed from start, mode=%ld", (long)self.feedMode];
+        
+        NSInteger mode = (NSInteger)self.feedMode;
+        __weak typeof(self) weakSelf = self;
+        [[VKFeedService sharedService] fetchFeedMode:mode startFrom:nil completion:^(NSArray *posts, NSString *nextFrom, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                weakSelf.isLoading = NO;
+                if (NSClassFromString(@"UIRefreshControl") && weakSelf.refreshControl.isRefreshing) {
+                    [weakSelf.refreshControl endRefreshing];
+                }
+                
+                if (error) {
+                    [VKCrashLogger log:@"[VKFeedViewController] Error loading feed: %@", error.localizedDescription];
+                    if (weakSelf.posts.count == 0) {
+                        weakSelf.tableView.backgroundView = [VKOfflinePlaceholderView offlinePlaceholderWithFrame:weakSelf.tableView.bounds onRetry:^{
+                            [weakSelf refreshFeed];
+                        }];
+                    }
+                    return;
+                }
+                
+                if (posts) {
+                    weakSelf.tableView.backgroundView = nil;
+                    [weakSelf.posts removeAllObjects];
+                    [weakSelf.posts addObjectsFromArray:posts];
+                    weakSelf.nextFrom = nextFrom;
+                    [weakSelf.tableView reloadData];
+                    [VKCrashLogger log:@"[VKFeedViewController] Feed loaded, total posts: %lu, nextFrom: %@", (unsigned long)weakSelf.posts.count, nextFrom];
+                }
+            });
+        }];
+    } else {
+        [self loadMoreFeedPosts];
+    }
+}
+
+- (void)loadMoreFeedPosts {
+    if (self.isLoading || self.isLoadingMore || self.nextFrom.length == 0) return;
+    self.isLoadingMore = YES;
     
-    [VKCrashLogger log:@"[VKFeedViewController] Loading feed fromStart=%d, mode=%ld", fromStart, (long)self.feedMode];
+    UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
+    spinner.frame = CGRectMake(0, 0, self.tableView.bounds.size.width, 44.0);
+    [spinner startAnimating];
+    self.tableView.tableFooterView = spinner;
     
-    NSString *startFrom = fromStart ? nil : self.nextFrom;
-    BOOL isGlobal = (self.feedMode == VKFeedTypeModeAllNews);
+    [VKCrashLogger log:@"[VKFeedViewController] Loading more feed posts with nextFrom: %@", self.nextFrom];
     
-    [[VKFeedService sharedService] fetchFeedIsGlobal:isGlobal startFrom:startFrom completion:^(NSArray *posts, NSString *nextFrom, NSError *error) {
+    NSString *startFrom = self.nextFrom;
+    NSInteger mode = (NSInteger)self.feedMode;
+    
+    __weak typeof(self) weakSelf = self;
+    [[VKFeedService sharedService] fetchFeedMode:mode startFrom:startFrom completion:^(NSArray *posts, NSString *nextFrom, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.isLoading = NO;
-            if (NSClassFromString(@"UIRefreshControl") && self.refreshControl.isRefreshing) {
-                [self.refreshControl endRefreshing];
-            }
+            weakSelf.isLoadingMore = NO;
+            weakSelf.tableView.tableFooterView = nil;
             
             if (error) {
-                [VKCrashLogger log:@"[VKFeedViewController] Error loading feed: %@", error.localizedDescription];
-                if (self.posts.count == 0) {
-                    __weak typeof(self) weakSelf = self;
-                    self.tableView.backgroundView = [VKOfflinePlaceholderView offlinePlaceholderWithFrame:self.tableView.bounds onRetry:^{
-                        [weakSelf refreshFeed];
-                    }];
-                }
+                [VKCrashLogger log:@"[VKFeedViewController] Error loading more posts: %@", error.localizedDescription];
                 return;
             }
             
-            if (posts) {
-                self.tableView.backgroundView = nil;
-                if (fromStart) {
-                    [self.posts removeAllObjects];
+            if (posts.count > 0) {
+                NSMutableSet *existingIds = [NSMutableSet set];
+                for (VKPost *p in weakSelf.posts) {
+                    [existingIds addObject:@(p.vkID)];
                 }
-                [self.posts addObjectsFromArray:posts];
-                self.nextFrom = nextFrom;
-                [self.tableView reloadData];
-                [VKCrashLogger log:@"[VKFeedViewController] Feed updated, total posts: %lu", (unsigned long)self.posts.count];
+                
+                NSMutableArray *newUnique = [NSMutableArray array];
+                for (VKPost *p in posts) {
+                    if (![existingIds containsObject:@(p.vkID)]) {
+                        [newUnique addObject:p];
+                        [existingIds addObject:@(p.vkID)];
+                    }
+                }
+                
+                [weakSelf.posts addObjectsFromArray:newUnique];
+                weakSelf.nextFrom = nextFrom;
+                [weakSelf.tableView reloadData];
+                [VKCrashLogger log:@"[VKFeedViewController] Appended %lu posts, total %lu, nextFrom: %@", (unsigned long)newUnique.count, (unsigned long)weakSelf.posts.count, nextFrom];
+            } else {
+                weakSelf.nextFrom = nil;
             }
         });
     }];
+}
+
+#pragma mark - UIScrollViewDelegate (Infinite Scroll)
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    if (self.isLoading || self.isLoadingMore || self.nextFrom.length == 0) return;
+    
+    CGFloat offsetY = scrollView.contentOffset.y;
+    CGFloat contentHeight = scrollView.contentSize.height;
+    CGFloat frameHeight = scrollView.bounds.size.height;
+    
+    if (offsetY > contentHeight - frameHeight * 1.8 && contentHeight > frameHeight) {
+        [self loadMoreFeedPosts];
+    }
 }
 
 #pragma mark - Table view data source

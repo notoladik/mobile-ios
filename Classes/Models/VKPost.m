@@ -10,7 +10,7 @@
     post.vkID = [dict[@"id"] integerValue];
     
     NSInteger sourceId = [dict[@"from_id"] integerValue] ?: [dict[@"source_id"] integerValue] ?: 0;
-    NSInteger ownerId = [dict[@"owner_id"] integerValue] ?: [dict[@"source_id"] integerValue] ?: [dict[@"from_id"] integerValue] ?: 0;
+    NSInteger ownerId = [dict[@"owner_id"] integerValue] ?: [dict[@"to_id"] integerValue] ?: [dict[@"source_id"] integerValue] ?: [dict[@"from_id"] integerValue] ?: 0;
     post.ownerID = ownerId;
     
     // Автор
