@@ -1,5 +1,6 @@
 #import "VKChatViewController.h"
 #import "VKChatMembersViewController.h"
+#import "VKChatSettingsViewController.h"
 #import "VKMessagesService.h"
 #import "VKProfileViewController.h"
 #import "VKPhotoViewerViewController.h"
@@ -302,15 +303,12 @@
     self.navigationItem.titleView = headerView;
     self.navigationItem.leftBarButtonItem = [[VKThemeManager sharedManager] barButtonItemWithTitle:@"Назад" target:self action:@selector(goBackAction) isBack:YES];
     
-    // Аватарка в правом углу навигационной панели
-    if (self.peerUser && self.peerUser.avatarURL.length > 0) {
+    // В официальном VK 2.x/3.x: для бесед всегда отображается иконка chat_settings справа!
+    if (self.peerId > 2000000000) {
+        UIImage *settingsImg = [UIImage imageNamed:@"chat_settings"];
+        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithImage:settingsImg style:UIBarButtonItemStylePlain target:self action:@selector(openChatSettings)];
+    } else if (self.peerUser && self.peerUser.avatarURL.length > 0) {
         [self updateHeaderAvatarWithURL:self.peerUser.avatarURL];
-    } else if (self.chatPhotoURL.length > 0) {
-        [self updateHeaderAvatarWithURL:self.chatPhotoURL];
-    } else if (self.peerId > 2000000000) {
-        // Кнопка действий беседы «...» если аватарки нет
-        UIBarButtonItem *moreBtn = [[UIBarButtonItem alloc] initWithTitle:@"•••" style:UIBarButtonItemStylePlain target:self action:@selector(headerTapped)];
-        self.navigationItem.rightBarButtonItem = moreBtn;
     }
 }
 
@@ -460,25 +458,29 @@
         [self openPeerProfile];
         return;
     }
-    
-    // Действия для бесед
-    UIActionSheet *sheet = nil;
-    if (self.isLeftOrKicked) {
-        sheet = [[UIActionSheet alloc] initWithTitle:self.chatTitle ?: @"Беседа"
-                                            delegate:self
-                                   cancelButtonTitle:@"Отмена"
-                              destructiveButtonTitle:nil
-                                   otherButtonTitles:@"Информация о беседе", @"Список участников", @"Вернуться в беседу", nil];
-        sheet.tag = 5002; // Tag для покинутой беседы
-    } else {
-        sheet = [[UIActionSheet alloc] initWithTitle:self.chatTitle ?: @"Беседа"
-                                            delegate:self
-                                   cancelButtonTitle:@"Отмена"
-                              destructiveButtonTitle:@"Покинуть беседу"
-                                   otherButtonTitles:@"Информация о беседе", @"Список участников", nil];
-        sheet.tag = 5003; // Tag для активного участника
-    }
-    [sheet showInView:self.view];
+    [self openChatSettings];
+}
+
+- (void)openChatSettings {
+    NSInteger chatId = self.peerId - 2000000000;
+    VKChatSettingsViewController *settingsVC = [[VKChatSettingsViewController alloc] initWithChatId:chatId
+                                                                                            adminId:self.adminId
+                                                                                              title:self.chatTitle
+                                                                                           photoURL:self.chatPhotoURL
+                                                                                       membersCount:self.membersCount
+                                                                                           isMember:!self.isLeftOrKicked];
+    __weak typeof(self) wSelf = self;
+    settingsVC.onChatUpdated = ^(NSString *newTitle, NSString *newPhoto, BOOL isMember) {
+        __strong typeof(wSelf) sSelf = wSelf;
+        if (!sSelf) return;
+        sSelf.chatTitle = newTitle;
+        sSelf.chatPhotoURL = newPhoto;
+        sSelf.isLeftOrKicked = !isMember;
+        [sSelf setupNavigationHeader];
+        [sSelf updateInputBarVisibility];
+        [sSelf loadHistory];
+    };
+    [self.navigationController pushViewController:settingsVC animated:YES];
 }
 
 - (void)leaveChatAction {
@@ -745,7 +747,7 @@
         if (buttonIndex == 0) {
             // Покинуть беседу (destructive)
             UIAlertView *confirmAlert = [[UIAlertView alloc] initWithTitle:@"Покинуть беседу?"
-                                                                   message:@"Вы действительно хотите выйти из этой беседы?"
+                                                                   message:@"Покинув беседу, Вы не будете получать новых сообщений от участников. Вы сможете вернуться при наличии свободных мест."
                                                                   delegate:self
                                                          cancelButtonTitle:@"Отмена"
                                                          otherButtonTitles:@"Покинуть", nil];

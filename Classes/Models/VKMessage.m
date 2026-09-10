@@ -84,22 +84,32 @@
 - (NSString *)serviceActionText {
     if (![self isServiceAction]) return @"";
     
+    BOOL isFemale = (self.senderUser && self.senderUser.sex == 1);
+    
     if ([self.action isEqualToString:@"chat_photo_update"]) {
-        return @"обновил(а) фотографию беседы";
+        return isFemale ? @"обновила фотографию беседы" : @"обновил фотографию беседы";
     } else if ([self.action isEqualToString:@"chat_photo_remove"]) {
-        return @"удалил(а) фотографию беседы";
+        return isFemale ? @"удалила фотографию беседы" : @"удалил фотографию беседы";
     } else if ([self.action isEqualToString:@"chat_create"]) {
-        return [NSString stringWithFormat:@"создал(а) беседу «%@»", self.actionText ?: @""];
+        return [NSString stringWithFormat:isFemale ? @"создала беседу «%@»" : @"создал беседу «%@»", self.actionText ?: @""];
     } else if ([self.action isEqualToString:@"chat_title_update"]) {
-        return [NSString stringWithFormat:@"изменил(а) название беседы на «%@»", self.actionText ?: @""];
+        return [NSString stringWithFormat:isFemale ? @"изменила название беседы на «%@»" : @"изменил название беседы на «%@»", self.actionText ?: @""];
     } else if ([self.action isEqualToString:@"chat_invite_user"] || [self.action isEqualToString:@"chat_user_add"]) {
-        return @"добавил(а) пользователя в беседу";
+        if (self.actionMid != 0 && self.actionMid == self.fromId) {
+            return isFemale ? @"вернулась в беседу" : @"вернулся в беседу";
+        }
+        return isFemale ? @"пригласила пользователя в беседу" : @"пригласил пользователя в беседу";
     } else if ([self.action isEqualToString:@"chat_kick_user"] || [self.action isEqualToString:@"chat_user_kick"]) {
-        return @"исключил(а) пользователя из беседы";
+        if (self.actionMid != 0 && self.actionMid == self.fromId) {
+            return isFemale ? @"покинула беседу" : @"покинул беседу";
+        }
+        return isFemale ? @"исключила пользователя из беседы" : @"исключил пользователя из беседы";
+    } else if ([self.action isEqualToString:@"chat_invite_user_by_link"]) {
+        return isFemale ? @"присоединилась к беседе по ссылке" : @"присоединился к беседе по ссылке";
     } else if ([self.action isEqualToString:@"chat_pin_message"]) {
-        return @"закрепил(а) сообщение";
+        return isFemale ? @"закрепила сообщение" : @"закрепил сообщение";
     } else if ([self.action isEqualToString:@"chat_unpin_message"]) {
-        return @"открепил(а) сообщение";
+        return isFemale ? @"открепила сообщение" : @"открепил сообщение";
     }
     return self.action;
 }
