@@ -313,7 +313,14 @@
     UILabel *dateLabel = (UILabel *)[cell.contentView viewWithTag:307];
     UIView *unreadDot = [cell.contentView viewWithTag:308];
     
-    avatar.image = nil;
+    if (conv.isChat) {
+        avatar.image = [UIImage imageNamed:isSkeuomorph ? @"MessagesGroup" : @"7_messages_group"];
+    } else if (conv.isGroup) {
+        avatar.image = [UIImage imageNamed:@"7_group_placeholder"];
+    } else {
+        avatar.image = [UIImage imageNamed:isSkeuomorph ? @"user_placeholder" : @"7_user_placeholder"];
+    }
+    
     NSString *avatarURL = [conv displayAvatarURL];
     if (avatarURL.length > 0) {
         [[VKImageLoader sharedLoader] loadImageWithURL:avatarURL completion:^(UIImage *img) {
@@ -381,6 +388,9 @@
     if (indexPath.row < (NSInteger)data.count) {
         VKConversation *conv = data[indexPath.row];
         VKChatViewController *chatVC = [[VKChatViewController alloc] initWithPeerId:conv.peerId peerUser:conv.peerUser title:[conv displayTitle]];
+        chatVC.chatPhotoURL = conv.chatPhotoURL;
+        chatVC.membersCount = conv.membersCount;
+        chatVC.adminId = conv.adminId;
         [self.navigationController pushViewController:chatVC animated:YES];
     }
 }
