@@ -8,7 +8,9 @@ typedef NS_ENUM(NSInteger, VKAttachmentType) {
     VKAttachmentTypePoll,
     VKAttachmentTypeGif,
     VKAttachmentTypeLink,
-    VKAttachmentTypeNote
+    VKAttachmentTypeNote,
+    VKAttachmentTypeSticker,
+    VKAttachmentTypeAudioMessage
 };
 
 @interface VKPollOption : NSObject
@@ -66,6 +68,15 @@ typedef NS_ENUM(NSInteger, VKAttachmentType) {
 @property (nonatomic, copy) NSString *pollQuestion;
 @property (nonatomic, strong) NSArray *pollOptions;
 @property (nonatomic, assign) NSInteger pollTotalVotes;
+
+// Sticker
+@property (nonatomic, assign) NSInteger stickerId;
+@property (nonatomic, copy) NSString *stickerURL;
+
+// Audio message / Voice
+@property (nonatomic, assign) NSInteger audioMessageId;
+@property (nonatomic, copy) NSString *audioMessageURL;
+@property (nonatomic, assign) NSInteger audioMessageDuration;
 
 + (instancetype)attachmentFromDictionary:(NSDictionary *)dict;
 

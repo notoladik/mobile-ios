@@ -164,6 +164,30 @@
         return att;
     }
     
+    if ([typeStr isEqualToString:@"sticker"]) {
+        att.type = VKAttachmentTypeSticker;
+        NSDictionary *s = dict[@"sticker"];
+        att.stickerId = [s[@"sticker_id"] integerValue] ?: [s[@"id"] integerValue];
+        
+        NSArray *images = s[@"images"];
+        if ([images isKindOfClass:[NSArray class]] && images.count > 0) {
+            NSDictionary *best = [images lastObject];
+            att.stickerURL = best[@"url"];
+        } else {
+            att.stickerURL = s[@"photo_352"] ?: s[@"photo_256"] ?: s[@"photo_128"] ?: s[@"photo_512"];
+        }
+        return att;
+    }
+    
+    if ([typeStr isEqualToString:@"audio_message"]) {
+        att.type = VKAttachmentTypeAudioMessage;
+        NSDictionary *am = dict[@"audio_message"];
+        att.audioMessageId = [am[@"id"] integerValue];
+        att.audioMessageURL = am[@"link_mp3"] ?: am[@"link_ogg"];
+        att.audioMessageDuration = [am[@"duration"] integerValue];
+        return att;
+    }
+    
     return nil;
 }
 

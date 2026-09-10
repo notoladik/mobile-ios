@@ -9,6 +9,7 @@
 #import "VKAPIClient.h"
 #import "VKAttachment.h"
 #import "VKPhotoEditorViewController.h"
+#import "VKLongPollService.h"
 #import <QuartzCore/QuartzCore.h>
 
 @interface VKChatViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIActionSheetDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
@@ -19,6 +20,9 @@
 @property (nonatomic, strong) UIButton *sendButton;
 @property (nonatomic, strong) NSMutableArray *messages;
 @property (nonatomic, assign) BOOL isLoading;
+@property (nonatomic, strong) UILabel *nameLabel;
+@property (nonatomic, strong) UILabel *statusLabel;
+@property (nonatomic, assign) NSTimeInterval lastTypingTime;
 @end
 
 @implementation VKChatViewController
@@ -135,6 +139,11 @@
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillShow:) name:UIKeyboardWillShowNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillHide:) name:UIKeyboardWillHideNotification object:nil];
     
+    // Real-time LongPoll события
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didReceiveNewMessageNotification:) name:VKLongPollDidReceiveNewMessageNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didReadMessagesNotification:) name:VKLongPollDidReadMessagesNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(userTypingNotification:) name:VKLongPollUserTypingNotification object:nil];
+    
     // Подгрузка профиля собеседника, если аватарки или статуса не хватает
     if (self.peerId > 0 && (!self.peerUser || self.peerUser.avatarURL.length == 0)) {
         NSDictionary *params = @{
@@ -210,9 +219,14 @@
     nameLabel.textColor = [[VKThemeManager sharedManager] navBarTitleColor];
     nameLabel.textAlignment = NSTextAlignmentCenter;
     [headerView addSubview:nameLabel];
+    self.nameLabel = nameLabel;
     
     UILabel *statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 19, 180, 14)];
-    statusLabel.text = self.peerUser.isOnline ? @"в сети" : (self.peerUser.lastSeen ?: @"был(а) недавно");
+    if (self.peerId > 2000000000) {
+        statusLabel.text = @"беседа";
+    } else {
+        statusLabel.text = self.peerUser.isOnline ? @"в сети" : (self.peerUser.lastSeen ?: @"был(а) недавно");
+    }
     statusLabel.font = [UIFont systemFontOfSize:11];
     if ([[VKThemeManager sharedManager] isSkeuomorphic]) {
         statusLabel.textColor = [UIColor colorWithRed:180.0/255.0 green:210.0/255.0 blue:245.0/255.0 alpha:1.0];
@@ -221,6 +235,7 @@
     }
     statusLabel.textAlignment = NSTextAlignmentCenter;
     [headerView addSubview:statusLabel];
+    self.statusLabel = statusLabel;
     
     self.navigationItem.titleView = headerView;
     
@@ -245,6 +260,62 @@
         }
         self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:navAvatar];
     }
+}
+
+#pragma mark - LongPoll Handlers
+
+- (void)didReceiveNewMessageNotification:(NSNotification *)note {
+    VKMessage *msg = note.userInfo[@"message"];
+    if (!msg || msg.peerId != self.peerId) return;
+    
+    dispatch_async(dispatch_get_main_queue(), ^{
+        for (VKMessage *m in self.messages) {
+            if (m.messageId == msg.messageId) return;
+        }
+        [self.messages addObject:msg];
+        [self.tableView reloadData];
+        if (self.messages.count > 0) {
+            NSIndexPath *last = [NSIndexPath indexPathForRow:self.messages.count - 1 inSection:0];
+            [self.tableView scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:YES];
+        }
+        if (!msg.isOutgoing) {
+            [[VKMessagesService sharedService] markAsReadForPeerId:self.peerId messageId:msg.messageId completion:nil];
+        }
+    });
+}
+
+- (void)didReadMessagesNotification:(NSNotification *)note {
+    NSInteger peerId = [note.userInfo[@"peer_id"] integerValue];
+    BOOL isOutgoing = [note.userInfo[@"is_outgoing"] boolValue];
+    if (peerId == self.peerId && isOutgoing) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            for (VKMessage *m in self.messages) {
+                if (m.isOutgoing) m.isRead = YES;
+            }
+            [self.tableView reloadData];
+        });
+    }
+}
+
+- (void)userTypingNotification:(NSNotification *)note {
+    NSInteger peerId = [note.userInfo[@"peer_id"] integerValue];
+    if (peerId == self.peerId) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.statusLabel.text = @"печатает...";
+            self.statusLabel.textColor = [[VKThemeManager sharedManager] accentColor];
+            [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(resetTypingStatus) object:nil];
+            [self performSelector:@selector(resetTypingStatus) withObject:nil afterDelay:5.0];
+        });
+    }
+}
+
+- (void)resetTypingStatus {
+    if (self.peerId > 2000000000) {
+        self.statusLabel.text = @"беседа";
+    } else {
+        self.statusLabel.text = self.peerUser.isOnline ? @"в сети" : (self.peerUser.lastSeen ?: @"был(а) недавно");
+    }
+    self.statusLabel.textColor = [[VKThemeManager sharedManager] isSkeuomorphic] ? [UIColor colorWithRed:180.0/255.0 green:210.0/255.0 blue:245.0/255.0 alpha:1.0] : [UIColor colorWithWhite:0.6 alpha:1.0];
 }
 
 - (void)attachPhotoAction {
@@ -561,6 +632,15 @@
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {
     [self sendMessage];
+    return YES;
+}
+
+- (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if (now - self.lastTypingTime > 5.0) {
+        self.lastTypingTime = now;
+        [[VKAPIClient sharedClient] callMethod:@"messages.setActivity" parameters:@{@"peer_id": @(self.peerId), @"type": @"typing"} completionHandler:nil];
+    }
     return YES;
 }
 

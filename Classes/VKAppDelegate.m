@@ -12,6 +12,7 @@
 #import "VKAudioPlayer.h"
 #import "VKNetworkStatusManager.h"
 #import "VKNetworkBannerView.h"
+#import "VKLongPollService.h"
 
 @interface VKNavigationController : UINavigationController <UIGestureRecognizerDelegate>
 - (void)updateNavBarTheme;
@@ -119,6 +120,7 @@
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(themeChanged:) name:VKThemeDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(sideMenuStateChanged:) name:VKSideMenuStateDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(audioPlayerStateChanged:) name:VKAudioPlayerStateDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(longPollUnreadCountChanged:) name:VKLongPollUnreadCountDidChangeNotification object:nil];
     
     [self updateRootViewController];
     [[VKSideMenuManager sharedManager] setupWithRootWindow:self.window];
@@ -126,8 +128,22 @@
     
     [[VKNetworkBannerView sharedBanner] attachToWindow:self.window];
     
+    if ([[VKAuthService sharedService] isAuthenticated]) {
+        [[VKLongPollService sharedService] start];
+    }
+    
     [self.window makeKeyAndVisible];
     return YES;
+}
+
+- (void)longPollUnreadCountChanged:(NSNotification *)note {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSInteger count = [note.userInfo[@"count"] integerValue];
+        if (self.tabBarController && self.tabBarController.viewControllers.count >= 3) {
+            UINavigationController *msgNav = self.tabBarController.viewControllers[2];
+            msgNav.tabBarItem.badgeValue = (count > 0) ? [NSString stringWithFormat:@"%ld", (long)count] : nil;
+        }
+    });
 }
 
 - (void)audioPlayerStateChanged:(NSNotification *)note {

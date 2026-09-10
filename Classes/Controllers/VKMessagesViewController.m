@@ -7,6 +7,7 @@
 #import "VKThemeManager.h"
 #import "VKSideMenuManager.h"
 #import "VKCrashLogger.h"
+#import "VKLongPollService.h"
 #import <QuartzCore/QuartzCore.h>
 
 @interface VKMessagesViewController () <UISearchBarDelegate>
@@ -18,6 +19,10 @@
 @end
 
 @implementation VKMessagesViewController
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
 
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -49,6 +54,8 @@
     [self applyThemeStyle];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applyThemeStyle) name:VKThemeDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(setupNavigationItems) name:VKSideMenuStateDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didReceiveNewMessage:) name:VKLongPollDidReceiveNewMessageNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didReadMessages:) name:VKLongPollDidReadMessagesNotification object:nil];
     
     if (NSClassFromString(@"UIRefreshControl")) {
         UIRefreshControl *refreshControl = [[UIRefreshControl alloc] init];
@@ -155,6 +162,58 @@
     }];
 }
 
+#pragma mark - LongPoll Notifications
+
+- (void)didReceiveNewMessage:(NSNotification *)note {
+    VKMessage *msg = note.userInfo[@"message"];
+    if (!msg) return;
+    
+    dispatch_async(dispatch_get_main_queue(), ^{
+        VKConversation *targetConv = nil;
+        for (VKConversation *c in self.conversations) {
+            if (c.peerId == msg.peerId) {
+                targetConv = c;
+                break;
+            }
+        }
+        
+        if (targetConv) {
+            targetConv.lastMessage = msg;
+            if (!msg.isOutgoing && !msg.isRead) {
+                targetConv.unreadCount += 1;
+            }
+            // Поднимаем диалог наверх списка
+            [self.conversations removeObject:targetConv];
+            [self.conversations insertObject:targetConv atIndex:0];
+            [self.tableView reloadData];
+        } else {
+            // Новый диалог, подгружаем актуальный список диалогов
+            [self loadDialogs];
+        }
+    });
+}
+
+- (void)didReadMessages:(NSNotification *)note {
+    NSInteger peerId = [note.userInfo[@"peer_id"] integerValue];
+    BOOL isOutgoing = [note.userInfo[@"is_outgoing"] boolValue];
+    
+    dispatch_async(dispatch_get_main_queue(), ^{
+        for (VKConversation *c in self.conversations) {
+            if (c.peerId == peerId) {
+                if (isOutgoing) {
+                    if (c.lastMessage.isOutgoing) {
+                        c.lastMessage.isRead = YES;
+                    }
+                } else {
+                    c.unreadCount = 0;
+                }
+                [self.tableView reloadData];
+                break;
+            }
+        }
+    });
+}
+
 #pragma mark - Table View Data Source
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -255,13 +314,14 @@
     UIView *unreadDot = [cell.contentView viewWithTag:308];
     
     avatar.image = nil;
-    if (conv.peerUser.avatarURL) {
-        [[VKImageLoader sharedLoader] loadImageWithURL:conv.peerUser.avatarURL completion:^(UIImage *img) {
+    NSString *avatarURL = [conv displayAvatarURL];
+    if (avatarURL.length > 0) {
+        [[VKImageLoader sharedLoader] loadImageWithURL:avatarURL completion:^(UIImage *img) {
             if (img) avatar.image = img;
         }];
     }
     
-    nameLabel.text = conv.title ?: @"Беседа";
+    nameLabel.text = [conv displayTitle];
     CGSize nameSize = [nameLabel.text sizeWithFont:[UIFont boldSystemFontOfSize:15]];
     nameLabel.frame = CGRectMake(70, 14, MIN(nameSize.width, width - 150), 20);
     
@@ -289,8 +349,7 @@
     dateLabel.text = conv.lastMessage.timeString ?: @"";
     dateLabel.frame = CGRectMake(width - 80, 16, 70, 16);
     
-    NSString *msgPrefix = conv.lastMessage.isOutgoing ? @"Вы: " : @"";
-    msgLabel.text = [NSString stringWithFormat:@"%@%@", msgPrefix, conv.lastMessage.text ?: @"[Вложение]"];
+    msgLabel.text = [conv previewText];
     msgLabel.frame = CGRectMake(70, 36, width - 130, 18);
     
     if (conv.unreadCount > 0) {
@@ -321,7 +380,7 @@
     NSArray *data = [self currentDataSource];
     if (indexPath.row < (NSInteger)data.count) {
         VKConversation *conv = data[indexPath.row];
-        VKChatViewController *chatVC = [[VKChatViewController alloc] initWithPeerId:conv.peerId peerUser:conv.peerUser title:conv.title];
+        VKChatViewController *chatVC = [[VKChatViewController alloc] initWithPeerId:conv.peerId peerUser:conv.peerUser title:[conv displayTitle]];
         [self.navigationController pushViewController:chatVC animated:YES];
     }
 }
