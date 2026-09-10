@@ -22,4 +22,18 @@
                   messageId:(NSInteger)messageId
                  completion:(void (^)(BOOL success))completion;
 
+- (void)leaveChatWithChatId:(NSInteger)chatId
+                 completion:(void (^)(BOOL success, NSError *error))completion;
+
+- (void)returnToChatWithChatId:(NSInteger)chatId
+                    completion:(void (^)(BOOL success, NSError *error))completion;
+
+- (void)addChatUserWithUserId:(NSInteger)userId
+                       chatId:(NSInteger)chatId
+                   completion:(void (^)(BOOL success, NSError *error))completion;
+
+- (void)removeChatUserWithUserId:(NSInteger)userId
+                          chatId:(NSInteger)chatId
+                      completion:(void (^)(BOOL success, NSError *error))completion;
+
 @end

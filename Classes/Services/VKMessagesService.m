@@ -1,5 +1,6 @@
 #import "VKMessagesService.h"
 #import "VKAPIClient.h"
+#import "VKAuthService.h"
 
 @implementation VKMessagesService
 
@@ -214,6 +215,52 @@
     
     [[VKAPIClient sharedClient] callMethod:@"messages.markAsRead" parameters:params completionHandler:^(id response, NSError *error) {
         if (completion) completion(error == nil);
+    }];
+}
+
+- (void)leaveChatWithChatId:(NSInteger)chatId
+                 completion:(void (^)(BOOL success, NSError *error))completion {
+    NSInteger myId = [[VKAuthService sharedService] currentUserId];
+    [self removeChatUserWithUserId:myId chatId:chatId completion:completion];
+}
+
+- (void)returnToChatWithChatId:(NSInteger)chatId
+                    completion:(void (^)(BOOL success, NSError *error))completion {
+    NSInteger myId = [[VKAuthService sharedService] currentUserId];
+    [self addChatUserWithUserId:myId chatId:chatId completion:completion];
+}
+
+- (void)addChatUserWithUserId:(NSInteger)userId
+                       chatId:(NSInteger)chatId
+                   completion:(void (^)(BOOL success, NSError *error))completion {
+    NSDictionary *params = @{
+        @"chat_id": @(chatId),
+        @"user_id": @(userId),
+        @"peer_id": @(2000000000 + chatId)
+    };
+    [[VKAPIClient sharedClient] callMethod:@"messages.addChatUser" parameters:params completionHandler:^(id response, NSError *error) {
+        if (error) {
+            if (completion) completion(NO, error);
+            return;
+        }
+        if (completion) completion(YES, nil);
+    }];
+}
+
+- (void)removeChatUserWithUserId:(NSInteger)userId
+                          chatId:(NSInteger)chatId
+                      completion:(void (^)(BOOL success, NSError *error))completion {
+    NSDictionary *params = @{
+        @"chat_id": @(chatId),
+        @"user_id": @(userId),
+        @"peer_id": @(2000000000 + chatId)
+    };
+    [[VKAPIClient sharedClient] callMethod:@"messages.removeChatUser" parameters:params completionHandler:^(id response, NSError *error) {
+        if (error) {
+            if (completion) completion(NO, error);
+            return;
+        }
+        if (completion) completion(YES, nil);
     }];
 }
 

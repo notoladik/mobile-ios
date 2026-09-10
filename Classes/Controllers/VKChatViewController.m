@@ -1,4 +1,5 @@
 #import "VKChatViewController.h"
+#import "VKChatMembersViewController.h"
 #import "VKMessagesService.h"
 #import "VKProfileViewController.h"
 #import "VKPhotoViewerViewController.h"
@@ -20,12 +21,26 @@
 @implementation VKChatUserButton
 @end
 
-@interface VKChatViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIActionSheetDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+@interface VKChatAuthorTapGesture : UITapGestureRecognizer
+@property (nonatomic, strong) VKUser *user;
+@end
+
+@implementation VKChatAuthorTapGesture
+@end
+
+@interface VKChatViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIActionSheetDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIAlertViewDelegate>
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UIView *inputContainerView;
 @property (nonatomic, strong) UIButton *attachButton;
 @property (nonatomic, strong) UITextField *messageTextField;
 @property (nonatomic, strong) UIButton *sendButton;
+
+// Панель возвращения в беседу
+@property (nonatomic, strong) UIView *leaveReturnBannerView;
+@property (nonatomic, strong) UILabel *leaveReturnLabel;
+@property (nonatomic, strong) UIButton *returnToChatButton;
+@property (nonatomic, assign) BOOL isLeftOrKicked;
+
 @property (nonatomic, strong) NSMutableArray *messages;
 @property (nonatomic, assign) BOOL isLoading;
 @property (nonatomic, strong) UILabel *nameLabel;
@@ -33,6 +48,8 @@
 @property (nonatomic, assign) NSTimeInterval lastTypingTime;
 @property (nonatomic, strong) NSMutableDictionary *usersCache;
 @property (nonatomic, strong) NSMutableDictionary *pendingUserFetches;
+@property (nonatomic, strong) UIImageView *navAvatarView;
+@property (nonatomic, strong) UIView *navAvatarContainer;
 @end
 
 @implementation VKChatViewController
@@ -65,6 +82,10 @@
     
     self.view.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
     
+    if ([self respondsToSelector:@selector(setAutomaticallyAdjustsScrollViewInsets:)]) {
+        self.automaticallyAdjustsScrollViewInsets = YES;
+    }
+    
     [self setupNavigationHeader];
     
     CGFloat width = self.view.bounds.size.width;
@@ -86,7 +107,7 @@
     
     [self.view addSubview:self.tableView];
     
-    // Панель ввода сообщения
+    // 1. Панель ввода сообщения
     self.inputContainerView = [[UIView alloc] initWithFrame:CGRectMake(0, height - 48.0, width, 48.0)];
     self.inputContainerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
     
@@ -165,6 +186,31 @@
     
     [self.view addSubview:self.inputContainerView];
     
+    // 2. Панель «Вы покинули беседу / Вернуться»
+    self.leaveReturnBannerView = [[UIView alloc] initWithFrame:CGRectMake(0, height - 48.0, width, 48.0)];
+    self.leaveReturnBannerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+    self.leaveReturnBannerView.backgroundColor = isSkeuomorph ? [UIColor colorWithRed:235.0/255.0 green:238.0/255.0 blue:242.0/255.0 alpha:1.0] : [UIColor colorWithRed:248.0/255.0 green:248.0/255.0 blue:250.0/255.0 alpha:1.0];
+    self.leaveReturnBannerView.hidden = YES;
+    
+    UIView *leaveSep = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 0.5)];
+    leaveSep.backgroundColor = [UIColor colorWithRed:215.0/255.0 green:218.0/255.0 blue:222.0/255.0 alpha:1.0];
+    leaveSep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [self.leaveReturnBannerView addSubview:leaveSep];
+    
+    self.returnToChatButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.returnToChatButton.frame = CGRectMake(12, 6, width - 24, 36);
+    self.returnToChatButton.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    self.returnToChatButton.backgroundColor = [[VKThemeManager sharedManager] accentColor];
+    self.returnToChatButton.layer.cornerRadius = 6.0;
+    self.returnToChatButton.clipsToBounds = YES;
+    [self.returnToChatButton setTitle:@"Вернуться в беседу" forState:UIControlStateNormal];
+    [self.returnToChatButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    self.returnToChatButton.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    [self.returnToChatButton addTarget:self action:@selector(returnToChatAction) forControlEvents:UIControlEventTouchUpInside];
+    [self.leaveReturnBannerView addSubview:self.returnToChatButton];
+    
+    [self.view addSubview:self.leaveReturnBannerView];
+    
     // Уведомления клавиатуры
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillShow:) name:UIKeyboardWillShowNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillHide:) name:UIKeyboardWillHideNotification object:nil];
@@ -205,7 +251,129 @@
     [self setupNavigationHeader];
 }
 
-#pragma mark - Group Chat Info
+#pragma mark - Navigation Header & Banner
+
+- (void)setupNavigationHeader {
+    CGFloat maxW = self.view.bounds.size.width - 120.0;
+    if (maxW < 140) maxW = 140;
+    
+    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, maxW, 36)];
+    headerView.userInteractionEnabled = YES;
+    headerView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(headerTapped)];
+    [headerView addGestureRecognizer:tap];
+    
+    UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 2, maxW, 18)];
+    nameLabel.text = self.chatTitle ?: @"Чат";
+    nameLabel.font = [[VKThemeManager sharedManager] titleFontOfSize:15];
+    nameLabel.textColor = [[VKThemeManager sharedManager] navBarTitleColor];
+    nameLabel.textAlignment = NSTextAlignmentCenter;
+    nameLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    nameLabel.adjustsFontSizeToFitWidth = YES;
+    nameLabel.minimumScaleFactor = 0.85;
+    [headerView addSubview:nameLabel];
+    self.nameLabel = nameLabel;
+    
+    UILabel *statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 19, maxW, 14)];
+    if (self.peerId > 2000000000) {
+        if (self.isLeftOrKicked) {
+            statusLabel.text = @"вы покинули беседу";
+        } else if (self.membersCount > 0) {
+            statusLabel.text = [self membersCountString:self.membersCount];
+        } else {
+            statusLabel.text = @"беседа";
+        }
+    } else {
+        statusLabel.text = self.peerUser.isOnline ? @"в сети" : (self.peerUser.lastSeen ?: @"был(а) недавно");
+    }
+    statusLabel.font = [UIFont systemFontOfSize:11];
+    if ([[VKThemeManager sharedManager] isSkeuomorphic]) {
+        statusLabel.textColor = [UIColor colorWithRed:180.0/255.0 green:210.0/255.0 blue:245.0/255.0 alpha:1.0];
+    } else {
+        statusLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
+    }
+    statusLabel.textAlignment = NSTextAlignmentCenter;
+    statusLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    statusLabel.adjustsFontSizeToFitWidth = YES;
+    statusLabel.minimumScaleFactor = 0.85;
+    [headerView addSubview:statusLabel];
+    self.statusLabel = statusLabel;
+    
+    self.navigationItem.titleView = headerView;
+    self.navigationItem.leftBarButtonItem = [[VKThemeManager sharedManager] barButtonItemWithTitle:@"Назад" target:self action:@selector(goBackAction) isBack:YES];
+    
+    // Аватарка в правом углу навигационной панели
+    if (self.peerUser && self.peerUser.avatarURL.length > 0) {
+        [self updateHeaderAvatarWithURL:self.peerUser.avatarURL];
+    } else if (self.chatPhotoURL.length > 0) {
+        [self updateHeaderAvatarWithURL:self.chatPhotoURL];
+    } else if (self.peerId > 2000000000) {
+        // Кнопка действий беседы «...» если аватарки нет
+        UIBarButtonItem *moreBtn = [[UIBarButtonItem alloc] initWithTitle:@"•••" style:UIBarButtonItemStylePlain target:self action:@selector(headerTapped)];
+        self.navigationItem.rightBarButtonItem = moreBtn;
+    }
+}
+
+- (void)updateHeaderAvatarWithURL:(NSString *)url {
+    if (url.length == 0) return;
+    
+    // Оборачиваем аватарку в контейнер фиксированного размера 32x32,
+    // чтобы iOS 11+ не растягивал изображение на всю высоту навбара!
+    UIView *container = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 32, 32)];
+    container.clipsToBounds = YES;
+    container.backgroundColor = [UIColor clearColor];
+    
+    UIImageView *navAvatar = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 32, 32)];
+    navAvatar.contentMode = UIViewContentModeScaleAspectFill;
+    navAvatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:32.0];
+    navAvatar.layer.borderWidth = [[VKThemeManager sharedManager] avatarBorderWidth];
+    navAvatar.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.4].CGColor;
+    navAvatar.clipsToBounds = YES;
+    navAvatar.backgroundColor = [UIColor colorWithWhite:0.9 alpha:1.0];
+    navAvatar.userInteractionEnabled = YES;
+    [container addSubview:navAvatar];
+    
+    // Фиксируем AutoLayout ограничения для iOS 9+
+    if ([container respondsToSelector:@selector(widthAnchor)]) {
+        [container.widthAnchor constraintEqualToConstant:32.0].active = YES;
+        [container.heightAnchor constraintEqualToConstant:32.0].active = YES;
+    }
+    if ([navAvatar respondsToSelector:@selector(widthAnchor)]) {
+        [navAvatar.widthAnchor constraintEqualToConstant:32.0].active = YES;
+        [navAvatar.heightAnchor constraintEqualToConstant:32.0].active = YES;
+    }
+    
+    UITapGestureRecognizer *avTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(headerTapped)];
+    [container addGestureRecognizer:avTap];
+    
+    self.navAvatarView = navAvatar;
+    self.navAvatarContainer = container;
+    
+    [[VKImageLoader sharedLoader] loadImageWithURL:url completion:^(UIImage *img) {
+        if (img) navAvatar.image = img;
+    }];
+    
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:container];
+}
+
+- (void)updateInputBarVisibility {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.peerId > 2000000000 && self.isLeftOrKicked) {
+            self.inputContainerView.hidden = YES;
+            self.leaveReturnBannerView.hidden = NO;
+            self.statusLabel.text = @"вы покинули беседу";
+            [self dismissKeyboard];
+        } else {
+            self.inputContainerView.hidden = NO;
+            self.leaveReturnBannerView.hidden = YES;
+            if (self.peerId > 2000000000) {
+                self.statusLabel.text = (self.membersCount > 0) ? [self membersCountString:self.membersCount] : @"беседа";
+            }
+        }
+    });
+}
+
+#pragma mark - Group Chat Info & Actions
 
 - (NSString *)membersCountString:(NSInteger)count {
     if (count <= 0) return @"беседа";
@@ -243,46 +411,120 @@
         
         NSString *title = dict[@"title"];
         NSInteger count = [dict[@"members_count"] integerValue];
-        if (count == 0 && [dict[@"users"] isKindOfClass:[NSArray class]]) {
-            count = ((NSArray *)dict[@"users"]).count;
+        NSArray *users = dict[@"users"];
+        if (count == 0 && [users isKindOfClass:[NSArray class]]) {
+            count = users.count;
         }
         NSString *photo = dict[@"photo_100"] ?: dict[@"photo_50"] ?: dict[@"photo_200"];
+        NSInteger adminId = [dict[@"admin_id"] integerValue];
+        
+        // Проверяем, состоит ли текущий пользователь в беседе
+        NSInteger myId = [[VKAuthService sharedService] currentUserId];
+        BOOL isMember = NO;
+        if ([users isKindOfClass:[NSArray class]]) {
+            for (id u in users) {
+                NSInteger uid = [u isKindOfClass:[NSDictionary class]] ? ([u[@"id"] integerValue] ?: [u[@"uid"] integerValue]) : [u integerValue];
+                if (uid == myId) {
+                    isMember = YES;
+                    break;
+                }
+            }
+        }
+        NSInteger leftState = [dict[@"left"] integerValue];
+        NSInteger kickedState = [dict[@"kicked"] integerValue];
+        if (leftState == 1 || kickedState == 1) {
+            isMember = NO;
+        }
         
         dispatch_async(dispatch_get_main_queue(), ^{
+            self.adminId = adminId;
+            self.isLeftOrKicked = !isMember;
             if (title.length > 0) {
                 self.chatTitle = title;
                 self.nameLabel.text = title;
             }
             if (count > 0) {
                 self.membersCount = count;
-                self.statusLabel.text = [self membersCountString:count];
             }
-            if (photo.length > 0) {
+            if (photo.length > 0 && ![photo isEqualToString:self.chatPhotoURL]) {
                 self.chatPhotoURL = photo;
                 [self updateHeaderAvatarWithURL:photo];
+            }
+            [self updateInputBarVisibility];
+        });
+    }];
+}
+
+- (void)headerTapped {
+    if (self.peerId <= 2000000000) {
+        [self openPeerProfile];
+        return;
+    }
+    
+    // Действия для бесед
+    UIActionSheet *sheet = nil;
+    if (self.isLeftOrKicked) {
+        sheet = [[UIActionSheet alloc] initWithTitle:self.chatTitle ?: @"Беседа"
+                                            delegate:self
+                                   cancelButtonTitle:@"Отмена"
+                              destructiveButtonTitle:nil
+                                   otherButtonTitles:@"Информация о беседе", @"Список участников", @"Вернуться в беседу", nil];
+        sheet.tag = 5002; // Tag для покинутой беседы
+    } else {
+        sheet = [[UIActionSheet alloc] initWithTitle:self.chatTitle ?: @"Беседа"
+                                            delegate:self
+                                   cancelButtonTitle:@"Отмена"
+                              destructiveButtonTitle:@"Покинуть беседу"
+                                   otherButtonTitles:@"Информация о беседе", @"Список участников", nil];
+        sheet.tag = 5003; // Tag для активного участника
+    }
+    [sheet showInView:self.view];
+}
+
+- (void)leaveChatAction {
+    NSInteger chatId = self.peerId - 2000000000;
+    [VKCrashLogger log:@"[VKChatViewController] Leaving chat %ld", (long)chatId];
+    
+    [[VKMessagesService sharedService] leaveChatWithChatId:chatId completion:^(BOOL success, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (success) {
+                self.isLeftOrKicked = YES;
+                [self updateInputBarVisibility];
+                [self loadChatInfo];
+                [self loadHistory];
+            } else {
+                UIAlertView *a = [[UIAlertView alloc] initWithTitle:@"Ошибка" message:error.localizedDescription ?: @"Не удалось покинуть беседу" delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                [a show];
             }
         });
     }];
 }
 
-- (void)updateHeaderAvatarWithURL:(NSString *)url {
-    if (url.length == 0) return;
+- (void)returnToChatAction {
+    NSInteger chatId = self.peerId - 2000000000;
+    [VKCrashLogger log:@"[VKChatViewController] Returning to chat %ld", (long)chatId];
     
-    UIImageView *navAvatar = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 32, 32)];
-    navAvatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:32.0];
-    navAvatar.layer.borderWidth = [[VKThemeManager sharedManager] avatarBorderWidth];
-    navAvatar.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.4].CGColor;
-    navAvatar.clipsToBounds = YES;
-    navAvatar.backgroundColor = [UIColor colorWithWhite:0.9 alpha:1.0];
-    navAvatar.userInteractionEnabled = YES;
-    
-    UITapGestureRecognizer *avTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(headerTapped)];
-    [navAvatar addGestureRecognizer:avTap];
-    
-    [[VKImageLoader sharedLoader] loadImageWithURL:url completion:^(UIImage *img) {
-        if (img) navAvatar.image = img;
+    self.returnToChatButton.enabled = NO;
+    [[VKMessagesService sharedService] returnToChatWithChatId:chatId completion:^(BOOL success, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.returnToChatButton.enabled = YES;
+            if (success) {
+                self.isLeftOrKicked = NO;
+                [self updateInputBarVisibility];
+                [self loadChatInfo];
+                [self loadHistory];
+            } else {
+                UIAlertView *a = [[UIAlertView alloc] initWithTitle:@"Ошибка" message:error.localizedDescription ?: @"Не удалось вернуться в беседу" delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                [a show];
+            }
+        });
     }];
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:navAvatar];
+}
+
+- (void)openMembersList {
+    NSInteger chatId = self.peerId - 2000000000;
+    VKChatMembersViewController *membersVC = [[VKChatMembersViewController alloc] initWithChatId:chatId adminId:self.adminId];
+    [self.navigationController pushViewController:membersVC animated:YES];
 }
 
 #pragma mark - User Cache & Resolving
@@ -334,6 +576,12 @@
     }
 }
 
+- (void)authorLabelTapped:(VKChatAuthorTapGesture *)gesture {
+    if (gesture.user) {
+        [self openUserProfile:gesture.user];
+    }
+}
+
 - (void)openUserProfile:(VKUser *)user {
     if (user && user.uid != 0) {
         VKProfileViewController *profVC = [[VKProfileViewController alloc] initWithUser:user];
@@ -376,64 +624,6 @@
     } completion:nil];
 }
 
-- (void)setupNavigationHeader {
-    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 180, 36)];
-    headerView.userInteractionEnabled = YES;
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(headerTapped)];
-    [headerView addGestureRecognizer:tap];
-    
-    UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 2, 180, 18)];
-    nameLabel.text = self.chatTitle ?: @"Чат";
-    nameLabel.font = [[VKThemeManager sharedManager] titleFontOfSize:15];
-    nameLabel.textColor = [[VKThemeManager sharedManager] navBarTitleColor];
-    nameLabel.textAlignment = NSTextAlignmentCenter;
-    [headerView addSubview:nameLabel];
-    self.nameLabel = nameLabel;
-    
-    UILabel *statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 19, 180, 14)];
-    if (self.peerId > 2000000000) {
-        if (self.membersCount > 0) {
-            statusLabel.text = [self membersCountString:self.membersCount];
-        } else {
-            statusLabel.text = @"беседа";
-        }
-    } else {
-        statusLabel.text = self.peerUser.isOnline ? @"в сети" : (self.peerUser.lastSeen ?: @"был(а) недавно");
-    }
-    statusLabel.font = [UIFont systemFontOfSize:11];
-    if ([[VKThemeManager sharedManager] isSkeuomorphic]) {
-        statusLabel.textColor = [UIColor colorWithRed:180.0/255.0 green:210.0/255.0 blue:245.0/255.0 alpha:1.0];
-    } else {
-        statusLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
-    }
-    statusLabel.textAlignment = NSTextAlignmentCenter;
-    [headerView addSubview:statusLabel];
-    self.statusLabel = statusLabel;
-    
-    self.navigationItem.titleView = headerView;
-    self.navigationItem.leftBarButtonItem = [[VKThemeManager sharedManager] barButtonItemWithTitle:@"Назад" target:self action:@selector(goBackAction) isBack:YES];
-    
-    if (self.peerUser && self.peerUser.avatarURL.length > 0) {
-        [self updateHeaderAvatarWithURL:self.peerUser.avatarURL];
-    } else if (self.chatPhotoURL.length > 0) {
-        [self updateHeaderAvatarWithURL:self.chatPhotoURL];
-    }
-}
-
-- (void)headerTapped {
-    if (self.peerId <= 2000000000) {
-        [self openPeerProfile];
-    } else {
-        NSString *infoStr = [NSString stringWithFormat:@"%@\n%@", self.chatTitle ?: @"Беседа", [self membersCountString:self.membersCount]];
-        UIAlertView *av = [[UIAlertView alloc] initWithTitle:@"Беседа"
-                                                     message:infoStr
-                                                    delegate:nil
-                                           cancelButtonTitle:@"OK"
-                                           otherButtonTitles:nil];
-        [av show];
-    }
-}
-
 #pragma mark - LongPoll Handlers
 
 - (void)didReceiveNewMessageNotification:(NSNotification *)note {
@@ -444,7 +634,7 @@
         for (NSInteger i = 0; i < self.messages.count; i++) {
             VKMessage *m = self.messages[i];
             if (m.messageId == msg.messageId) {
-                // Обновляем существующее сообщение (например, обогащенное через messages.getById)
+                // Обновляем существующее сообщение
                 [self.messages replaceObjectAtIndex:i withObject:msg];
                 [self.tableView reloadData];
                 return;
@@ -492,7 +682,9 @@
 
 - (void)resetTypingStatus {
     if (self.peerId > 2000000000) {
-        if (self.membersCount > 0) {
+        if (self.isLeftOrKicked) {
+            self.statusLabel.text = @"вы покинули беседу";
+        } else if (self.membersCount > 0) {
             self.statusLabel.text = [self membersCountString:self.membersCount];
         } else {
             self.statusLabel.text = @"беседа";
@@ -502,6 +694,8 @@
     }
     self.statusLabel.textColor = [[VKThemeManager sharedManager] isSkeuomorphic] ? [UIColor colorWithRed:180.0/255.0 green:210.0/255.0 blue:245.0/255.0 alpha:1.0] : [UIColor colorWithWhite:0.6 alpha:1.0];
 }
+
+#pragma mark - Attach & ActionSheet
 
 - (void)attachPhotoAction {
     UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil
@@ -515,6 +709,7 @@
 
 - (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
     if (actionSheet.tag == 5001) {
+        // Фотокамера / Галерея
         if (buttonIndex == 0) {
             if ([UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeCamera]) {
                 UIImagePickerController *picker = [[UIImagePickerController alloc] init];
@@ -531,6 +726,46 @@
             picker.delegate = self;
             [self presentViewController:picker animated:YES completion:nil];
         }
+    } else if (actionSheet.tag == 5002) {
+        // Меню покинутой беседы
+        if (buttonIndex == 0) {
+            // Информация о беседе
+            NSString *infoStr = [NSString stringWithFormat:@"%@\n%@", self.chatTitle ?: @"Беседа", [self membersCountString:self.membersCount]];
+            UIAlertView *av = [[UIAlertView alloc] initWithTitle:@"Беседа" message:infoStr delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+            [av show];
+        } else if (buttonIndex == 1) {
+            // Список участников
+            [self openMembersList];
+        } else if (buttonIndex == 2) {
+            // Вернуться в беседу
+            [self returnToChatAction];
+        }
+    } else if (actionSheet.tag == 5003) {
+        // Меню активного участника
+        if (buttonIndex == 0) {
+            // Покинуть беседу (destructive)
+            UIAlertView *confirmAlert = [[UIAlertView alloc] initWithTitle:@"Покинуть беседу?"
+                                                                   message:@"Вы действительно хотите выйти из этой беседы?"
+                                                                  delegate:self
+                                                         cancelButtonTitle:@"Отмена"
+                                                         otherButtonTitles:@"Покинуть", nil];
+            confirmAlert.tag = 7001;
+            [confirmAlert show];
+        } else if (buttonIndex == 1) {
+            // Информация о беседе
+            NSString *infoStr = [NSString stringWithFormat:@"%@\n%@", self.chatTitle ?: @"Беседа", [self membersCountString:self.membersCount]];
+            UIAlertView *av = [[UIAlertView alloc] initWithTitle:@"Беседа" message:infoStr delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+            [av show];
+        } else if (buttonIndex == 2) {
+            // Список участников
+            [self openMembersList];
+        }
+    }
+}
+
+- (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex {
+    if (alertView.tag == 7001 && buttonIndex == 1) {
+        [self leaveChatAction];
     }
 }
 
@@ -614,6 +849,16 @@
             if (success) {
                 self.messageTextField.text = @"";
                 [self loadHistory];
+            } else if (error) {
+                // Если ошибка доступа к чату (пользователь исключен или вышел)
+                if (error.code == 15 || error.code == 917 ||
+                    [error.localizedDescription rangeOfString:@"chat" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                    [error.localizedDescription rangeOfString:@"kicked" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                    self.isLeftOrKicked = YES;
+                    [self updateInputBarVisibility];
+                }
+                UIAlertView *errAlert = [[UIAlertView alloc] initWithTitle:@"Не удалось отправить" message:error.localizedDescription delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                [errAlert show];
             }
         });
     }];
@@ -649,6 +894,7 @@
     VKMessage *msg = self.messages[indexPath.row];
     CGFloat width = tableView.bounds.size.width;
     
+    // 1. Сервисное сообщение
     if ([msg isServiceAction]) {
         VKUser *author = [self senderUserForMessage:msg];
         NSString *authorName = author ? author.displayName : (msg.fromId != 0 ? [NSString stringWithFormat:@"id%ld", (long)msg.fromId] : @"");
@@ -657,10 +903,12 @@
         return ceilf(sz.height) + 16.0;
     }
     
+    // 2. Стикер
     if ([self isStickerMessage:msg]) {
         return 138.0;
     }
     
+    // 3. Обычное сообщение
     BOOL isGroupChat = (self.peerId > 2000000000);
     BOOL showAuthor = isGroupChat && !msg.isOutgoing;
     CGFloat authorHeaderH = showAuthor ? 18.0 : 0.0;
@@ -732,15 +980,17 @@
         bubble.userInteractionEnabled = YES;
         [cell.contentView addSubview:bubble];
         
-        // Имя автора в беседах
-        VKChatUserButton *authorName = [VKChatUserButton buttonWithType:UIButtonTypeCustom];
-        authorName.tag = 1006;
-        authorName.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-        authorName.titleLabel.font = [UIFont boldSystemFontOfSize:12.5];
-        [authorName setTitleColor:[UIColor colorWithRed:60.0/255.0 green:112.0/255.0 blue:164.0/255.0 alpha:1.0] forState:UIControlStateNormal];
-        authorName.hidden = YES;
-        [authorName addTarget:self action:@selector(userButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
-        [bubble addSubview:authorName];
+        // Имя автора в беседах (UILabel с тапом, чтобы не обрезалось кнопкой)
+        UILabel *authorNameLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        authorNameLabel.tag = 1006;
+        authorNameLabel.font = [UIFont boldSystemFontOfSize:12.5];
+        authorNameLabel.textColor = [UIColor colorWithRed:60.0/255.0 green:112.0/255.0 blue:164.0/255.0 alpha:1.0];
+        authorNameLabel.backgroundColor = [UIColor clearColor];
+        authorNameLabel.userInteractionEnabled = YES;
+        authorNameLabel.hidden = YES;
+        VKChatAuthorTapGesture *authorTap = [[VKChatAuthorTapGesture alloc] initWithTarget:self action:@selector(authorLabelTapped:)];
+        [authorNameLabel addGestureRecognizer:authorTap];
+        [bubble addSubview:authorNameLabel];
         
         // Фото во вложении
         UIImageView *photoIV = [[UIImageView alloc] initWithFrame:CGRectZero];
@@ -780,7 +1030,7 @@
     UIImageView *stickerIV = (UIImageView *)[cell.contentView viewWithTag:1009];
     UILabel *stickerTimeLabel = (UILabel *)[cell.contentView viewWithTag:1010];
     UIImageView *bubble = (UIImageView *)[cell.contentView viewWithTag:1001];
-    VKChatUserButton *authorName = (VKChatUserButton *)[bubble viewWithTag:1006];
+    UILabel *authorNameLabel = (UILabel *)[bubble viewWithTag:1006];
     UIImageView *photoIV = (UIImageView *)[bubble viewWithTag:1004];
     UILabel *textLabel = (UILabel *)[bubble viewWithTag:1002];
     UILabel *timeLabel = (UILabel *)[bubble viewWithTag:1003];
@@ -838,7 +1088,7 @@
         } else {
             if (isGroupChat) {
                 authorAvatar.hidden = NO;
-                authorAvatar.frame = CGRectMake(8, 4, 32, 32);
+                authorAvatar.frame = CGRectMake(8, 138.0 - 36.0, 32, 32);
                 authorAvatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:32.0];
                 VKUser *author = [self senderUserForMessage:msg];
                 authorAvatar.user = author;
@@ -853,7 +1103,7 @@
         
         NSString *statusText = msg.isOutgoing ? [NSString stringWithFormat:@"%@%@", msg.timeString ?: @"", (msg.isRead ? @" ✓✓" : @" ✓")] : (msg.timeString ?: @"");
         stickerTimeLabel.text = statusText;
-        stickerTimeLabel.frame = CGRectMake(stX + stSize - 44.0, 4.0 + stSize - 16.0, 40.0, 14.0);
+        stickerTimeLabel.frame = CGRectMake(stX + stSize - 48.0, 4.0 + stSize - 16.0, 44.0, 14.0);
         return cell;
     }
     
@@ -878,10 +1128,18 @@
     
     CGFloat photoH = hasPhoto ? 130.0 : 0.0;
     
+    // Расчет ширины пузыря
     CGFloat bubbleWidth = MAX(hasPhoto ? 196.0 : 86.0, ceilf(size.width) + 28.0);
+    
+    // Если исходящее однострочное: обеспечиваем место для времени и галочек прочтения, чтобы не накладывались
+    if (msg.isOutgoing && size.height <= 22.0) {
+        bubbleWidth = MAX(bubbleWidth, ceilf(size.width) + 72.0);
+    }
+    
+    // Учитываем имя автора в беседах с запасом, чтобы никогда не обрезалось
     if (showAuthor && authorNameStr.length > 0) {
         CGSize authorNameSz = [authorNameStr sizeWithFont:[UIFont boldSystemFontOfSize:12.5]];
-        bubbleWidth = MAX(bubbleWidth, ceilf(authorNameSz.width) + 28.0);
+        bubbleWidth = MAX(bubbleWidth, ceilf(authorNameSz.width) + 38.0);
     }
     bubbleWidth = MIN(bubbleWidth, maxTextW + 36.0);
     
@@ -903,7 +1161,7 @@
     
     if (msg.isOutgoing) {
         authorAvatar.hidden = YES;
-        authorName.hidden = YES;
+        authorNameLabel.hidden = YES;
         bubble.frame = CGRectMake(width - bubbleWidth - 10.0, 3.0, bubbleWidth, bubbleHeight);
         
         if (isSkeuomorph) {
@@ -939,16 +1197,19 @@
         }
         textLabel.frame = CGRectMake(12, topY, ceilf(size.width), ceilf(size.height));
         
+        // Время и статус прочтения (достаточная ширина 54pt для «16:18 ✓✓»)
         timeLabel.text = [NSString stringWithFormat:@"%@ %@", msg.timeString ?: @"", (msg.isRead ? @"✓✓" : @"✓")];
         timeLabel.textAlignment = NSTextAlignmentRight;
-        timeLabel.frame = CGRectMake(bubbleWidth - 52, bubbleHeight - 16, 44, 12);
+        timeLabel.frame = CGRectMake(bubbleWidth - 60, bubbleHeight - 16, 54, 13);
         
     } else {
         // Входящие сообщения
         CGFloat bubbleX = 10.0;
         if (showAuthor) {
             authorAvatar.hidden = NO;
-            authorAvatar.frame = CGRectMake(8.0, 4.0, 32.0, 32.0);
+            // Аватарка внизу сообщения рядом с хвостиком пузыря (по канонам официального VK)
+            CGFloat avatarY = bubbleHeight + 3.0 - 32.0;
+            authorAvatar.frame = CGRectMake(8.0, avatarY, 32.0, 32.0);
             authorAvatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:32.0];
             authorAvatar.user = author;
             [self loadAvatarForButton:authorAvatar url:author.avatarURL];
@@ -985,13 +1246,16 @@
         
         CGFloat topY = 6.0;
         if (showAuthor) {
-            authorName.hidden = NO;
-            authorName.user = author;
-            authorName.frame = CGRectMake(16, topY, bubbleWidth - 30, 16);
-            [authorName setTitle:authorNameStr forState:UIControlStateNormal];
+            authorNameLabel.hidden = NO;
+            authorNameLabel.frame = CGRectMake(16, topY, bubbleWidth - 32, 16);
+            authorNameLabel.text = authorNameStr;
+            // Привязываем автора к жесту нажатия
+            if (authorNameLabel.gestureRecognizers.count > 0 && [authorNameLabel.gestureRecognizers[0] isKindOfClass:[VKChatAuthorTapGesture class]]) {
+                ((VKChatAuthorTapGesture *)authorNameLabel.gestureRecognizers[0]).user = author;
+            }
             topY += 18.0;
         } else {
-            authorName.hidden = YES;
+            authorNameLabel.hidden = YES;
         }
         
         if (hasPhoto) {
@@ -1002,7 +1266,7 @@
         
         timeLabel.text = msg.timeString ?: @"";
         timeLabel.textAlignment = NSTextAlignmentRight;
-        timeLabel.frame = CGRectMake(bubbleWidth - 44, bubbleHeight - 16, 36, 12);
+        timeLabel.frame = CGRectMake(bubbleWidth - 46, bubbleHeight - 16, 38, 12);
     }
     
     return cell;
