@@ -10,7 +10,8 @@ typedef NS_ENUM(NSInteger, VKAttachmentType) {
     VKAttachmentTypeLink,
     VKAttachmentTypeNote,
     VKAttachmentTypeSticker,
-    VKAttachmentTypeAudioMessage
+    VKAttachmentTypeAudioMessage,
+    VKAttachmentTypeWall
 };
 
 @interface VKPollOption : NSObject
@@ -77,6 +78,11 @@ typedef NS_ENUM(NSInteger, VKAttachmentType) {
 @property (nonatomic, assign) NSInteger audioMessageId;
 @property (nonatomic, copy) NSString *audioMessageURL;
 @property (nonatomic, assign) NSInteger audioMessageDuration;
+
+// Wall Post
+@property (nonatomic, assign) NSInteger wallPostId;
+@property (nonatomic, assign) NSInteger wallOwnerId;
+@property (nonatomic, copy) NSString *wallText;
 
 + (instancetype)attachmentFromDictionary:(NSDictionary *)dict;
 

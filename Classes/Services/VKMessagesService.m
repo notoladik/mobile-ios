@@ -180,13 +180,23 @@
 - (void)sendMessageToPeerId:(NSInteger)peerId
                        text:(NSString *)text
                  completion:(void (^)(BOOL success, NSInteger messageId, NSError *error))completion {
+    [self sendMessageToPeerId:peerId text:text attachment:nil completion:completion];
+}
+
+- (void)sendMessageToPeerId:(NSInteger)peerId
+                       text:(NSString *)text
+                 attachment:(NSString *)attachment
+                 completion:(void (^)(BOOL success, NSInteger messageId, NSError *error))completion {
     
     NSInteger randomId = arc4random_uniform(1000000000);
-    NSDictionary *params = @{
+    NSMutableDictionary *params = [NSMutableDictionary dictionaryWithDictionary:@{
         @"peer_id": @(peerId),
         @"message": text ?: @"",
         @"random_id": @(randomId)
-    };
+    }];
+    if (attachment.length > 0) {
+        params[@"attachment"] = attachment;
+    }
     
     [[VKAPIClient sharedClient] callMethod:@"messages.send" parameters:params completionHandler:^(id response, NSError *error) {
         if (error) {

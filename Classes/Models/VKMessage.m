@@ -127,6 +127,7 @@
             case VKAttachmentTypePhoto: return @"[Фотография]";
             case VKAttachmentTypeSticker: return @"[Стикер]";
             case VKAttachmentTypeAudioMessage: return @"[Голосовое сообщение]";
+            case VKAttachmentTypeWall: return [NSString stringWithFormat:@"[Запись на стене%@]", first.wallText.length > 0 ? [NSString stringWithFormat:@": %@", first.wallText] : @""];
             case VKAttachmentTypeAudio: return @"[Аудиозапись]";
             case VKAttachmentTypeVideo: return @"[Видеозапись]";
             case VKAttachmentTypeDoc: return @"[Документ]";

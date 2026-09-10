@@ -14,6 +14,7 @@
 #import "VKPost.h"
 #import "VKOfflinePlaceholderView.h"
 #import "VKNetworkStatusManager.h"
+#import "VKShareManager.h"
 
 typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     VKFeedTypeModeMyNews = 0,
@@ -292,12 +293,9 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     };
     
     cell.onRepostTapped = ^(VKPost *p) {
-        UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil
-                                                           delegate:nil
-                                                  cancelButtonTitle:@"Отмена"
-                                             destructiveButtonTitle:nil
-                                                  otherButtonTitles:@"Поделиться на стене", @"Скопировать ссылку", nil];
-        [sheet showInView:weakSelf.view];
+        [[VKShareManager sharedManager] presentShareSheetForPost:p fromViewController:weakSelf completion:^{
+            [weakSelf.tableView reloadData];
+        }];
     };
     
     cell.onRevealSpoilerTapped = ^(VKPost *p) {

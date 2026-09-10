@@ -21,6 +21,7 @@
 #import "VKImageLoader.h"
 #import "VKSupportersService.h"
 #import "VKCrashLogger.h"
+#import "VKShareManager.h"
 
 @interface VKProfileViewController () <UIActionSheetDelegate>
 @property (nonatomic, strong) NSMutableArray *wallPosts;
@@ -569,12 +570,9 @@
                 [weakSelf.navigationController pushViewController:detailVC animated:YES];
             };
             cell.onRepostTapped = ^(VKPost *p) {
-                UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil
-                                                                   delegate:nil
-                                                          cancelButtonTitle:@"Отмена"
-                                                     destructiveButtonTitle:nil
-                                                          otherButtonTitles:@"Поделиться на стене", @"Скопировать ссылку", nil];
-                [sheet showInView:weakSelf.view];
+                [[VKShareManager sharedManager] presentShareSheetForPost:p fromViewController:weakSelf completion:^{
+                    [weakSelf.tableView reloadData];
+                }];
             };
             cell.onToggleTextExpanded = ^(VKPost *p) {
                 dispatch_async(dispatch_get_main_queue(), ^{

@@ -36,5 +36,6 @@
 - (void)addFriend:(NSInteger)userId completion:(void (^)(BOOL success, NSError *error))completion;
 - (void)deleteFriend:(NSInteger)userId completion:(void (^)(BOOL success, NSError *error))completion;
 - (void)fetchFriendRequestsWithCompletion:(void (^)(NSArray<VKUser *> *requests, NSInteger totalCount, NSError *error))completion;
+- (void)fetchManagedGroupsWithCompletion:(void (^)(NSArray<VKUser *> *groups, NSError *error))completion;
 
 @end

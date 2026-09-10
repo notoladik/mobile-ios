@@ -12,6 +12,7 @@
 #import "VKImageLoader.h"
 #import "VKThemeManager.h"
 #import "VKCrashLogger.h"
+#import "VKShareManager.h"
 
 #pragma mark - VKCommentCell (Идентично скриншоту VK iOS)
 
@@ -558,6 +559,11 @@
         };
         
         __weak typeof(self) weakSelf = self;
+        cell.onRepostTapped = ^(VKPost *p) {
+            [[VKShareManager sharedManager] presentShareSheetForPost:p fromViewController:weakSelf completion:^{
+                [weakSelf.tableView reloadData];
+            }];
+        };
         cell.onPhotosGalleryTapped = ^(NSArray<NSString *> *photoURLs, NSInteger initialIndex) {
             VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithPhotoURLs:photoURLs initialIndex:initialIndex];
             [weakSelf presentViewController:viewer animated:YES completion:nil];

@@ -265,4 +265,37 @@
     }];
 }
 
+- (void)fetchManagedGroupsWithCompletion:(void (^)(NSArray<VKUser *> *groups, NSError *error))completion {
+    NSMutableDictionary *params = [NSMutableDictionary dictionaryWithDictionary:@{
+        @"filter": @"admin,editor",
+        @"extended": @"1",
+        @"fields": @"photo_50,photo_100,photo_200,verified,screen_name,members_count,description",
+        @"count": @(100)
+    }];
+    
+    [[VKAPIClient sharedClient] callMethod:@"groups.get" parameters:params completionHandler:^(id response, NSError *error) {
+        if (error) {
+            if (completion) completion(nil, error);
+            return;
+        }
+        
+        NSDictionary *resp = [response isKindOfClass:[NSDictionary class]] ? (response[@"response"] ?: response) : nil;
+        if (resp && [resp isKindOfClass:[NSDictionary class]]) {
+            NSArray *items = resp[@"items"] ?: resp[@"response"];
+            NSMutableArray *groups = [NSMutableArray array];
+            if ([items isKindOfClass:[NSArray class]]) {
+                for (NSDictionary *item in items) {
+                    if ([item isKindOfClass:[NSDictionary class]]) {
+                        VKUser *g = [VKUser groupFromDictionary:item];
+                        if (g) [groups addObject:g];
+                    }
+                }
+            }
+            if (completion) completion(groups, nil);
+            return;
+        }
+        if (completion) completion(@[], nil);
+    }];
+}
+
 @end

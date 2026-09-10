@@ -13,6 +13,7 @@
 #import "VKPhotoEditorViewController.h"
 #import "VKLongPollService.h"
 #import "VKAuthService.h"
+#import "VKPostDetailViewController.h"
 #import <QuartzCore/QuartzCore.h>
 
 @interface VKChatUserButton : UIButton
@@ -877,17 +878,24 @@
 }
 
 - (NSString *)textForMessage:(VKMessage *)msg {
-    if (msg.text.length > 0) return msg.text;
+    NSString *baseText = msg.text ?: @"";
+    NSString *attachText = nil;
     if (msg.attachments.count > 0) {
         VKAttachment *att = msg.attachments[0];
-        if (att.type == VKAttachmentTypePhoto) return @"[Фотография]";
-        if (att.type == VKAttachmentTypeSticker) return @"[Стикер]";
-        if (att.type == VKAttachmentTypeGif) return @"[GIF]";
-        if (att.type == VKAttachmentTypeAudio) return [NSString stringWithFormat:@"🎵 %@ — %@", att.audioArtist ?: @"", att.audioTitle ?: @"Трек"];
-        if (att.type == VKAttachmentTypeDoc) return [NSString stringWithFormat:@"📄 %@", att.docTitle ?: @"Документ"];
-        if (att.type == VKAttachmentTypeVideo) return [NSString stringWithFormat:@"🎬 %@", att.videoTitle ?: @"Видео"];
-        return @"[Вложение]";
+        if (att.type == VKAttachmentTypePhoto) attachText = @"[Фотография]";
+        else if (att.type == VKAttachmentTypeSticker) attachText = @"[Стикер]";
+        else if (att.type == VKAttachmentTypeGif) attachText = @"[GIF]";
+        else if (att.type == VKAttachmentTypeAudio) attachText = [NSString stringWithFormat:@"🎵 %@ — %@", att.audioArtist ?: @"", att.audioTitle ?: @"Трек"];
+        else if (att.type == VKAttachmentTypeDoc) attachText = [NSString stringWithFormat:@"📄 %@", att.docTitle ?: @"Документ"];
+        else if (att.type == VKAttachmentTypeVideo) attachText = [NSString stringWithFormat:@"🎬 %@", att.videoTitle ?: @"Видео"];
+        else if (att.type == VKAttachmentTypeWall) attachText = [NSString stringWithFormat:@"📋 Запись на стене%@", att.wallText.length > 0 ? [NSString stringWithFormat:@":\n«%@»", att.wallText] : @""];
+        else attachText = @"[Вложение]";
     }
+    if (baseText.length > 0 && attachText.length > 0) {
+        return [NSString stringWithFormat:@"%@\n%@", baseText, attachText];
+    }
+    if (baseText.length > 0) return baseText;
+    if (attachText.length > 0) return attachText;
     return @"";
 }
 
@@ -1272,6 +1280,24 @@
     }
     
     return cell;
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (indexPath.row < (NSInteger)self.messages.count) {
+        VKMessage *msg = self.messages[indexPath.row];
+        for (VKAttachment *att in msg.attachments) {
+            if (att.type == VKAttachmentTypeWall && att.wallPostId != 0) {
+                VKPost *dummyPost = [[VKPost alloc] init];
+                dummyPost.vkID = att.wallPostId;
+                dummyPost.ownerID = att.wallOwnerId;
+                dummyPost.text = att.wallText;
+                VKPostDetailViewController *postVC = [[VKPostDetailViewController alloc] initWithPost:dummyPost];
+                [self.navigationController pushViewController:postVC animated:YES];
+                break;
+            }
+        }
+    }
 }
 
 - (void)loadAvatarForButton:(UIButton *)button url:(NSString *)url {

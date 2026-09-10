@@ -188,6 +188,15 @@
         return att;
     }
     
+    if ([typeStr isEqualToString:@"wall"]) {
+        att.type = VKAttachmentTypeWall;
+        NSDictionary *w = dict[@"wall"];
+        att.wallPostId = [w[@"id"] integerValue];
+        att.wallOwnerId = [w[@"to_id"] integerValue] ?: [w[@"owner_id"] integerValue] ?: [w[@"from_id"] integerValue];
+        att.wallText = w[@"text"] ?: @"";
+        return att;
+    }
+    
     return nil;
 }
 

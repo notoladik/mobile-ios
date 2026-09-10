@@ -18,6 +18,11 @@
                        text:(NSString *)text
                  completion:(void (^)(BOOL success, NSInteger messageId, NSError *error))completion;
 
+- (void)sendMessageToPeerId:(NSInteger)peerId
+                       text:(NSString *)text
+                 attachment:(NSString *)attachment
+                 completion:(void (^)(BOOL success, NSInteger messageId, NSError *error))completion;
+
 - (void)markAsReadForPeerId:(NSInteger)peerId
                   messageId:(NSInteger)messageId
                  completion:(void (^)(BOOL success))completion;
