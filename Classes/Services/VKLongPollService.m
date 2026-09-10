@@ -282,10 +282,9 @@ NSString *const VKLongPollUnreadCountDidChangeNotification   = @"VKLongPollUnrea
         
         switch (eventCode) {
             case 4: {
-                // Новое сообщение:
-                // v3: [4, message_id, flags, peer_id, timestamp, text, extra, attachments, random_id, cmid]
-                // v1/v2: [4, message_id, flags, from_id, timestamp, subject, text, attachments]
-                if (event.count >= 6) {
+                // Новое сообщение в VK / OpenVK LongPoll:
+                // [4, msg_id, flags, peer_id, timestamp, subject, text, extra_attachments]
+                if (event.count >= 5) {
                     NSInteger msgId = [event[1] integerValue];
                     NSInteger flags = [event[2] integerValue];
                     NSInteger peerId = [event[3] integerValue];
@@ -293,22 +292,21 @@ NSString *const VKLongPollUnreadCountDidChangeNotification   = @"VKLongPollUnrea
                     
                     NSString *text = @"";
                     NSDictionary *extra = nil;
-                    NSDictionary *attachments = nil;
                     
-                    if (event.count >= 7 && [event[5] isKindOfClass:[NSString class]]) {
+                    if (event.count >= 7 && [event[6] isKindOfClass:[NSString class]]) {
+                        text = event[6];
+                        if (event.count >= 8 && [event[7] isKindOfClass:[NSDictionary class]]) {
+                            extra = event[7];
+                        }
+                    } else if (event.count >= 6 && [event[5] isKindOfClass:[NSString class]]) {
                         text = event[5];
                         if (event.count >= 7 && [event[6] isKindOfClass:[NSDictionary class]]) {
                             extra = event[6];
                         }
-                        if (event.count >= 8 && [event[7] isKindOfClass:[NSDictionary class]]) {
-                            attachments = event[7];
-                        }
-                    } else if (event.count >= 8 && [event[6] isKindOfClass:[NSString class]]) {
-                        // v1 format: [4, msg_id, flags, from_id, timestamp, subject, text, attachments]
-                        text = event[6];
-                        if ([event[7] isKindOfClass:[NSDictionary class]]) {
-                            attachments = event[7];
-                        }
+                    }
+                    
+                    if (text.length == 0 && event.count >= 6 && [event[5] isKindOfClass:[NSString class]] && ((NSString *)event[5]).length > 0) {
+                        text = event[5];
                     }
                     
                     VKMessage *msg = [[VKMessage alloc] init];
@@ -318,10 +316,17 @@ NSString *const VKLongPollUnreadCountDidChangeNotification   = @"VKLongPollUnrea
                     msg.isRead = (flags & 1) == 0;
                     msg.text = text ?: @"";
                     
-                    // Реальный автор в беседах
-                    if (extra && extra[@"from"]) {
-                        msg.fromId = [extra[@"from"] integerValue];
-                    } else {
+                    if (extra && [extra isKindOfClass:[NSDictionary class]]) {
+                        if (extra[@"from"]) {
+                            msg.fromId = [extra[@"from"] integerValue];
+                        }
+                        if (extra[@"source_act"]) {
+                            msg.action = extra[@"source_act"];
+                            msg.actionMid = [extra[@"source_mid"] integerValue];
+                        }
+                    }
+                    
+                    if (msg.fromId == 0) {
                         msg.fromId = msg.isOutgoing ? [[VKAuthService sharedService] currentUserId] : peerId;
                     }
                     
@@ -333,14 +338,14 @@ NSString *const VKLongPollUnreadCountDidChangeNotification   = @"VKLongPollUnrea
                     }
                     
                     // Парсим прикрепления если они пришли в аттачах LP
-                    if (attachments && attachments.count > 0) {
+                    if (extra && extra.count > 0) {
                         NSMutableArray *atts = [NSMutableArray array];
                         for (NSInteger i = 1; i <= 10; i++) {
                             NSString *typeKey = [NSString stringWithFormat:@"attach%ld_type", (long)i];
                             NSString *itemKey = [NSString stringWithFormat:@"attach%ld", (long)i];
-                            NSString *aType = attachments[typeKey];
+                            NSString *aType = extra[typeKey];
                             if (aType.length > 0) {
-                                NSDictionary *rawAtt = @{@"type": aType, aType: @{@"id": attachments[itemKey] ?: @(0)}};
+                                NSDictionary *rawAtt = @{@"type": aType, aType: @{@"id": extra[itemKey] ?: @(0)}};
                                 VKAttachment *a = [VKAttachment attachmentFromDictionary:rawAtt];
                                 if (a) [atts addObject:a];
                             }
@@ -348,11 +353,45 @@ NSString *const VKLongPollUnreadCountDidChangeNotification   = @"VKLongPollUnrea
                         msg.attachments = atts;
                     }
                     
+                    // Мгновенно уведомляем интерфейс
                     dispatch_async(dispatch_get_main_queue(), ^{
                         [[NSNotificationCenter defaultCenter] postNotificationName:VKLongPollDidReceiveNewMessageNotification
                                                                             object:self
                                                                           userInfo:@{@"message": msg}];
                     });
+                    
+                    // Подгружаем полные данные сообщения (вложения, аватары, стикеры) через messages.getById
+                    if (msgId > 0) {
+                        NSDictionary *params = @{
+                            @"message_ids": @(msgId),
+                            @"extended": @"1",
+                            @"fields": @"photo_50,photo_100,photo_200,online,last_seen,sex,verified"
+                        };
+                        [[VKAPIClient sharedClient] callMethod:@"messages.getById" parameters:params completionHandler:^(id response, NSError *error) {
+                            if (!error && [response isKindOfClass:[NSDictionary class]]) {
+                                NSDictionary *respDict = response[@"response"] ?: response;
+                                NSArray *items = respDict[@"items"];
+                                if ([items isKindOfClass:[NSArray class]] && items.count > 0) {
+                                    VKMessage *richMsg = [VKMessage messageFromDictionary:items[0]];
+                                    if (richMsg) {
+                                        NSArray *rawProfiles = respDict[@"profiles"] ?: @[];
+                                        for (NSDictionary *p in rawProfiles) {
+                                            NSInteger uid = [p[@"id"] integerValue] ?: [p[@"uid"] integerValue];
+                                            if (uid == richMsg.fromId) {
+                                                richMsg.senderUser = [VKUser userFromDictionary:p];
+                                                break;
+                                            }
+                                        }
+                                        dispatch_async(dispatch_get_main_queue(), ^{
+                                            [[NSNotificationCenter defaultCenter] postNotificationName:VKLongPollDidReceiveNewMessageNotification
+                                                                                                object:self
+                                                                                              userInfo:@{@"message": richMsg, @"updated": @(YES)}];
+                                        });
+                                    }
+                                }
+                            }
+                        }];
+                    }
                 }
                 break;
             }

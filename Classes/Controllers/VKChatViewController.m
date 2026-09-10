@@ -10,7 +10,15 @@
 #import "VKAttachment.h"
 #import "VKPhotoEditorViewController.h"
 #import "VKLongPollService.h"
+#import "VKAuthService.h"
 #import <QuartzCore/QuartzCore.h>
+
+@interface VKChatUserButton : UIButton
+@property (nonatomic, strong) VKUser *user;
+@end
+
+@implementation VKChatUserButton
+@end
 
 @interface VKChatViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIActionSheetDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property (nonatomic, strong) UITableView *tableView;
@@ -23,6 +31,8 @@
 @property (nonatomic, strong) UILabel *nameLabel;
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, assign) NSTimeInterval lastTypingTime;
+@property (nonatomic, strong) NSMutableDictionary *usersCache;
+@property (nonatomic, strong) NSMutableDictionary *pendingUserFetches;
 @end
 
 @implementation VKChatViewController
@@ -34,6 +44,11 @@
         _peerUser = peerUser;
         _chatTitle = title ?: peerUser.displayName ?: @"Чат";
         _messages = [NSMutableArray array];
+        _usersCache = [NSMutableDictionary dictionary];
+        _pendingUserFetches = [NSMutableDictionary dictionary];
+        if (peerUser && peerUser.uid != 0) {
+            _usersCache[@(peerUser.uid)] = peerUser;
+        }
         self.hidesBottomBarWhenPushed = YES;
     }
     return self;
@@ -75,51 +90,66 @@
     self.inputContainerView = [[UIView alloc] initWithFrame:CGRectMake(0, height - 48.0, width, 48.0)];
     self.inputContainerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
     
-    if ([[VKThemeManager sharedManager] isSkeuomorphic]) {
+    BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
+    if (isSkeuomorph) {
         self.inputContainerView.backgroundColor = [UIColor colorWithRed:225.0/255.0 green:228.0/255.0 blue:234.0/255.0 alpha:1.0];
     } else {
-        self.inputContainerView.backgroundColor = [UIColor whiteColor];
+        self.inputContainerView.backgroundColor = [UIColor colorWithRed:248.0/255.0 green:248.0/255.0 blue:250.0/255.0 alpha:1.0];
     }
     
-    UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 1)];
-    sep.backgroundColor = [UIColor colorWithWhite:0.80 alpha:1.0];
+    UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 0.5)];
+    sep.backgroundColor = isSkeuomorph ? [UIColor colorWithWhite:0.75 alpha:1.0] : [UIColor colorWithRed:220.0/255.0 green:222.0/255.0 blue:226.0/255.0 alpha:1.0];
     sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [self.inputContainerView addSubview:sep];
     
-    // Круглая кнопка прикрепления фото
+    // Кнопка прикрепления фото (+)
     self.attachButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.attachButton.frame = CGRectMake(8, 7, 34, 34);
-    if ([[VKThemeManager sharedManager] isSkeuomorphic]) {
+    if (isSkeuomorph) {
         self.attachButton.backgroundColor = [UIColor colorWithRed:90.0/255.0 green:115.0/255.0 blue:150.0/255.0 alpha:1.0];
         self.attachButton.layer.cornerRadius = 17.0;
         self.attachButton.layer.borderWidth = 1.0;
         self.attachButton.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.4].CGColor;
+        [self.attachButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     } else {
-        self.attachButton.backgroundColor = [UIColor colorWithWhite:0.92 alpha:1.0];
+        self.attachButton.backgroundColor = [UIColor colorWithRed:238.0/255.0 green:240.0/255.0 blue:243.0/255.0 alpha:1.0];
         self.attachButton.layer.cornerRadius = 17.0;
+        [self.attachButton setTitleColor:[UIColor colorWithWhite:0.45 alpha:1.0] forState:UIControlStateNormal];
     }
     [self.attachButton setTitle:@"+" forState:UIControlStateNormal];
-    [self.attachButton setTitleColor:([[VKThemeManager sharedManager] isSkeuomorphic] ? [UIColor whiteColor] : [UIColor colorWithWhite:0.4 alpha:1.0]) forState:UIControlStateNormal];
     self.attachButton.titleLabel.font = [UIFont boldSystemFontOfSize:22];
     [self.attachButton addTarget:self action:@selector(attachPhotoAction) forControlEvents:UIControlEventTouchUpInside];
     [self.inputContainerView addSubview:self.attachButton];
     
-    // Поле ввода
-    self.messageTextField = [[UITextField alloc] initWithFrame:CGRectMake(50, 7, width - 118, 34)];
+    // Поле ввода сообщения
+    self.messageTextField = [[UITextField alloc] initWithFrame:CGRectMake(48, 7, width - 110, 34)];
     self.messageTextField.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    self.messageTextField.placeholder = @"Написать сообщение";
-    self.messageTextField.borderStyle = UITextBorderStyleRoundedRect;
+    self.messageTextField.placeholder = @"Написать сообщение...";
     self.messageTextField.font = [UIFont systemFontOfSize:14];
     self.messageTextField.delegate = self;
+    
+    if (isSkeuomorph) {
+        self.messageTextField.borderStyle = UITextBorderStyleRoundedRect;
+    } else {
+        self.messageTextField.borderStyle = UITextBorderStyleNone;
+        self.messageTextField.backgroundColor = [UIColor whiteColor];
+        self.messageTextField.layer.cornerRadius = 16.0;
+        self.messageTextField.layer.borderWidth = 0.5;
+        self.messageTextField.layer.borderColor = [UIColor colorWithRed:215.0/255.0 green:218.0/255.0 blue:222.0/255.0 alpha:1.0].CGColor;
+        self.messageTextField.clipsToBounds = YES;
+        UIView *leftPad = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 10, 34)];
+        self.messageTextField.leftView = leftPad;
+        self.messageTextField.leftViewMode = UITextFieldViewModeAlways;
+    }
     [self.inputContainerView addSubview:self.messageTextField];
     
     // Кнопка «Отпр.»
     self.sendButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.sendButton.frame = CGRectMake(width - 62, 7, 54, 34);
+    self.sendButton.frame = CGRectMake(width - 58, 7, 52, 34);
     self.sendButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [self.sendButton setTitle:@"Отпр." forState:UIControlStateNormal];
     
-    if ([[VKThemeManager sharedManager] isSkeuomorphic]) {
+    if (isSkeuomorph) {
         self.sendButton.backgroundColor = [UIColor colorWithRed:45.0/255.0 green:110.0/255.0 blue:210.0/255.0 alpha:1.0];
         self.sendButton.layer.cornerRadius = 6.0;
         self.sendButton.layer.borderWidth = 1.0;
@@ -144,8 +174,10 @@
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didReadMessagesNotification:) name:VKLongPollDidReadMessagesNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(userTypingNotification:) name:VKLongPollUserTypingNotification object:nil];
     
-    // Подгрузка профиля собеседника, если аватарки или статуса не хватает
-    if (self.peerId > 0 && (!self.peerUser || self.peerUser.avatarURL.length == 0)) {
+    // Подгрузка метаданных диалога или беседы
+    if (self.peerId > 2000000000) {
+        [self loadChatInfo];
+    } else if (self.peerId > 0 && (!self.peerUser || self.peerUser.avatarURL.length == 0)) {
         NSDictionary *params = @{
             @"user_ids": @(self.peerId),
             @"fields": @"photo_50,photo_100,photo_200,online,last_seen,sex,verified"
@@ -156,6 +188,7 @@
                 if ([items isKindOfClass:[NSArray class]] && items.count > 0) {
                     self.peerUser = [VKUser userFromDictionary:items[0]];
                     self.chatTitle = self.peerUser.displayName;
+                    self.usersCache[@(self.peerUser.uid)] = self.peerUser;
                     dispatch_async(dispatch_get_main_queue(), ^{
                         [self setupNavigationHeader];
                     });
@@ -170,6 +203,142 @@
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self setupNavigationHeader];
+}
+
+#pragma mark - Group Chat Info
+
+- (NSString *)membersCountString:(NSInteger)count {
+    if (count <= 0) return @"беседа";
+    NSInteger rem100 = count % 100;
+    NSInteger rem10 = count % 10;
+    if (rem100 >= 11 && rem100 <= 19) {
+        return [NSString stringWithFormat:@"%ld участников", (long)count];
+    }
+    if (rem10 == 1) {
+        return [NSString stringWithFormat:@"%ld участник", (long)count];
+    }
+    if (rem10 >= 2 && rem10 <= 4) {
+        return [NSString stringWithFormat:@"%ld участника", (long)count];
+    }
+    return [NSString stringWithFormat:@"%ld участников", (long)count];
+}
+
+- (void)loadChatInfo {
+    if (self.peerId <= 2000000000) return;
+    NSInteger chatId = self.peerId - 2000000000;
+    
+    NSDictionary *params = @{
+        @"chat_id": @(chatId),
+        @"fields": @"photo_50,photo_100,photo_200,users"
+    };
+    
+    [[VKAPIClient sharedClient] callMethod:@"messages.getChat" parameters:params completionHandler:^(id response, NSError *error) {
+        if (error) {
+            [VKCrashLogger log:@"[VKChatViewController] messages.getChat error: %@", error.localizedDescription];
+            return;
+        }
+        
+        NSDictionary *dict = [response isKindOfClass:[NSDictionary class]] ? (response[@"response"] ?: response) : nil;
+        if (!dict || ![dict isKindOfClass:[NSDictionary class]]) return;
+        
+        NSString *title = dict[@"title"];
+        NSInteger count = [dict[@"members_count"] integerValue];
+        if (count == 0 && [dict[@"users"] isKindOfClass:[NSArray class]]) {
+            count = ((NSArray *)dict[@"users"]).count;
+        }
+        NSString *photo = dict[@"photo_100"] ?: dict[@"photo_50"] ?: dict[@"photo_200"];
+        
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (title.length > 0) {
+                self.chatTitle = title;
+                self.nameLabel.text = title;
+            }
+            if (count > 0) {
+                self.membersCount = count;
+                self.statusLabel.text = [self membersCountString:count];
+            }
+            if (photo.length > 0) {
+                self.chatPhotoURL = photo;
+                [self updateHeaderAvatarWithURL:photo];
+            }
+        });
+    }];
+}
+
+- (void)updateHeaderAvatarWithURL:(NSString *)url {
+    if (url.length == 0) return;
+    
+    UIImageView *navAvatar = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 32, 32)];
+    navAvatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:32.0];
+    navAvatar.layer.borderWidth = [[VKThemeManager sharedManager] avatarBorderWidth];
+    navAvatar.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.4].CGColor;
+    navAvatar.clipsToBounds = YES;
+    navAvatar.backgroundColor = [UIColor colorWithWhite:0.9 alpha:1.0];
+    navAvatar.userInteractionEnabled = YES;
+    
+    UITapGestureRecognizer *avTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(headerTapped)];
+    [navAvatar addGestureRecognizer:avTap];
+    
+    [[VKImageLoader sharedLoader] loadImageWithURL:url completion:^(UIImage *img) {
+        if (img) navAvatar.image = img;
+    }];
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:navAvatar];
+}
+
+#pragma mark - User Cache & Resolving
+
+- (VKUser *)senderUserForMessage:(VKMessage *)msg {
+    if (!msg) return nil;
+    if (msg.senderUser) {
+        self.usersCache[@(msg.senderUser.uid)] = msg.senderUser;
+        return msg.senderUser;
+    }
+    if (msg.fromId != 0 && self.usersCache[@(msg.fromId)]) {
+        return self.usersCache[@(msg.fromId)];
+    }
+    if (msg.fromId > 0 && !self.pendingUserFetches[@(msg.fromId)]) {
+        self.pendingUserFetches[@(msg.fromId)] = @YES;
+        NSDictionary *params = @{
+            @"user_ids": @(msg.fromId),
+            @"fields": @"photo_50,photo_100,photo_200,online,last_seen,sex,verified"
+        };
+        [[VKAPIClient sharedClient] callMethod:@"users.get" parameters:params completionHandler:^(id response, NSError *error) {
+            if (!error && [response isKindOfClass:[NSDictionary class]]) {
+                NSArray *items = response[@"response"] ?: response;
+                if ([items isKindOfClass:[NSArray class]] && items.count > 0) {
+                    VKUser *u = [VKUser userFromDictionary:items[0]];
+                    if (u) {
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            self.usersCache[@(u.uid)] = u;
+                            [self.tableView reloadData];
+                        });
+                    }
+                }
+            }
+        }];
+    }
+    return nil;
+}
+
+- (BOOL)isStickerMessage:(VKMessage *)msg {
+    if (msg.attachments.count > 0 && [msg.attachments[0] isKindOfClass:[VKAttachment class]]) {
+        VKAttachment *att = (VKAttachment *)msg.attachments[0];
+        return att.type == VKAttachmentTypeSticker;
+    }
+    return NO;
+}
+
+- (void)userButtonTapped:(VKChatUserButton *)sender {
+    if (sender.user) {
+        [self openUserProfile:sender.user];
+    }
+}
+
+- (void)openUserProfile:(VKUser *)user {
+    if (user && user.uid != 0) {
+        VKProfileViewController *profVC = [[VKProfileViewController alloc] initWithUser:user];
+        [self.navigationController pushViewController:profVC animated:YES];
+    }
 }
 
 #pragma mark - Keyboard Handling
@@ -210,11 +379,11 @@
 - (void)setupNavigationHeader {
     UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 180, 36)];
     headerView.userInteractionEnabled = YES;
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openPeerProfile)];
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(headerTapped)];
     [headerView addGestureRecognizer:tap];
     
     UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 2, 180, 18)];
-    nameLabel.text = self.chatTitle;
+    nameLabel.text = self.chatTitle ?: @"Чат";
     nameLabel.font = [[VKThemeManager sharedManager] titleFontOfSize:15];
     nameLabel.textColor = [[VKThemeManager sharedManager] navBarTitleColor];
     nameLabel.textAlignment = NSTextAlignmentCenter;
@@ -223,7 +392,11 @@
     
     UILabel *statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 19, 180, 14)];
     if (self.peerId > 2000000000) {
-        statusLabel.text = @"беседа";
+        if (self.membersCount > 0) {
+            statusLabel.text = [self membersCountString:self.membersCount];
+        } else {
+            statusLabel.text = @"беседа";
+        }
     } else {
         statusLabel.text = self.peerUser.isOnline ? @"в сети" : (self.peerUser.lastSeen ?: @"был(а) недавно");
     }
@@ -238,27 +411,26 @@
     self.statusLabel = statusLabel;
     
     self.navigationItem.titleView = headerView;
-    
     self.navigationItem.leftBarButtonItem = [[VKThemeManager sharedManager] barButtonItemWithTitle:@"Назад" target:self action:@selector(goBackAction) isBack:YES];
     
-    // Аватарка в правом углу навигационной панели
-    if (self.peerUser) {
-        UIImageView *navAvatar = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 32, 32)];
-        navAvatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:32.0];
-        navAvatar.layer.borderWidth = [[VKThemeManager sharedManager] avatarBorderWidth];
-        navAvatar.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.4].CGColor;
-        navAvatar.clipsToBounds = YES;
-        navAvatar.backgroundColor = [UIColor colorWithWhite:0.9 alpha:1.0];
-        navAvatar.userInteractionEnabled = YES;
-        UITapGestureRecognizer *avTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openPeerProfile)];
-        [navAvatar addGestureRecognizer:avTap];
-        
-        if (self.peerUser.avatarURL.length > 0) {
-            [[VKImageLoader sharedLoader] loadImageWithURL:self.peerUser.avatarURL completion:^(UIImage *img) {
-                if (img) navAvatar.image = img;
-            }];
-        }
-        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:navAvatar];
+    if (self.peerUser && self.peerUser.avatarURL.length > 0) {
+        [self updateHeaderAvatarWithURL:self.peerUser.avatarURL];
+    } else if (self.chatPhotoURL.length > 0) {
+        [self updateHeaderAvatarWithURL:self.chatPhotoURL];
+    }
+}
+
+- (void)headerTapped {
+    if (self.peerId <= 2000000000) {
+        [self openPeerProfile];
+    } else {
+        NSString *infoStr = [NSString stringWithFormat:@"%@\n%@", self.chatTitle ?: @"Беседа", [self membersCountString:self.membersCount]];
+        UIAlertView *av = [[UIAlertView alloc] initWithTitle:@"Беседа"
+                                                     message:infoStr
+                                                    delegate:nil
+                                           cancelButtonTitle:@"OK"
+                                           otherButtonTitles:nil];
+        [av show];
     }
 }
 
@@ -269,8 +441,14 @@
     if (!msg || msg.peerId != self.peerId) return;
     
     dispatch_async(dispatch_get_main_queue(), ^{
-        for (VKMessage *m in self.messages) {
-            if (m.messageId == msg.messageId) return;
+        for (NSInteger i = 0; i < self.messages.count; i++) {
+            VKMessage *m = self.messages[i];
+            if (m.messageId == msg.messageId) {
+                // Обновляем существующее сообщение (например, обогащенное через messages.getById)
+                [self.messages replaceObjectAtIndex:i withObject:msg];
+                [self.tableView reloadData];
+                return;
+            }
         }
         [self.messages addObject:msg];
         [self.tableView reloadData];
@@ -300,8 +478,11 @@
 - (void)userTypingNotification:(NSNotification *)note {
     NSInteger peerId = [note.userInfo[@"peer_id"] integerValue];
     if (peerId == self.peerId) {
+        NSInteger userId = [note.userInfo[@"user_id"] integerValue];
+        VKUser *user = (userId != 0) ? self.usersCache[@(userId)] : nil;
+        NSString *typingStr = (user && self.peerId > 2000000000) ? [NSString stringWithFormat:@"%@ печатает...", user.displayName] : @"печатает...";
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.statusLabel.text = @"печатает...";
+            self.statusLabel.text = typingStr;
             self.statusLabel.textColor = [[VKThemeManager sharedManager] accentColor];
             [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(resetTypingStatus) object:nil];
             [self performSelector:@selector(resetTypingStatus) withObject:nil afterDelay:5.0];
@@ -311,7 +492,11 @@
 
 - (void)resetTypingStatus {
     if (self.peerId > 2000000000) {
-        self.statusLabel.text = @"беседа";
+        if (self.membersCount > 0) {
+            self.statusLabel.text = [self membersCountString:self.membersCount];
+        } else {
+            self.statusLabel.text = @"беседа";
+        }
     } else {
         self.statusLabel.text = self.peerUser.isOnline ? @"в сети" : (self.peerUser.lastSeen ?: @"был(а) недавно");
     }
@@ -398,8 +583,11 @@
             if (!error && messages) {
                 [self.messages removeAllObjects];
                 NSEnumerator *enumerator = [messages reverseObjectEnumerator];
-                for (id element in enumerator) {
-                    [self.messages addObject:element];
+                for (VKMessage *m in enumerator) {
+                    [self.messages addObject:m];
+                    if (m.senderUser && m.senderUser.uid != 0) {
+                        self.usersCache[@(m.senderUser.uid)] = m.senderUser;
+                    }
                 }
                 [self.tableView reloadData];
                 if (self.messages.count > 0) {
@@ -431,7 +619,7 @@
     }];
 }
 
-#pragma mark - Table View Data Source
+#pragma mark - Table View Data Source & Delegate
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
     return 1;
@@ -446,6 +634,7 @@
     if (msg.attachments.count > 0) {
         VKAttachment *att = msg.attachments[0];
         if (att.type == VKAttachmentTypePhoto) return @"[Фотография]";
+        if (att.type == VKAttachmentTypeSticker) return @"[Стикер]";
         if (att.type == VKAttachmentTypeGif) return @"[GIF]";
         if (att.type == VKAttachmentTypeAudio) return [NSString stringWithFormat:@"🎵 %@ — %@", att.audioArtist ?: @"", att.audioTitle ?: @"Трек"];
         if (att.type == VKAttachmentTypeDoc) return [NSString stringWithFormat:@"📄 %@", att.docTitle ?: @"Документ"];
@@ -458,28 +647,102 @@
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.row >= (NSInteger)self.messages.count) return 44.0;
     VKMessage *msg = self.messages[indexPath.row];
-    NSString *displayText = [self textForMessage:msg];
+    CGFloat width = tableView.bounds.size.width;
+    
+    if ([msg isServiceAction]) {
+        VKUser *author = [self senderUserForMessage:msg];
+        NSString *authorName = author ? author.displayName : (msg.fromId != 0 ? [NSString stringWithFormat:@"id%ld", (long)msg.fromId] : @"");
+        NSString *svcText = authorName.length > 0 ? [NSString stringWithFormat:@"%@ %@", authorName, [msg serviceActionText]] : [msg serviceActionText];
+        CGSize sz = [svcText sizeWithFont:[UIFont systemFontOfSize:12] constrainedToSize:CGSizeMake(width - 60, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
+        return ceilf(sz.height) + 16.0;
+    }
+    
+    if ([self isStickerMessage:msg]) {
+        return 138.0;
+    }
+    
+    BOOL isGroupChat = (self.peerId > 2000000000);
+    BOOL showAuthor = isGroupChat && !msg.isOutgoing;
+    CGFloat authorHeaderH = showAuthor ? 18.0 : 0.0;
     
     BOOL hasPhoto = (msg.attachments.count > 0 && [msg.attachments[0] isKindOfClass:[VKAttachment class]] && ((VKAttachment *)msg.attachments[0]).type == VKAttachmentTypePhoto);
-    CGFloat extraH = hasPhoto ? 140.0 : 0.0;
+    CGFloat extraH = (hasPhoto ? 138.0 : 0.0) + authorHeaderH;
     
-    CGSize size = [displayText sizeWithFont:[UIFont systemFontOfSize:15] constrainedToSize:CGSizeMake(tableView.bounds.size.width - 100, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
+    CGFloat maxTextW = width - (showAuthor ? 46.0 : 10.0) - 50.0;
+    NSString *displayText = [self textForMessage:msg];
+    CGSize size = [displayText sizeWithFont:[UIFont systemFontOfSize:15] constrainedToSize:CGSizeMake(maxTextW, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
+    
     return MAX(44.0 + extraH, ceilf(size.height) + 26.0 + extraH);
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    static NSString *CellId = @"VKChatMessageBubbleCell";
+    static NSString *CellId = @"VKChatMessageCell";
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:CellId];
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:CellId];
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
         cell.backgroundColor = [UIColor clearColor];
         
+        // Сервисное действие (плашка по центру)
+        UIView *servicePill = [[UIView alloc] initWithFrame:CGRectZero];
+        servicePill.tag = 1007;
+        servicePill.clipsToBounds = YES;
+        servicePill.hidden = YES;
+        [cell.contentView addSubview:servicePill];
+        
+        UILabel *serviceLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        serviceLabel.tag = 1008;
+        serviceLabel.font = [UIFont systemFontOfSize:12];
+        serviceLabel.textAlignment = NSTextAlignmentCenter;
+        serviceLabel.numberOfLines = 0;
+        serviceLabel.backgroundColor = [UIColor clearColor];
+        [servicePill addSubview:serviceLabel];
+        
+        // Аватарка автора в беседах (кнопка)
+        VKChatUserButton *authorAvatar = [VKChatUserButton buttonWithType:UIButtonTypeCustom];
+        authorAvatar.tag = 1005;
+        authorAvatar.clipsToBounds = YES;
+        authorAvatar.hidden = YES;
+        [authorAvatar addTarget:self action:@selector(userButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [cell.contentView addSubview:authorAvatar];
+        
+        // Стикер (без пузыря)
+        UIImageView *stickerIV = [[UIImageView alloc] initWithFrame:CGRectZero];
+        stickerIV.tag = 1009;
+        stickerIV.contentMode = UIViewContentModeScaleAspectFit;
+        stickerIV.clipsToBounds = YES;
+        stickerIV.userInteractionEnabled = YES;
+        stickerIV.hidden = YES;
+        [cell.contentView addSubview:stickerIV];
+        
+        UILabel *stickerTimeLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        stickerTimeLabel.tag = 1010;
+        stickerTimeLabel.font = [UIFont systemFontOfSize:10];
+        stickerTimeLabel.textAlignment = NSTextAlignmentCenter;
+        stickerTimeLabel.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.35];
+        stickerTimeLabel.textColor = [UIColor whiteColor];
+        stickerTimeLabel.layer.cornerRadius = 6.0;
+        stickerTimeLabel.clipsToBounds = YES;
+        stickerTimeLabel.hidden = YES;
+        [cell.contentView addSubview:stickerTimeLabel];
+        
+        // Основной пузырь
         UIImageView *bubble = [[UIImageView alloc] initWithFrame:CGRectZero];
         bubble.tag = 1001;
         bubble.userInteractionEnabled = YES;
         [cell.contentView addSubview:bubble];
         
+        // Имя автора в беседах
+        VKChatUserButton *authorName = [VKChatUserButton buttonWithType:UIButtonTypeCustom];
+        authorName.tag = 1006;
+        authorName.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        authorName.titleLabel.font = [UIFont boldSystemFontOfSize:12.5];
+        [authorName setTitleColor:[UIColor colorWithRed:60.0/255.0 green:112.0/255.0 blue:164.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+        authorName.hidden = YES;
+        [authorName addTarget:self action:@selector(userButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [bubble addSubview:authorName];
+        
+        // Фото во вложении
         UIImageView *photoIV = [[UIImageView alloc] initWithFrame:CGRectZero];
         photoIV.tag = 1004;
         photoIV.contentMode = UIViewContentModeScaleAspectFill;
@@ -492,6 +755,7 @@
         UITapGestureRecognizer *photoTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(chatPhotoTapped:)];
         [photoIV addGestureRecognizer:photoTap];
         
+        // Текст сообщения
         UILabel *textLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         textLabel.tag = 1002;
         textLabel.font = [UIFont systemFontOfSize:15];
@@ -499,6 +763,7 @@
         textLabel.backgroundColor = [UIColor clearColor];
         [bubble addSubview:textLabel];
         
+        // Время и статус прочтения
         UILabel *timeLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         timeLabel.tag = 1003;
         timeLabel.font = [UIFont systemFontOfSize:10];
@@ -509,28 +774,119 @@
     if (indexPath.row >= (NSInteger)self.messages.count) return cell;
     
     VKMessage *msg = self.messages[indexPath.row];
+    UIView *servicePill = [cell.contentView viewWithTag:1007];
+    UILabel *serviceLabel = (UILabel *)[servicePill viewWithTag:1008];
+    VKChatUserButton *authorAvatar = (VKChatUserButton *)[cell.contentView viewWithTag:1005];
+    UIImageView *stickerIV = (UIImageView *)[cell.contentView viewWithTag:1009];
+    UILabel *stickerTimeLabel = (UILabel *)[cell.contentView viewWithTag:1010];
     UIImageView *bubble = (UIImageView *)[cell.contentView viewWithTag:1001];
+    VKChatUserButton *authorName = (VKChatUserButton *)[bubble viewWithTag:1006];
     UIImageView *photoIV = (UIImageView *)[bubble viewWithTag:1004];
     UILabel *textLabel = (UILabel *)[bubble viewWithTag:1002];
     UILabel *timeLabel = (UILabel *)[bubble viewWithTag:1003];
     
+    CGFloat width = tableView.bounds.size.width;
+    BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
+    BOOL isGroupChat = (self.peerId > 2000000000);
+    
+    // 1. Сервисное сообщение
+    if ([msg isServiceAction]) {
+        bubble.hidden = YES;
+        authorAvatar.hidden = YES;
+        stickerIV.hidden = YES;
+        stickerTimeLabel.hidden = YES;
+        servicePill.hidden = NO;
+        
+        VKUser *author = [self senderUserForMessage:msg];
+        NSString *authorNameStr = author ? author.displayName : (msg.fromId != 0 ? [NSString stringWithFormat:@"id%ld", (long)msg.fromId] : @"");
+        NSString *svcText = authorNameStr.length > 0 ? [NSString stringWithFormat:@"%@ %@", authorNameStr, [msg serviceActionText]] : [msg serviceActionText];
+        
+        CGSize sz = [svcText sizeWithFont:[UIFont systemFontOfSize:12] constrainedToSize:CGSizeMake(width - 60, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
+        CGFloat pillW = ceilf(sz.width) + 18.0;
+        CGFloat pillH = ceilf(sz.height) + 8.0;
+        servicePill.frame = CGRectMake((width - pillW) / 2.0, 4.0, pillW, pillH);
+        servicePill.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.08];
+        servicePill.layer.cornerRadius = MIN(12.0, pillH / 2.0);
+        
+        serviceLabel.frame = CGRectMake(9.0, 4.0, ceilf(sz.width), ceilf(sz.height));
+        serviceLabel.text = svcText;
+        serviceLabel.textColor = [UIColor colorWithWhite:0.35 alpha:1.0];
+        return cell;
+    }
+    
+    // 2. Стикер
+    if ([self isStickerMessage:msg]) {
+        servicePill.hidden = YES;
+        bubble.hidden = YES;
+        stickerIV.hidden = NO;
+        stickerTimeLabel.hidden = NO;
+        
+        VKAttachment *stAtt = (VKAttachment *)msg.attachments[0];
+        stickerIV.image = nil;
+        NSString *url = stAtt.stickerURL;
+        if (url.length > 0) {
+            [[VKImageLoader sharedLoader] loadImageWithURL:url completion:^(UIImage *img) {
+                if (img) stickerIV.image = img;
+            }];
+        }
+        
+        CGFloat stSize = 128.0;
+        CGFloat stX = 0;
+        if (msg.isOutgoing) {
+            authorAvatar.hidden = YES;
+            stX = width - stSize - 12.0;
+        } else {
+            if (isGroupChat) {
+                authorAvatar.hidden = NO;
+                authorAvatar.frame = CGRectMake(8, 4, 32, 32);
+                authorAvatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:32.0];
+                VKUser *author = [self senderUserForMessage:msg];
+                authorAvatar.user = author;
+                [self loadAvatarForButton:authorAvatar url:author.avatarURL];
+                stX = 46.0;
+            } else {
+                authorAvatar.hidden = YES;
+                stX = 12.0;
+            }
+        }
+        stickerIV.frame = CGRectMake(stX, 4.0, stSize, stSize);
+        
+        NSString *statusText = msg.isOutgoing ? [NSString stringWithFormat:@"%@%@", msg.timeString ?: @"", (msg.isRead ? @" ✓✓" : @" ✓")] : (msg.timeString ?: @"");
+        stickerTimeLabel.text = statusText;
+        stickerTimeLabel.frame = CGRectMake(stX + stSize - 44.0, 4.0 + stSize - 16.0, 40.0, 14.0);
+        return cell;
+    }
+    
+    // 3. Обычное сообщение / вложения
+    servicePill.hidden = YES;
+    stickerIV.hidden = YES;
+    stickerTimeLabel.hidden = YES;
+    bubble.hidden = NO;
+    
     BOOL hasPhoto = (msg.attachments.count > 0 && [msg.attachments[0] isKindOfClass:[VKAttachment class]] && ((VKAttachment *)msg.attachments[0]).type == VKAttachmentTypePhoto);
     VKAttachment *photoAtt = hasPhoto ? (VKAttachment *)msg.attachments[0] : nil;
     
+    BOOL showAuthor = (isGroupChat && !msg.isOutgoing);
+    VKUser *author = showAuthor ? [self senderUserForMessage:msg] : nil;
+    NSString *authorNameStr = author ? author.displayName : (msg.fromId != 0 ? [NSString stringWithFormat:@"id%ld", (long)msg.fromId] : @"");
+    
     NSString *displayText = [self textForMessage:msg];
     textLabel.text = displayText;
-    timeLabel.text = msg.timeString ?: @"";
     
-    CGFloat width = tableView.bounds.size.width;
-    CGSize size = [displayText sizeWithFont:[UIFont systemFontOfSize:15] constrainedToSize:CGSizeMake(width - 100, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
+    CGFloat maxTextW = width - (showAuthor ? 46.0 : 10.0) - 50.0;
+    CGSize size = [displayText sizeWithFont:[UIFont systemFontOfSize:15] constrainedToSize:CGSizeMake(maxTextW, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
     
-    CGFloat photoW = hasPhoto ? 180.0 : 0.0;
     CGFloat photoH = hasPhoto ? 130.0 : 0.0;
     
-    CGFloat bubbleWidth = MAX(hasPhoto ? 196.0 : 76.0, ceilf(size.width) + 26.0);
-    CGFloat bubbleHeight = ceilf(size.height) + 22.0 + (hasPhoto ? photoH + 8.0 : 0.0);
+    CGFloat bubbleWidth = MAX(hasPhoto ? 196.0 : 86.0, ceilf(size.width) + 28.0);
+    if (showAuthor && authorNameStr.length > 0) {
+        CGSize authorNameSz = [authorNameStr sizeWithFont:[UIFont boldSystemFontOfSize:12.5]];
+        bubbleWidth = MAX(bubbleWidth, ceilf(authorNameSz.width) + 28.0);
+    }
+    bubbleWidth = MIN(bubbleWidth, maxTextW + 36.0);
     
-    BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
+    CGFloat authorHeaderH = showAuthor ? 18.0 : 0.0;
+    CGFloat bubbleHeight = ceilf(size.height) + 22.0 + (hasPhoto ? photoH + 8.0 : 0.0) + authorHeaderH;
     
     if (hasPhoto) {
         photoIV.hidden = NO;
@@ -546,7 +902,8 @@
     }
     
     if (msg.isOutgoing) {
-        // Исходящие (справа)
+        authorAvatar.hidden = YES;
+        authorName.hidden = YES;
         bubble.frame = CGRectMake(width - bubbleWidth - 10.0, 3.0, bubbleWidth, bubbleHeight);
         
         if (isSkeuomorph) {
@@ -581,10 +938,26 @@
             topY += photoH + 6.0;
         }
         textLabel.frame = CGRectMake(12, topY, ceilf(size.width), ceilf(size.height));
-        timeLabel.frame = CGRectMake(bubbleWidth - 44, bubbleHeight - 16, 34, 12);
+        
+        timeLabel.text = [NSString stringWithFormat:@"%@ %@", msg.timeString ?: @"", (msg.isRead ? @"✓✓" : @"✓")];
+        timeLabel.textAlignment = NSTextAlignmentRight;
+        timeLabel.frame = CGRectMake(bubbleWidth - 52, bubbleHeight - 16, 44, 12);
+        
     } else {
-        // Входящие (слева)
-        bubble.frame = CGRectMake(10.0, 3.0, bubbleWidth, bubbleHeight);
+        // Входящие сообщения
+        CGFloat bubbleX = 10.0;
+        if (showAuthor) {
+            authorAvatar.hidden = NO;
+            authorAvatar.frame = CGRectMake(8.0, 4.0, 32.0, 32.0);
+            authorAvatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:32.0];
+            authorAvatar.user = author;
+            [self loadAvatarForButton:authorAvatar url:author.avatarURL];
+            bubbleX = 46.0;
+        } else {
+            authorAvatar.hidden = YES;
+        }
+        
+        bubble.frame = CGRectMake(bubbleX, 3.0, bubbleWidth, bubbleHeight);
         
         if (isSkeuomorph) {
             UIImage *greyImg = [UIImage imageNamed:@"Grey_Bubble"];
@@ -611,15 +984,40 @@
         }
         
         CGFloat topY = 6.0;
+        if (showAuthor) {
+            authorName.hidden = NO;
+            authorName.user = author;
+            authorName.frame = CGRectMake(16, topY, bubbleWidth - 30, 16);
+            [authorName setTitle:authorNameStr forState:UIControlStateNormal];
+            topY += 18.0;
+        } else {
+            authorName.hidden = YES;
+        }
+        
         if (hasPhoto) {
             photoIV.frame = CGRectMake(14, topY, bubbleWidth - 22, photoH);
             topY += photoH + 6.0;
         }
         textLabel.frame = CGRectMake(16, topY, ceilf(size.width), ceilf(size.height));
-        timeLabel.frame = CGRectMake(bubbleWidth - 40, bubbleHeight - 16, 34, 12);
+        
+        timeLabel.text = msg.timeString ?: @"";
+        timeLabel.textAlignment = NSTextAlignmentRight;
+        timeLabel.frame = CGRectMake(bubbleWidth - 44, bubbleHeight - 16, 36, 12);
     }
     
     return cell;
+}
+
+- (void)loadAvatarForButton:(UIButton *)button url:(NSString *)url {
+    [button setImage:nil forState:UIControlStateNormal];
+    button.backgroundColor = [UIColor colorWithWhite:0.9 alpha:1.0];
+    if (url.length > 0) {
+        [[VKImageLoader sharedLoader] loadImageWithURL:url completion:^(UIImage *img) {
+            if (img) {
+                [button setImage:img forState:UIControlStateNormal];
+            }
+        }];
+    }
 }
 
 - (void)chatPhotoTapped:(UITapGestureRecognizer *)gesture {

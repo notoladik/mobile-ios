@@ -7,6 +7,8 @@
 @property (nonatomic, assign) NSInteger peerId;
 @property (nonatomic, strong) VKUser *peerUser;
 @property (nonatomic, copy) NSString *chatTitle;
+@property (nonatomic, copy) NSString *chatPhotoURL;
+@property (nonatomic, assign) NSInteger membersCount;
 
 - (instancetype)initWithPeerId:(NSInteger)peerId peerUser:(VKUser *)peerUser title:(NSString *)title;
 

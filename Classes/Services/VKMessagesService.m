@@ -138,10 +138,35 @@
         NSDictionary *resp = [response isKindOfClass:[NSDictionary class]] ? (response[@"response"] ?: response) : nil;
         if (resp) {
             NSArray *rawItems = resp[@"items"] ?: @[];
+            NSArray *rawProfiles = resp[@"profiles"] ?: @[];
+            NSArray *rawGroups = resp[@"groups"] ?: @[];
+            
+            NSMutableDictionary *profiles = [NSMutableDictionary dictionary];
+            for (NSDictionary *p in rawProfiles) {
+                NSInteger uid = [p[@"id"] integerValue] ?: [p[@"uid"] integerValue];
+                if (uid != 0) {
+                    profiles[@(uid)] = [VKUser userFromDictionary:p];
+                }
+            }
+            NSMutableDictionary *groups = [NSMutableDictionary dictionary];
+            for (NSDictionary *g in rawGroups) {
+                NSInteger gid = [g[@"id"] integerValue] ?: [g[@"gid"] integerValue];
+                if (gid != 0) {
+                    groups[@(gid)] = [VKUser groupFromDictionary:g];
+                }
+            }
+            
             NSMutableArray *msgs = [NSMutableArray array];
             for (NSDictionary *item in rawItems) {
                 VKMessage *m = [VKMessage messageFromDictionary:item];
-                if (m) [msgs addObject:m];
+                if (m) {
+                    if (m.fromId > 0) {
+                        m.senderUser = profiles[@(m.fromId)];
+                    } else if (m.fromId < 0) {
+                        m.senderUser = groups[@(-m.fromId)];
+                    }
+                    [msgs addObject:m];
+                }
             }
             if (completion) completion(msgs, nil);
             return;
