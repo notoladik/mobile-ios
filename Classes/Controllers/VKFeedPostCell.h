@@ -66,5 +66,6 @@
 
 + (CGFloat)heightForPost:(VKPost *)post width:(CGFloat)width isRevealed:(BOOL)isRevealed;
 - (void)configureWithPost:(VKPost *)post isRevealed:(BOOL)isRevealed;
+- (void)configureWithPost:(VKPost *)post isRevealed:(BOOL)isRevealed width:(CGFloat)width;
 
 @end

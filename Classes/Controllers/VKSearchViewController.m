@@ -150,6 +150,10 @@
 
 @implementation VKSearchViewController
 
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
 - (BOOL)shouldAutorotate {
     return YES;
 }
@@ -574,7 +578,7 @@
                 cell = [[VKFeedPostCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:PostCellId];
             }
             VKPost *p = self.allPosts[indexPath.row];
-            [cell configureWithPost:p isRevealed:YES];
+            [cell configureWithPost:p isRevealed:YES width:tableView.bounds.size.width];
             return cell;
         }
     } else if (self.selectedCategoryIndex == 5) {
@@ -584,7 +588,7 @@
             cell = [[VKFeedPostCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:PostCellId];
         }
         VKPost *p = self.singleResults[indexPath.row];
-        [cell configureWithPost:p isRevealed:YES];
+        [cell configureWithPost:p isRevealed:YES width:tableView.bounds.size.width];
         return cell;
     } else if (self.selectedCategoryIndex == 4) {
         static NSString *AudioCellId = @"VKSearchAudioCell";

@@ -30,6 +30,10 @@
 
 @implementation VKProfileViewController
 
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
 - (BOOL)shouldAutorotate {
     return YES;
 }
@@ -559,7 +563,7 @@
         
         if (indexPath.row < (NSInteger)self.wallPosts.count) {
             VKPost *post = self.wallPosts[indexPath.row];
-            [cell configureWithPost:post isRevealed:YES];
+            [cell configureWithPost:post isRevealed:YES width:tableView.bounds.size.width];
             
             __weak typeof(self) weakSelf = self;
             cell.onLikeTapped = ^(VKPost *p) {

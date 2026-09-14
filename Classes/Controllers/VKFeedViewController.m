@@ -276,6 +276,7 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
             }
             
             if (posts.count > 0) {
+                CGPoint preservedOffset = weakSelf.tableView.contentOffset;
                 NSMutableSet *existingIds = [NSMutableSet set];
                 for (VKPost *p in weakSelf.posts) {
                     [existingIds addObject:@(p.vkID)];
@@ -289,9 +290,19 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
                     }
                 }
                 
+                NSInteger firstInsertedRow = weakSelf.posts.count;
                 [weakSelf.posts addObjectsFromArray:newUnique];
                 weakSelf.nextFrom = nextFrom;
-                [weakSelf.tableView reloadData];
+                if (newUnique.count > 0) {
+                    NSMutableArray *indexPaths = [NSMutableArray arrayWithCapacity:newUnique.count];
+                    for (NSInteger i = 0; i < (NSInteger)newUnique.count; i++) {
+                        [indexPaths addObject:[NSIndexPath indexPathForRow:firstInsertedRow + i inSection:0]];
+                    }
+                    [weakSelf.tableView beginUpdates];
+                    [weakSelf.tableView insertRowsAtIndexPaths:indexPaths withRowAnimation:UITableViewRowAnimationNone];
+                    [weakSelf.tableView endUpdates];
+                    [weakSelf.tableView setContentOffset:preservedOffset animated:NO];
+                }
                 [VKCrashLogger log:@"[VKFeedViewController] Appended %lu posts, total %lu, nextFrom: %@", (unsigned long)newUnique.count, (unsigned long)weakSelf.posts.count, nextFrom];
             } else {
                 weakSelf.nextFrom = nil;
@@ -342,7 +353,7 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     
     VKPost *post = self.posts[indexPath.row];
     BOOL isRevealed = [self.revealedPostIds containsObject:@(post.vkID)];
-    [cell configureWithPost:post isRevealed:isRevealed];
+    [cell configureWithPost:post isRevealed:isRevealed width:tableView.bounds.size.width];
     
     __weak typeof(self) weakSelf = self;
     cell.onLikeTapped = ^(VKPost *p) {

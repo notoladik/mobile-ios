@@ -10,6 +10,7 @@
 @interface VKFeedPostCell ()
 @property (nonatomic, strong) NSMutableArray<UIImageView *> *photoImageViewsPool;
 @property (nonatomic, strong) NSArray<VKAttachment *> *currentPhotos;
+@property (nonatomic, assign) NSUInteger configurationGeneration;
 @end
 
 @implementation VKFeedPostCell
@@ -224,6 +225,47 @@
         [_actionsContainerView addSubview:_repostButton];
     }
     return self;
+}
+
+- (void)prepareForReuse {
+    [super prepareForReuse];
+
+    // Invalidate image callbacks belonging to the previous post.
+    self.configurationGeneration += 1;
+    self.currentPost = nil;
+    self.currentPhotos = nil;
+    self.isExplicitRevealed = NO;
+
+    self.onLikeTapped = nil;
+    self.onCommentTapped = nil;
+    self.onRepostTapped = nil;
+    self.onAuthorTapped = nil;
+    self.onOptionsTapped = nil;
+    self.onRevealSpoilerTapped = nil;
+    self.onToggleTextExpanded = nil;
+    self.onToggleRepostTextExpanded = nil;
+    self.onPhotoTapped = nil;
+    self.onPhotosGalleryTapped = nil;
+    self.onVideoTapped = nil;
+    self.onAudioTapped = nil;
+    self.onPollVoted = nil;
+    self.onDocTapped = nil;
+    self.onGifTapped = nil;
+    self.onLinkTapped = nil;
+    self.onCopyrightTapped = nil;
+
+    self.avatarImageView.image = nil;
+    self.wallOwnerAvatarImageView.image = nil;
+    for (UIImageView *imageView in self.photoImageViewsPool) {
+        imageView.image = nil;
+        imageView.hidden = YES;
+    }
+}
+
+- (void)applyImage:(UIImage *)image toImageView:(UIImageView *)imageView generation:(NSUInteger)generation post:(VKPost *)post {
+    if (image && imageView && self.configurationGeneration == generation && self.currentPost == post) {
+        imageView.image = image;
+    }
 }
 
 - (void)authorTapped {
@@ -632,11 +674,18 @@
 #pragma mark - Configure
 
 - (void)configureWithPost:(VKPost *)post isRevealed:(BOOL)isRevealed {
+    CGFloat width = [[UIScreen mainScreen] bounds].size.width;
+    [self configureWithPost:post isRevealed:isRevealed width:width];
+}
+
+- (void)configureWithPost:(VKPost *)post isRevealed:(BOOL)isRevealed width:(CGFloat)width {
     if (!post) return;
+
+    self.configurationGeneration += 1;
+    NSUInteger generation = self.configurationGeneration;
     self.currentPost = post;
     self.isExplicitRevealed = isRevealed;
-    
-    CGFloat width = [[UIScreen mainScreen] bounds].size.width;
+
     if (width <= 0) width = 320.0;
     
     BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
@@ -660,7 +709,9 @@
     self.avatarImageView.image = nil;
     if (post.author.avatarURL) {
         [[VKImageLoader sharedLoader] loadImageWithURL:post.author.avatarURL completion:^(UIImage *img) {
-            if (img) self.avatarImageView.image = img;
+            if (img && self.configurationGeneration == generation && self.currentPost == post) {
+                self.avatarImageView.image = img;
+            }
         }];
     }
     
@@ -670,7 +721,9 @@
         self.wallOwnerAvatarImageView.image = nil;
         if (post.wallOwner.avatarURL) {
             [[VKImageLoader sharedLoader] loadImageWithURL:post.wallOwner.avatarURL completion:^(UIImage *img) {
-                if (img) self.wallOwnerAvatarImageView.image = img;
+                if (img && self.configurationGeneration == generation && self.currentPost == post) {
+                    self.wallOwnerAvatarImageView.image = img;
+                }
             }];
         }
         self.wallOwnerNoteLabel.hidden = NO;
@@ -799,7 +852,7 @@
             [iv addGestureRecognizer:tap];
             
             [[VKImageLoader sharedLoader] loadImageWithURL:a.photoURL completion:^(UIImage *img) {
-                if (img) iv.image = img;
+                [self applyImage:img toImageView:iv generation:generation post:post];
             }];
             [self.photosContainerView addSubview:iv];
             self.photosContainerView.frame = CGRectMake(0, currentY, contentW, photoH);
@@ -820,7 +873,7 @@
                 
                 VKAttachment *a = photos[i];
                 [[VKImageLoader sharedLoader] loadImageWithURL:a.photoURL completion:^(UIImage *img) {
-                    if (img) iv.image = img;
+                    [self applyImage:img toImageView:iv generation:generation post:post];
                 }];
                 [self.photosContainerView addSubview:iv];
             }
@@ -840,7 +893,7 @@
             iv1.tag = 0;
             iv1.userInteractionEnabled = YES;
             [iv1 addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(photoCellTapped:)]];
-            [[VKImageLoader sharedLoader] loadImageWithURL:((VKAttachment *)photos[0]).photoURL completion:^(UIImage *img) { if (img) iv1.image = img; }];
+            [[VKImageLoader sharedLoader] loadImageWithURL:((VKAttachment *)photos[0]).photoURL completion:^(UIImage *img) { [self applyImage:img toImageView:iv1 generation:generation post:post]; }];
             [self.photosContainerView addSubview:iv1];
             
             for (NSInteger i = 1; i <= 2; i++) {
@@ -852,7 +905,7 @@
                 iv.tag = i;
                 iv.userInteractionEnabled = YES;
                 [iv addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(photoCellTapped:)]];
-                [[VKImageLoader sharedLoader] loadImageWithURL:((VKAttachment *)photos[i]).photoURL completion:^(UIImage *img) { if (img) iv.image = img; }];
+                [[VKImageLoader sharedLoader] loadImageWithURL:((VKAttachment *)photos[i]).photoURL completion:^(UIImage *img) { [self applyImage:img toImageView:iv generation:generation post:post]; }];
                 [self.photosContainerView addSubview:iv];
             }
             self.photosContainerView.frame = CGRectMake(0, currentY, contentW, totalH);
@@ -875,7 +928,7 @@
                 
                 VKAttachment *a = photos[i];
                 [[VKImageLoader sharedLoader] loadImageWithURL:a.photoURL completion:^(UIImage *img) {
-                    if (img) iv.image = img;
+                    [self applyImage:img toImageView:iv generation:generation post:post];
                 }];
                 [self.photosContainerView addSubview:iv];
             }
@@ -908,7 +961,7 @@
                 
                 VKAttachment *a = photos[i];
                 [[VKImageLoader sharedLoader] loadImageWithURL:a.photoURL completion:^(UIImage *img) {
-                    if (img) iv.image = img;
+                    [self applyImage:img toImageView:iv generation:generation post:post];
                 }];
                 [self.photosContainerView addSubview:iv];
                 
@@ -1023,7 +1076,7 @@
             vidImg.clipsToBounds = YES;
             if (att.videoImageURL.length > 0) {
                 [[VKImageLoader sharedLoader] loadImageWithURL:att.videoImageURL completion:^(UIImage *img) {
-                    if (img) vidImg.image = img;
+                    [self applyImage:img toImageView:vidImg generation:generation post:post];
                 }];
             }
             [vidView addSubview:vidImg];
@@ -1168,7 +1221,7 @@
                 lImg.contentMode = UIViewContentModeScaleAspectFill;
                 lImg.clipsToBounds = YES;
                 [[VKImageLoader sharedLoader] loadImageWithURL:att.linkImageURL completion:^(UIImage *img) {
-                    if (img) lImg.image = img;
+                    [self applyImage:img toImageView:lImg generation:generation post:post];
                 }];
                 [linkView addSubview:lImg];
                 textY = 132.0;
@@ -1286,7 +1339,7 @@
         self.repostAvatarImageView.image = nil;
         if (rep.author.avatarURL) {
             [[VKImageLoader sharedLoader] loadImageWithURL:rep.author.avatarURL completion:^(UIImage *img) {
-                if (img) self.repostAvatarImageView.image = img;
+                [self applyImage:img toImageView:self.repostAvatarImageView generation:generation post:post];
             }];
         }
         
@@ -1407,7 +1460,7 @@
             UITapGestureRecognizer *repTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(repostPhotoCellTapped:)];
             [iv addGestureRecognizer:repTap];
             
-            [[VKImageLoader sharedLoader] loadImageWithURL:a.photoURL completion:^(UIImage *img) { if (img) iv.image = img; }];
+            [[VKImageLoader sharedLoader] loadImageWithURL:a.photoURL completion:^(UIImage *img) { [self applyImage:img toImageView:iv generation:generation post:post]; }];
             [self.repostContainerView addSubview:iv];
             repCurY += photoH + 8.0;
         } else if (repPhotos.count > 1) {
@@ -1427,7 +1480,7 @@
                 [iv addGestureRecognizer:repTap];
                 
                 VKAttachment *a = repPhotos[i];
-                [[VKImageLoader sharedLoader] loadImageWithURL:a.photoURL completion:^(UIImage *img) { if (img) iv.image = img; }];
+                [[VKImageLoader sharedLoader] loadImageWithURL:a.photoURL completion:^(UIImage *img) { [self applyImage:img toImageView:iv generation:generation post:post]; }];
                 [self.repostContainerView addSubview:iv];
             }
             NSInteger rows = ceilf(MIN(4, repPhotos.count) / 2.0);
@@ -1466,7 +1519,7 @@
                 vImg.contentMode = UIViewContentModeScaleAspectFill;
                 vImg.clipsToBounds = YES;
                 if (att.videoImageURL.length > 0) {
-                    [[VKImageLoader sharedLoader] loadImageWithURL:att.videoImageURL completion:^(UIImage *img) { if (img) vImg.image = img; }];
+                    [[VKImageLoader sharedLoader] loadImageWithURL:att.videoImageURL completion:^(UIImage *img) { [self applyImage:img toImageView:vImg generation:generation post:post]; }];
                 }
                 [vView addSubview:vImg];
                 
@@ -1511,7 +1564,7 @@
                 gImg.clipsToBounds = YES;
                 gImg.layer.cornerRadius = 4.0;
                 if (att.gifPreviewURL.length > 0) {
-                    [[VKImageLoader sharedLoader] loadImageWithURL:att.gifPreviewURL completion:^(UIImage *img) { if (img) gImg.image = img; }];
+                    [[VKImageLoader sharedLoader] loadImageWithURL:att.gifPreviewURL completion:^(UIImage *img) { [self applyImage:img toImageView:gImg generation:generation post:post]; }];
                 }
                 [self.repostContainerView addSubview:gImg];
                 repCurY += 148.0;

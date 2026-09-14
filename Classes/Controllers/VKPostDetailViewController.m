@@ -28,6 +28,8 @@
 @property (nonatomic, copy) void (^onReplyTapped)(void);
 @property (nonatomic, copy) void (^onMoreTapped)(void);
 @property (nonatomic, copy) void (^onLikeTapped)(void);
+@property (nonatomic, strong) VKComment *currentComment;
+@property (nonatomic, assign) NSUInteger configurationGeneration;
 @end
 
 @implementation VKCommentCell
@@ -90,6 +92,17 @@
         [self.contentView addSubview:_likeButton];
     }
     return self;
+}
+
+- (void)prepareForReuse {
+    [super prepareForReuse];
+    self.configurationGeneration += 1;
+    self.currentComment = nil;
+    self.onAvatarTapped = nil;
+    self.onReplyTapped = nil;
+    self.onMoreTapped = nil;
+    self.onLikeTapped = nil;
+    self.avatarImageView.image = nil;
 }
 
 - (void)avatarClicked {
@@ -157,17 +170,23 @@
         CGSize sz = [comment.text sizeWithFont:[UIFont systemFontOfSize:14] constrainedToSize:CGSizeMake(textWidth, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
         textH = ceilf(sz.height);
     }
-    return MAX(54.0, textH + 44.0);
+    // Reserve enough vertical space for comfortable 26pt action targets.
+    return MAX(62.0, textH + 52.0);
 }
 
 - (void)configureWithComment:(VKComment *)comment width:(CGFloat)width {
+    self.configurationGeneration += 1;
+    NSUInteger generation = self.configurationGeneration;
+    self.currentComment = comment;
     BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
     self.avatarImageView.layer.cornerRadius = isSkeuomorph ? 3.0 : 18.0;
     self.avatarImageView.image = nil;
     
     if (comment.author.avatarURL) {
         [[VKImageLoader sharedLoader] loadImageWithURL:comment.author.avatarURL completion:^(UIImage *img) {
-            if (img) self.avatarImageView.image = img;
+            if (img && self.configurationGeneration == generation && self.currentComment == comment) {
+                self.avatarImageView.image = img;
+            }
         }];
     }
     
@@ -199,13 +218,15 @@
     NSString *dateStr = comment.timeAgo ?: @"сегодня";
     CGSize dateSize = [dateStr sizeWithFont:[UIFont systemFontOfSize:11.5]];
     self.dateLabel.text = dateStr;
-    self.dateLabel.frame = CGRectMake(58, bottomY, dateSize.width + 4.0, 16);
-    
-    self.replyButton.frame = CGRectMake(58 + dateSize.width + 10.0, bottomY, 56, 16);
-    self.moreButton.frame = CGRectMake(58 + dateSize.width + 70.0, bottomY, 26, 16);
+    self.dateLabel.frame = CGRectMake(58, bottomY - 5.0, dateSize.width + 4, 26);
+    self.replyButton.frame = CGRectMake(58 + dateSize.width + 7.0, bottomY - 5.0, 64, 26);
+    self.moreButton.frame = CGRectMake(58 + dateSize.width + 135.0, bottomY - 5.0, 34, 26);
+    self.replyButton.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
+    self.moreButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
     
     // Кнопка Лайка
-    self.likeButton.frame = CGRectMake(width - 64, bottomY - 2, 54, 20);
+    self.likeButton.frame = CGRectMake(width - 68, bottomY - 5.0, 58, 26);
+    self.likeButton.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
     NSString *likeText = (comment.likesCount > 0) ? [NSString stringWithFormat:@"%ld", (long)comment.likesCount] : @"";
     [self.likeButton setTitle:likeText forState:UIControlStateNormal];
     UIColor *heartColor = comment.isLiked ? [UIColor colorWithRed:235.0/255.0 green:45.0/255.0 blue:70.0/255.0 alpha:1.0] : [UIColor colorWithRed:155.0/255.0 green:165.0/255.0 blue:175.0/255.0 alpha:1.0];
@@ -310,6 +331,8 @@
     self.tableView.delegate = self;
     self.tableView.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
     self.tableView.separatorColor = [UIColor colorWithRed:235.0/255.0 green:237.0/255.0 blue:240.0/255.0 alpha:1.0];
+    self.tableView.contentInset = UIEdgeInsetsMake(0, 0, 8.0, 0);
+    self.tableView.scrollIndicatorInsets = UIEdgeInsetsMake(0, 0, 8.0, 0);
     
     if (NSClassFromString(@"UIRefreshControl")) {
         self.refreshControl = [[UIRefreshControl alloc] init];
@@ -534,7 +557,8 @@
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    CGFloat width = [[UIScreen mainScreen] bounds].size.width;
+    CGFloat width = tableView.bounds.size.width;
+    if (width <= 0) width = [[UIScreen mainScreen] bounds].size.width;
     if (indexPath.section == 0) {
         return [VKFeedPostCell heightForPost:self.post width:width isRevealed:YES];
     } else {
@@ -545,7 +569,8 @@
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    CGFloat width = [[UIScreen mainScreen] bounds].size.width;
+    CGFloat width = tableView.bounds.size.width;
+    if (width <= 0) width = [[UIScreen mainScreen] bounds].size.width;
     
     if (indexPath.section == 0) {
         static NSString *PostCellId = @"VKPostDetailPostCell";
@@ -553,7 +578,7 @@
         if (!cell) {
             cell = [[VKFeedPostCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:PostCellId];
         }
-        [cell configureWithPost:self.post isRevealed:YES];
+        [cell configureWithPost:self.post isRevealed:YES width:tableView.bounds.size.width];
         cell.onLikeTapped = ^(VKPost *p) {
             [[VKFeedService sharedService] likePost:p completion:nil];
         };
