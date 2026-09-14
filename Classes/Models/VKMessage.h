@@ -4,6 +4,7 @@
 @interface VKMessage : NSObject
 
 @property (nonatomic, assign) NSInteger messageId;
+@property (nonatomic, assign) NSInteger conversationMessageId;
 @property (nonatomic, assign) NSInteger peerId;
 @property (nonatomic, assign) NSInteger fromId;
 @property (nonatomic, copy) NSString *text;

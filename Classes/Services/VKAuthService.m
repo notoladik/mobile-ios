@@ -2,6 +2,7 @@
 #import "VKAPIClient.h"
 #import "VKAppConfig.h"
 #import "VKCrashLogger.h"
+#import <Security/Security.h>
 
 NSString *const VKAuthStatusDidChangeNotification = @"VKAuthStatusDidChangeNotification";
 NSString *const VKCountersDidUpdateNotification = @"VKCountersDidUpdateNotification";
@@ -9,6 +10,52 @@ NSString *const VKCountersDidUpdateNotification = @"VKCountersDidUpdateNotificat
 static NSString *const kOpenVKTokenKey = @"openvk.token";
 static NSString *const kOpenVKCurrentUserJSONKey = @"openvk.current_user_json";
 static NSString *const kOpenVKAccountsJSONKey = @"openvk.accounts_json";
+static NSString *const kOpenVKKeychainService = @"org.openvk.legacy.auth";
+
+static NSString *VKKeychainAccount(NSString *username, NSString *host) {
+    return [NSString stringWithFormat:@"%@|%@", host ?: @"", username ?: @""];
+}
+
+static NSString *VKKeychainLoadToken(NSString *username, NSString *host) {
+    NSDictionary *query = @{
+        (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService: kOpenVKKeychainService,
+        (__bridge id)kSecAttrAccount: VKKeychainAccount(username, host),
+        (__bridge id)kSecReturnData: @YES,
+        (__bridge id)kSecMatchLimit: (__bridge id)kSecMatchLimitOne
+    };
+    CFTypeRef result = NULL;
+    OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &result);
+    if (status != errSecSuccess || !result) return nil;
+    NSData *data = (__bridge_transfer NSData *)result;
+    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+}
+
+static void VKKeychainSaveToken(NSString *token, NSString *username, NSString *host) {
+    if (token.length == 0 || username.length == 0) return;
+    NSDictionary *query = @{
+        (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService: kOpenVKKeychainService,
+        (__bridge id)kSecAttrAccount: VKKeychainAccount(username, host)
+    };
+    NSData *data = [token dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *attributes = @{(__bridge id)kSecValueData: data};
+    OSStatus status = SecItemUpdate((__bridge CFDictionaryRef)query, (__bridge CFDictionaryRef)attributes);
+    if (status == errSecItemNotFound) {
+        NSMutableDictionary *item = [query mutableCopy];
+        item[(__bridge id)kSecValueData] = data;
+        SecItemAdd((__bridge CFDictionaryRef)item, NULL);
+    }
+}
+
+static void VKKeychainDeleteToken(NSString *username, NSString *host) {
+    NSDictionary *query = @{
+        (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService: kOpenVKKeychainService,
+        (__bridge id)kSecAttrAccount: VKKeychainAccount(username, host)
+    };
+    SecItemDelete((__bridge CFDictionaryRef)query);
+}
 
 @implementation VKAuthAccount
 
@@ -55,7 +102,7 @@ static VKAuthService *_sharedInstance = nil;
     self = [super init];
     if (self) {
         _accountsList = [NSMutableArray array];
-        _accessToken = [[NSUserDefaults standardUserDefaults] stringForKey:kOpenVKTokenKey];
+        NSString *legacyToken = [[NSUserDefaults standardUserDefaults] stringForKey:kOpenVKTokenKey];
         
         // Загрузка пользователя из JSON
         NSData *userData = [[NSUserDefaults standardUserDefaults] dataForKey:kOpenVKCurrentUserJSONKey];
@@ -79,11 +126,16 @@ static VKAuthService *_sharedInstance = nil;
                     for (NSDictionary *accDict in accountsArray) {
                         if ([accDict isKindOfClass:[NSDictionary class]]) {
                             VKAuthAccount *account = [[VKAuthAccount alloc] init];
-                            account.token = accDict[@"token"];
                             account.instanceHost = accDict[@"instanceHost"];
                             NSDictionary *uDict = accDict[@"user"];
                             if ([uDict isKindOfClass:[NSDictionary class]]) {
                                 account.user = [VKUser userFromDictionary:uDict];
+                            }
+                            account.token = VKKeychainLoadToken(account.user.username, account.instanceHost);
+                            // One-time migration from the old plaintext JSON store.
+                            if (account.token.length == 0 && [accDict[@"token"] isKindOfClass:[NSString class]]) {
+                                account.token = accDict[@"token"];
+                                VKKeychainSaveToken(account.token, account.user.username, account.instanceHost);
                             }
                             if (account.token.length > 0 && account.user) {
                                 [_accountsList addObject:account];
@@ -94,6 +146,14 @@ static VKAuthService *_sharedInstance = nil;
             } @catch (NSException *e) {
                 [VKCrashLogger log:@"[VKAuthService] Exception reading cached accounts: %@", e];
             }
+        }
+
+        NSString *keychainToken = VKKeychainLoadToken(_currentUserModel.username, [VKAppConfig currentHost]);
+        _accessToken = keychainToken.length > 0 ? keychainToken : legacyToken;
+        if (legacyToken.length > 0 && _currentUserModel.username.length > 0) {
+            VKKeychainSaveToken(legacyToken, _currentUserModel.username, [VKAppConfig currentHost]);
+            [[NSUserDefaults standardUserDefaults] removeObjectForKey:kOpenVKTokenKey];
+            [[NSUserDefaults standardUserDefaults] synchronize];
         }
         
         [VKCrashLogger log:@"[VKAuthService] Initialized. token=%@, user=%@", (_accessToken.length > 0 ? @"YES" : @"NO"), _currentUserModel.displayName];
@@ -150,8 +210,7 @@ static VKAuthService *_sharedInstance = nil;
             if (token.length > 0) {
                 self.accessToken = token;
                 self.requiresTwoFactor = NO;
-                [[NSUserDefaults standardUserDefaults] setObject:token forKey:kOpenVKTokenKey];
-                [[NSUserDefaults standardUserDefaults] synchronize];
+                VKKeychainSaveToken(token, username, [VKAppConfig currentHost]);
                 
                 [self fetchCurrentUser:^(BOOL success) {
                     VKAuthAccount *account = [[VKAuthAccount alloc] init];
@@ -187,7 +246,7 @@ static VKAuthService *_sharedInstance = nil;
     self.accessToken = account.token;
     self.currentUserModel = account.user;
     
-    [[NSUserDefaults standardUserDefaults] setObject:account.token forKey:kOpenVKTokenKey];
+    VKKeychainSaveToken(account.token, account.user.username, account.instanceHost);
     [self saveCurrentUser];
     
     [self fetchCounters];
@@ -233,7 +292,9 @@ static VKAuthService *_sharedInstance = nil;
     NSMutableArray *rawArr = [NSMutableArray array];
     for (VKAuthAccount *acc in self.accountsList) {
         NSMutableDictionary *accDict = [NSMutableDictionary dictionary];
-        if (acc.token) accDict[@"token"] = acc.token;
+        if (acc.token.length > 0) {
+            VKKeychainSaveToken(acc.token, acc.user.username, acc.instanceHost);
+        }
         if (acc.instanceHost) accDict[@"instanceHost"] = acc.instanceHost;
         if (acc.user) accDict[@"user"] = [acc.user dictionaryRepresentation];
         [rawArr addObject:accDict];
@@ -290,6 +351,14 @@ static VKAuthService *_sharedInstance = nil;
 }
 
 - (void)logout {
+    NSString *currentUsername = self.currentUserModel.username;
+    NSString *currentHost = [VKAppConfig currentHost];
+    if (currentUsername.length > 0) {
+        VKKeychainDeleteToken(currentUsername, currentHost);
+    }
+    for (VKAuthAccount *account in self.accountsList) {
+        VKKeychainDeleteToken(account.user.username, account.instanceHost);
+    }
     self.accessToken = nil;
     self.currentUserModel = nil;
     [self.accountsList removeAllObjects];

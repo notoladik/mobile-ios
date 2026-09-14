@@ -8,6 +8,7 @@
     
     VKMessage *msg = [[VKMessage alloc] init];
     msg.messageId = [dict[@"id"] integerValue] ?: [dict[@"mid"] integerValue];
+    msg.conversationMessageId = [dict[@"conversation_message_id"] integerValue] ?: [dict[@"cmid"] integerValue];
     
     NSInteger peerId = [dict[@"peer_id"] integerValue];
     if (peerId == 0) {
@@ -22,7 +23,7 @@
     msg.text = dict[@"text"] ?: dict[@"body"] ?: @"";
     msg.isOutgoing = [dict[@"out"] integerValue] == 1;
     msg.isRead = [dict[@"read_state"] integerValue] == 1;
-    
+
     double timestamp = [dict[@"date"] doubleValue];
     if (timestamp > 0) {
         msg.date = [NSDate dateWithTimeIntervalSince1970:timestamp];

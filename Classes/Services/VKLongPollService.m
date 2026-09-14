@@ -5,6 +5,18 @@
 #import "VKCrashLogger.h"
 #import "VKAttachment.h"
 
+static NSString *VKLongPollPercentEscapedString(NSString *string) {
+    if (!string) return @"";
+    CFStringRef escaped = CFURLCreateStringByAddingPercentEscapes(
+        kCFAllocatorDefault,
+        (__bridge CFStringRef)string,
+        NULL,
+        (__bridge CFStringRef)@":/?#[]@!$&'()*+,;=",
+        kCFStringEncodingUTF8
+    );
+    return (__bridge_transfer NSString *)escaped ?: string;
+}
+
 NSString *const VKLongPollDidReceiveNewMessageNotification   = @"VKLongPollDidReceiveNewMessageNotification";
 NSString *const VKLongPollDidReadMessagesNotification       = @"VKLongPollDidReadMessagesNotification";
 NSString *const VKLongPollUserTypingNotification             = @"VKLongPollUserTypingNotification";
@@ -163,8 +175,9 @@ NSString *const VKLongPollUnreadCountDidChangeNotification   = @"VKLongPollUnrea
         serverStr = [NSString stringWithFormat:@"https://%@", serverStr];
     }
     
+    NSString *escapedKey = VKLongPollPercentEscapedString(self.key ?: @"");
     NSString *urlString = [NSString stringWithFormat:@"%@?act=a_check&key=%@&ts=%ld&wait=25&mode=2&version=3",
-                           serverStr, self.key, (long)self.currentTS];
+                           serverStr, escapedKey, (long)self.currentTS];
     
     NSURL *url = [NSURL URLWithString:urlString];
     if (!url) {

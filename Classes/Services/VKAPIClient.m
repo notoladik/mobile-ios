@@ -130,9 +130,10 @@ static NSString *VKPercentEscapedString(NSString *string) {
         return;
     }
     
+    NSInteger statusCode = 200;
     if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
-        NSInteger statusCode = [(NSHTTPURLResponse *)response statusCode];
-        if (statusCode >= 500) {
+        statusCode = [(NSHTTPURLResponse *)response statusCode];
+        if (statusCode < 200 || statusCode >= 300) {
             NSError *serverErr = [NSError errorWithDomain:@"VKAPIClient" code:statusCode userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"HTTP error %ld", (long)statusCode]}];
             [[VKNetworkStatusManager sharedManager] reportRequestFailedWithError:serverErr];
         } else {
@@ -158,6 +159,36 @@ static NSString *VKPercentEscapedString(NSString *string) {
         if (completionHandler) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 completionHandler(nil, jsonError);
+            });
+        }
+        return;
+    }
+
+    // OpenVK and openvk-im normally return API errors as HTTP 200 JSON.
+    // Convert them to NSError so service methods cannot accidentally treat
+    // an error response as a successful empty result.
+    if ([jsonObj isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *jsonDict = (NSDictionary *)jsonObj;
+        NSDictionary *apiError = [jsonDict[@"error"] isKindOfClass:[NSDictionary class]] ? jsonDict[@"error"] : nil;
+        if (apiError || [jsonDict[@"error"] isKindOfClass:[NSString class]]) {
+            NSString *message = apiError[@"error_msg"] ?: apiError[@"error_description"] ?: jsonDict[@"error_description"] ?: jsonDict[@"error"];
+            NSInteger code = [apiError[@"error_code"] integerValue];
+            if (code == 0) code = statusCode >= 400 ? statusCode : -1;
+            NSError *apiErrorObject = [NSError errorWithDomain:@"VKAPIError" code:code userInfo:@{NSLocalizedDescriptionKey: message ?: @"API request failed", @"response": jsonDict}];
+            if (completionHandler) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    completionHandler(nil, apiErrorObject);
+                });
+            }
+            return;
+        }
+    }
+
+    if (statusCode < 200 || statusCode >= 300) {
+        NSError *httpError = [NSError errorWithDomain:@"VKAPIClient" code:statusCode userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"HTTP error %ld", (long)statusCode], @"response": jsonObj}];
+        if (completionHandler) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completionHandler(nil, httpError);
             });
         }
         return;
