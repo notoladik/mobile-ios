@@ -46,14 +46,32 @@
     
     if (self.moviePlayer) {
         self.moviePlayer.controlStyle = MPMovieControlStyleFullscreen;
-        self.moviePlayer.shouldAutoplay = YES;
+        self.moviePlayer.shouldAutoplay = NO;
         self.moviePlayer.scalingMode = MPMovieScalingModeAspectFit;
+        if ([self.moviePlayer respondsToSelector:@selector(setUseApplicationAudioSession:)]) {
+            self.moviePlayer.useApplicationAudioSession = YES;
+        }
     }
     
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(moviePlaybackDidFinish:)
                                                  name:MPMoviePlayerPlaybackDidFinishNotification
+                                                 object:self.moviePlayer];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(movieLoadStateDidChange:)
+                                                 name:MPMoviePlayerLoadStateDidChangeNotification
                                                object:self.moviePlayer];
+}
+
+- (void)startMoviePlaybackWithURL:(NSURL *)url {
+    if (!url || !self.moviePlayer) return;
+
+    self.moviePlayer.movieSourceType = MPMovieSourceTypeStreaming;
+    self.moviePlayer.contentURL = url;
+    self.moviePlayer.shouldAutoplay = NO;
+    [self configureAudioSession];
+    [self.moviePlayer prepareToPlay];
+    [self.moviePlayer play];
 }
 
 - (void)configureAudioSession {
@@ -95,7 +113,7 @@
     [self.view addSubview:self.spinner];
     
     if (self.moviePlayer.contentURL) {
-        [self.moviePlayer play];
+        [self startMoviePlaybackWithURL:self.moviePlayer.contentURL];
     } else if (self.attachment) {
         [self fetchVideoDirectURL];
     }
@@ -146,9 +164,7 @@
                 
                 if (directURL.length > 0) {
                     [VKCrashLogger log:[NSString stringWithFormat:@"[VKVideoPlayer] Playing direct MP4 URL: %@", directURL]];
-                    [self configureAudioSession];
-                    self.moviePlayer.contentURL = [NSURL URLWithString:directURL];
-                    [self.moviePlayer play];
+                    [self startMoviePlaybackWithURL:[NSURL URLWithString:directURL]];
                 } else if (embedPlayerURL.length > 0) {
                     [VKCrashLogger log:[NSString stringWithFormat:@"[VKVideoPlayer] Opening web embed player: %@", embedPlayerURL]];
                     [self openWebEmbedPlayerWithURL:[NSURL URLWithString:embedPlayerURL]];
@@ -197,6 +213,16 @@
     if (reason && [reason intValue] == MPMovieFinishReasonUserExited) {
         [self closePlayerAction];
     }
+}
+
+- (void)movieLoadStateDidChange:(NSNotification *)notification {
+    if (!self.moviePlayer) return;
+
+    MPMovieLoadState state = self.moviePlayer.loadState;
+    [VKCrashLogger log:[NSString stringWithFormat:@"[VKVideoPlayer] Load state changed: %lu%@%@",
+                        (unsigned long)state,
+                        (state & MPMovieLoadStatePlayable) ? @" playable" : @"",
+                        (state & MPMovieLoadStatePlaythroughOK) ? @" playthrough-ok" : @""]];
 }
 
 - (BOOL)shouldAutorotate {

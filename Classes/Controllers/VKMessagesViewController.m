@@ -16,6 +16,8 @@
 @property (nonatomic, strong) UISearchBar *searchBar;
 @property (nonatomic, assign) BOOL isSearching;
 @property (nonatomic, assign) BOOL isLoading;
+@property (nonatomic, assign) BOOL isLoadingMore;
+@property (nonatomic, assign) BOOL canLoadMore;
 @end
 
 @implementation VKMessagesViewController
@@ -82,6 +84,12 @@
     self.navigationItem.rightBarButtonItem = [[VKThemeManager sharedManager] barButtonItemWithTitle:@"Обновить" target:self action:@selector(loadDialogs) isBack:NO];
 }
 
+- (void)leftMenuButtonAction {
+    if ([[VKSideMenuManager sharedManager] isSideMenuEnabled]) {
+        [[VKSideMenuManager sharedManager] toggleMenu];
+    }
+}
+
 - (void)applyThemeStyle {
     self.view.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
     self.tableView.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
@@ -141,14 +149,16 @@
 - (void)loadDialogs {
     if (self.isLoading) return;
     self.isLoading = YES;
+    self.canLoadMore = YES;
     
     [VKCrashLogger log:@"[VKMessagesViewController] Loading conversations..."];
     
+    __weak typeof(self) weakSelf = self;
     [[VKMessagesService sharedService] fetchConversationsWithOffset:0 count:40 completion:^(NSArray *conversations, NSInteger unreadCount, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.isLoading = NO;
-            if (NSClassFromString(@"UIRefreshControl") && self.refreshControl.isRefreshing) {
-                [self.refreshControl endRefreshing];
+            weakSelf.isLoading = NO;
+            if (NSClassFromString(@"UIRefreshControl") && weakSelf.refreshControl.isRefreshing) {
+                [weakSelf.refreshControl endRefreshing];
             }
             
             if (error) {
@@ -156,10 +166,84 @@
                 return;
             }
             
-            self.conversations = [NSMutableArray arrayWithArray:conversations ?: @[]];
-            [self.tableView reloadData];
+            weakSelf.conversations = [NSMutableArray arrayWithArray:conversations ?: @[]];
+            if (conversations.count < 40) {
+                weakSelf.canLoadMore = NO;
+            }
+            [weakSelf.tableView reloadData];
         });
     }];
+}
+
+- (void)loadMoreDialogs {
+    if (self.isLoading || self.isLoadingMore || !self.canLoadMore || self.isSearching) return;
+    
+    self.isLoadingMore = YES;
+    NSInteger offset = self.conversations.count;
+    [VKCrashLogger log:@"[VKMessagesViewController] Loading more conversations, offset=%ld...", (long)offset];
+    
+    UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
+    spinner.frame = CGRectMake(0, 0, self.tableView.bounds.size.width, 44.0);
+    [spinner startAnimating];
+    self.tableView.tableFooterView = spinner;
+    
+    __weak typeof(self) weakSelf = self;
+    [[VKMessagesService sharedService] fetchConversationsWithOffset:offset count:40 completion:^(NSArray *moreConvs, NSInteger unreadCount, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            weakSelf.isLoadingMore = NO;
+            weakSelf.tableView.tableFooterView = nil;
+            
+            if (error) {
+                [VKCrashLogger log:@"[VKMessagesViewController] Error loading more dialogs: %@", error.localizedDescription];
+                return;
+            }
+            
+            if (moreConvs.count == 0) {
+                weakSelf.canLoadMore = NO;
+                return;
+            }
+            
+            if (moreConvs.count < 40) {
+                weakSelf.canLoadMore = NO;
+            }
+            
+            NSMutableSet *existingPeerIds = [NSMutableSet set];
+            for (VKConversation *c in weakSelf.conversations) {
+                [existingPeerIds addObject:@(c.peerId)];
+            }
+            
+            NSMutableArray *uniqueMore = [NSMutableArray array];
+            for (VKConversation *c in moreConvs) {
+                if (![existingPeerIds containsObject:@(c.peerId)]) {
+                    [uniqueMore addObject:c];
+                    [existingPeerIds addObject:@(c.peerId)];
+                }
+            }
+            
+            if (uniqueMore.count == 0) {
+                weakSelf.canLoadMore = NO;
+                return;
+            }
+            
+            [weakSelf.conversations addObjectsFromArray:uniqueMore];
+            [weakSelf.tableView reloadData];
+            [VKCrashLogger log:@"[VKMessagesViewController] Appended %lu dialogs, total: %lu", (unsigned long)uniqueMore.count, (unsigned long)weakSelf.conversations.count];
+        });
+    }];
+}
+
+#pragma mark - UIScrollViewDelegate (Infinite Scroll)
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    if (self.isLoading || self.isLoadingMore || !self.canLoadMore || self.isSearching) return;
+    
+    CGFloat offsetY = scrollView.contentOffset.y;
+    CGFloat contentHeight = scrollView.contentSize.height;
+    CGFloat frameHeight = scrollView.bounds.size.height;
+    
+    if (offsetY > contentHeight - frameHeight * 1.8 && contentHeight > frameHeight) {
+        [self loadMoreDialogs];
+    }
 }
 
 #pragma mark - LongPoll Notifications

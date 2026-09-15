@@ -5,6 +5,7 @@
 #include "projectM-4/render_opengl.h"
 #include <new>
 #include <cstdlib>
+#include <cmath>
 
 extern "C" void* glad_eglGetProcAddress(const char* name) {
     return nullptr;
@@ -43,6 +44,7 @@ static void projectMPresetFailedCallback(const char* preset_filename, const char
     GLint _backingWidth;
     GLint _backingHeight;
     NSTimeInterval _lastPresetSwitchTime;
+    NSUInteger _telemetryFrameCount;
 }
 @property (nonatomic, strong) EAGLContext *context;
 @property (nonatomic, strong) CADisplayLink *displayLink;
@@ -445,6 +447,29 @@ static const char* kDefaultMilkdropPreset =
         float livePCM[512];
         [[VKAudioPlayer sharedPlayer] getLatestPCMData:livePCM count:512];
         projectm_pcm_add_float(_pm, livePCM, 512, PROJECTM_MONO);
+
+        // Telemetry is intentionally available on-device: double-tap the
+        // visualizer to see whether projectM receives non-zero PCM at all.
+        _telemetryFrameCount += 1;
+        if (!_debugStatusLabel.hidden && (_telemetryFrameCount % 10) == 0) {
+            float peak = 0.0f;
+            double energy = 0.0;
+            for (NSUInteger i = 0; i < 512; i++) {
+                float sample = fabsf(livePCM[i]);
+                if (sample > peak) peak = sample;
+                energy += (double)livePCM[i] * (double)livePCM[i];
+            }
+            float rms = (float)sqrt(energy / 512.0);
+            VKAudioPlayer *audioPlayer = [VKAudioPlayer sharedPlayer];
+            _debugStatusLabel.text = [NSString stringWithFormat:
+                                       @"PCM telemetry\nplaying: %@\npeak: %.4f  rms: %.4f\ntrack: %@\npreset: %ld/%lu",
+                                       audioPlayer.isPlaying ? @"YES" : @"NO",
+                                       peak,
+                                       rms,
+                                       audioPlayer.currentTrack.title ?: @"none",
+                                       (long)(_currentPresetIndex + 1),
+                                       (unsigned long)self.presetPaths.count];
+        }
         
         projectm_opengl_render_frame_fbo(_pm, _defaultFramebuffer);
         

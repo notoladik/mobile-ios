@@ -45,6 +45,9 @@
 
 @property (nonatomic, strong) NSMutableArray *messages;
 @property (nonatomic, assign) BOOL isLoading;
+@property (nonatomic, assign) BOOL isLoadingOlderMessages;
+@property (nonatomic, assign) BOOL canLoadMoreOlderMessages;
+@property (nonatomic, strong) UIActivityIndicatorView *historyLoadingSpinner;
 @property (nonatomic, strong) UILabel *nameLabel;
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, assign) NSTimeInterval lastTypingTime;
@@ -812,6 +815,7 @@
 - (void)loadHistory {
     if (self.isLoading) return;
     self.isLoading = YES;
+    self.canLoadMoreOlderMessages = YES;
     
     [VKCrashLogger log:@"[VKChatViewController] Loading message history..."];
     
@@ -827,6 +831,11 @@
                         self.usersCache[@(m.senderUser.uid)] = m.senderUser;
                     }
                 }
+                
+                if (messages.count < 50) {
+                    self.canLoadMoreOlderMessages = NO;
+                }
+                
                 [self.tableView reloadData];
                 if (self.messages.count > 0) {
                     NSIndexPath *lastPath = [NSIndexPath indexPathForRow:self.messages.count - 1 inSection:0];
@@ -837,6 +846,96 @@
             }
         });
     }];
+}
+
+- (void)loadOlderMessages {
+    if (self.isLoading || self.isLoadingOlderMessages || !self.canLoadMoreOlderMessages) return;
+    
+    self.isLoadingOlderMessages = YES;
+    NSInteger offset = self.messages.count;
+    [VKCrashLogger log:@"[VKChatViewController] Loading older messages, offset=%ld...", (long)offset];
+    
+    if (!self.historyLoadingSpinner) {
+        self.historyLoadingSpinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
+        self.historyLoadingSpinner.frame = CGRectMake(0, 0, self.tableView.bounds.size.width, 36.0);
+    }
+    [self.historyLoadingSpinner startAnimating];
+    self.tableView.tableHeaderView = self.historyLoadingSpinner;
+    
+    __weak typeof(self) weakSelf = self;
+    [[VKMessagesService sharedService] fetchHistoryForPeerId:self.peerId offset:offset count:50 completion:^(NSArray *olderMessages, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            
+            strongSelf.isLoadingOlderMessages = NO;
+            [strongSelf.historyLoadingSpinner stopAnimating];
+            strongSelf.tableView.tableHeaderView = nil;
+            
+            if (error) {
+                [VKCrashLogger log:@"[VKChatViewController] Failed to load older messages: %@", error.localizedDescription];
+                return;
+            }
+            
+            if (olderMessages.count == 0) {
+                strongSelf.canLoadMoreOlderMessages = NO;
+                [VKCrashLogger log:@"[VKChatViewController] No more older messages available."];
+                return;
+            }
+            
+            if (olderMessages.count < 50) {
+                strongSelf.canLoadMoreOlderMessages = NO;
+            }
+            
+            // Проверяем существующие ID сообщений для дедупликации
+            NSMutableSet *existingIds = [NSMutableSet set];
+            for (VKMessage *m in strongSelf.messages) {
+                [existingIds addObject:@(m.messageId)];
+            }
+            
+            NSMutableArray *newOlderUnique = [NSMutableArray array];
+            NSEnumerator *enumerator = [olderMessages reverseObjectEnumerator];
+            for (VKMessage *m in enumerator) {
+                if (![existingIds containsObject:@(m.messageId)]) {
+                    [newOlderUnique addObject:m];
+                    if (m.senderUser && m.senderUser.uid != 0) {
+                        strongSelf.usersCache[@(m.senderUser.uid)] = m.senderUser;
+                    }
+                }
+            }
+            
+            if (newOlderUnique.count == 0) {
+                strongSelf.canLoadMoreOlderMessages = NO;
+                return;
+            }
+            
+            // Фиксируем смещение скролла, чтобы интерфейс не дергался при добавлении сообщений сверху!
+            CGFloat oldContentHeight = strongSelf.tableView.contentSize.height;
+            CGFloat oldOffsetY = strongSelf.tableView.contentOffset.y;
+            
+            NSRange insertRange = NSMakeRange(0, newOlderUnique.count);
+            NSIndexSet *indexSet = [NSIndexSet indexSetWithIndexesInRange:insertRange];
+            [strongSelf.messages insertObjects:newOlderUnique atIndexes:indexSet];
+            
+            [strongSelf.tableView reloadData];
+            [strongSelf.tableView layoutIfNeeded];
+            
+            CGFloat newContentHeight = strongSelf.tableView.contentSize.height;
+            CGFloat deltaHeight = newContentHeight - oldContentHeight;
+            strongSelf.tableView.contentOffset = CGPointMake(0, oldOffsetY + deltaHeight);
+            
+            [VKCrashLogger log:@"[VKChatViewController] Loaded %lu older messages, total: %lu", (unsigned long)newOlderUnique.count, (unsigned long)strongSelf.messages.count];
+        });
+    }];
+}
+
+#pragma mark - UIScrollViewDelegate (Top Pagination)
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    // Если пользователь прокрутил к началу диалога (offset <= 60), подгружаем более старые сообщения
+    if (scrollView.contentOffset.y <= 60.0 && self.messages.count > 0 && !self.isLoading && !self.isLoadingOlderMessages && self.canLoadMoreOlderMessages) {
+        [self loadOlderMessages];
+    }
 }
 
 - (void)sendMessage {
