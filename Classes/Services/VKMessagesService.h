@@ -23,6 +23,27 @@
                  attachment:(NSString *)attachment
                  completion:(void (^)(BOOL success, NSInteger messageId, NSError *error))completion;
 
+- (void)sendMessageToPeerId:(NSInteger)peerId
+                       text:(NSString *)text
+                 attachment:(NSString *)attachment
+                    replyTo:(NSInteger)replyTo
+                forwardMsgs:(NSString *)forwardMsgs
+                 completion:(void (^)(BOOL success, NSInteger messageId, NSError *error))completion;
+
+- (void)uploadMessagePhoto:(UIImage *)image
+                    peerId:(NSInteger)peerId
+                completion:(void (^)(NSString *attachmentString, NSError *error))completion;
+
+- (void)pinMessageWithPeerId:(NSInteger)peerId
+                   messageId:(NSInteger)messageId
+                  completion:(void (^)(BOOL success, NSError *error))completion;
+
+- (void)unpinMessageWithPeerId:(NSInteger)peerId
+                    completion:(void (^)(BOOL success, NSError *error))completion;
+
+- (void)fetchConversationWithPeerId:(NSInteger)peerId
+                         completion:(void (^)(VKConversation *conversation, VKMessage *pinnedMessage, NSError *error))completion;
+
 - (void)markAsReadForPeerId:(NSInteger)peerId
                   messageId:(NSInteger)messageId
                  completion:(void (^)(BOOL success))completion;

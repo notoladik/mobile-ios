@@ -14,6 +14,9 @@
 #import "VKLongPollService.h"
 #import "VKAuthService.h"
 #import "VKPostDetailViewController.h"
+#import "VKAudioPlayer.h"
+#import "VKAudioPlayerViewController.h"
+#import "VKAudioTrack.h"
 #import <QuartzCore/QuartzCore.h>
 
 @interface VKChatUserButton : UIButton
@@ -42,6 +45,33 @@
 @property (nonatomic, strong) UILabel *leaveReturnLabel;
 @property (nonatomic, strong) UIButton *returnToChatButton;
 @property (nonatomic, assign) BOOL isLeftOrKicked;
+
+// Закрепленное сообщение
+@property (nonatomic, strong) UIView *pinnedBannerView;
+@property (nonatomic, strong) UILabel *pinnedSenderLabel;
+@property (nonatomic, strong) UILabel *pinnedTextLabel;
+@property (nonatomic, strong) UIButton *pinnedCloseButton;
+@property (nonatomic, strong) VKMessage *pinnedMessage;
+
+// Панель ответа / пересылки над строкой ввода
+@property (nonatomic, strong) UIView *replyForwardBarView;
+@property (nonatomic, strong) UILabel *replyAuthorLabel;
+@property (nonatomic, strong) UILabel *replyTextLabel;
+@property (nonatomic, strong) UIButton *replyCancelButton;
+@property (nonatomic, strong) VKMessage *replyingMessage;
+@property (nonatomic, strong) NSMutableArray<VKMessage *> *forwardingMessages;
+
+// Прикрепленное изображение перед отправкой
+@property (nonatomic, strong) UIView *attachedPhotoBarView;
+@property (nonatomic, strong) UIImageView *attachedPhotoThumbView;
+@property (nonatomic, strong) UIButton *attachedPhotoCancelButton;
+@property (nonatomic, strong) UIImage *pendingImageToSend;
+@property (nonatomic, copy) NSString *pendingAttachmentString;
+
+// Контекстное меню сообщения
+@property (nonatomic, strong) VKMessage *selectedMessageForAction;
+
+@property (nonatomic, assign) CGFloat currentKeyboardHeight;
 
 @property (nonatomic, strong) NSMutableArray *messages;
 @property (nonatomic, assign) BOOL isLoading;
@@ -109,6 +139,10 @@
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissKeyboard)];
     tap.cancelsTouchesInView = NO;
     [self.tableView addGestureRecognizer:tap];
+    
+    UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleMessageLongPress:)];
+    longPress.minimumPressDuration = 0.5;
+    [self.tableView addGestureRecognizer:longPress];
     
     [self.view addSubview:self.tableView];
     
@@ -215,6 +249,11 @@
     [self.leaveReturnBannerView addSubview:self.returnToChatButton];
     
     [self.view addSubview:self.leaveReturnBannerView];
+    
+    [self setupPinnedBannerView];
+    [self setupReplyForwardBarView];
+    [self setupAttachedPhotoBarView];
+    [self fetchPinnedMessage];
     
     // Уведомления клавиатуры
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillShow:) name:UIKeyboardWillShowNotification object:nil];
@@ -595,6 +634,314 @@
     }
 }
 
+#pragma mark - Pinned Message & Attachment Bars
+
+- (void)setupPinnedBannerView {
+    CGFloat width = self.view.bounds.size.width;
+    BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
+    
+    self.pinnedBannerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 40.0)];
+    self.pinnedBannerView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    if (isSkeuomorph) {
+        self.pinnedBannerView.backgroundColor = [UIColor colorWithRed:240.0/255.0 green:242.0/255.0 blue:246.0/255.0 alpha:0.97];
+    } else {
+        self.pinnedBannerView.backgroundColor = [UIColor colorWithRed:248.0/255.0 green:249.0/255.0 blue:251.0/255.0 alpha:0.97];
+    }
+    self.pinnedBannerView.hidden = YES;
+    self.pinnedBannerView.userInteractionEnabled = YES;
+    
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(pinnedBannerTapped)];
+    [self.pinnedBannerView addGestureRecognizer:tap];
+    
+    UIView *accentLine = [[UIView alloc] initWithFrame:CGRectMake(10, 6, 2.5, 28)];
+    accentLine.backgroundColor = [[VKThemeManager sharedManager] accentColor];
+    accentLine.layer.cornerRadius = 1.25;
+    accentLine.clipsToBounds = YES;
+    [self.pinnedBannerView addSubview:accentLine];
+    
+    self.pinnedSenderLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 4, width - 64, 15)];
+    self.pinnedSenderLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    self.pinnedSenderLabel.font = [UIFont boldSystemFontOfSize:11.5];
+    self.pinnedSenderLabel.textColor = [[VKThemeManager sharedManager] accentColor];
+    self.pinnedSenderLabel.backgroundColor = [UIColor clearColor];
+    self.pinnedSenderLabel.text = @"Закрепленное сообщение";
+    [self.pinnedBannerView addSubview:self.pinnedSenderLabel];
+    
+    self.pinnedTextLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 20, width - 64, 15)];
+    self.pinnedTextLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    self.pinnedTextLabel.font = [UIFont systemFontOfSize:11.5];
+    self.pinnedTextLabel.textColor = [UIColor colorWithWhite:0.3 alpha:1.0];
+    self.pinnedTextLabel.backgroundColor = [UIColor clearColor];
+    [self.pinnedBannerView addSubview:self.pinnedTextLabel];
+    
+    self.pinnedCloseButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.pinnedCloseButton.frame = CGRectMake(width - 36, 4, 32, 32);
+    self.pinnedCloseButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [self.pinnedCloseButton setTitle:@"✕" forState:UIControlStateNormal];
+    [self.pinnedCloseButton setTitleColor:[UIColor colorWithWhite:0.55 alpha:1.0] forState:UIControlStateNormal];
+    self.pinnedCloseButton.titleLabel.font = [UIFont systemFontOfSize:14];
+    [self.pinnedCloseButton addTarget:self action:@selector(unpinBannerAction) forControlEvents:UIControlEventTouchUpInside];
+    [self.pinnedBannerView addSubview:self.pinnedCloseButton];
+    
+    UIView *botSep = [[UIView alloc] initWithFrame:CGRectMake(0, 39.5, width, 0.5)];
+    botSep.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+    botSep.backgroundColor = isSkeuomorph ? [UIColor colorWithWhite:0.75 alpha:1.0] : [UIColor colorWithRed:220.0/255.0 green:222.0/255.0 blue:226.0/255.0 alpha:1.0];
+    [self.pinnedBannerView addSubview:botSep];
+    
+    [self.view addSubview:self.pinnedBannerView];
+}
+
+- (void)setupReplyForwardBarView {
+    CGFloat width = self.view.bounds.size.width;
+    BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
+    
+    self.replyForwardBarView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 38.0)];
+    self.replyForwardBarView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    self.replyForwardBarView.backgroundColor = isSkeuomorph ? [UIColor colorWithRed:235.0/255.0 green:238.0/255.0 blue:242.0/255.0 alpha:1.0] : [UIColor colorWithRed:245.0/255.0 green:246.0/255.0 blue:249.0/255.0 alpha:1.0];
+    self.replyForwardBarView.hidden = YES;
+    
+    UIView *topSep = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 0.5)];
+    topSep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    topSep.backgroundColor = isSkeuomorph ? [UIColor colorWithWhite:0.75 alpha:1.0] : [UIColor colorWithRed:220.0/255.0 green:222.0/255.0 blue:226.0/255.0 alpha:1.0];
+    [self.replyForwardBarView addSubview:topSep];
+    
+    UIView *accentLine = [[UIView alloc] initWithFrame:CGRectMake(10, 5, 2.5, 28)];
+    accentLine.backgroundColor = [[VKThemeManager sharedManager] accentColor];
+    accentLine.layer.cornerRadius = 1.25;
+    accentLine.clipsToBounds = YES;
+    [self.replyForwardBarView addSubview:accentLine];
+    
+    self.replyAuthorLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 3, width - 62, 16)];
+    self.replyAuthorLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    self.replyAuthorLabel.font = [UIFont boldSystemFontOfSize:11.5];
+    self.replyAuthorLabel.textColor = [[VKThemeManager sharedManager] accentColor];
+    self.replyAuthorLabel.backgroundColor = [UIColor clearColor];
+    [self.replyForwardBarView addSubview:self.replyAuthorLabel];
+    
+    self.replyTextLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 19, width - 62, 15)];
+    self.replyTextLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    self.replyTextLabel.font = [UIFont systemFontOfSize:11.5];
+    self.replyTextLabel.textColor = [UIColor colorWithWhite:0.35 alpha:1.0];
+    self.replyTextLabel.backgroundColor = [UIColor clearColor];
+    [self.replyForwardBarView addSubview:self.replyTextLabel];
+    
+    self.replyCancelButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.replyCancelButton.frame = CGRectMake(width - 34, 4, 30, 30);
+    self.replyCancelButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [self.replyCancelButton setTitle:@"✕" forState:UIControlStateNormal];
+    [self.replyCancelButton setTitleColor:[UIColor colorWithWhite:0.55 alpha:1.0] forState:UIControlStateNormal];
+    self.replyCancelButton.titleLabel.font = [UIFont systemFontOfSize:14];
+    [self.replyCancelButton addTarget:self action:@selector(cancelReplyForwardAction) forControlEvents:UIControlEventTouchUpInside];
+    [self.replyForwardBarView addSubview:self.replyCancelButton];
+    
+    [self.inputContainerView addSubview:self.replyForwardBarView];
+}
+
+- (void)setupAttachedPhotoBarView {
+    CGFloat width = self.view.bounds.size.width;
+    BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
+    
+    self.attachedPhotoBarView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 48.0)];
+    self.attachedPhotoBarView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    self.attachedPhotoBarView.backgroundColor = isSkeuomorph ? [UIColor colorWithRed:235.0/255.0 green:238.0/255.0 blue:242.0/255.0 alpha:1.0] : [UIColor colorWithRed:245.0/255.0 green:246.0/255.0 blue:249.0/255.0 alpha:1.0];
+    self.attachedPhotoBarView.hidden = YES;
+    
+    UIView *topSep = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 0.5)];
+    topSep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    topSep.backgroundColor = isSkeuomorph ? [UIColor colorWithWhite:0.75 alpha:1.0] : [UIColor colorWithRed:220.0/255.0 green:222.0/255.0 blue:226.0/255.0 alpha:1.0];
+    [self.attachedPhotoBarView addSubview:topSep];
+    
+    self.attachedPhotoThumbView = [[UIImageView alloc] initWithFrame:CGRectMake(10, 4, 40, 40)];
+    self.attachedPhotoThumbView.contentMode = UIViewContentModeScaleAspectFill;
+    self.attachedPhotoThumbView.layer.cornerRadius = 4.0;
+    self.attachedPhotoThumbView.clipsToBounds = YES;
+    self.attachedPhotoThumbView.backgroundColor = [UIColor colorWithWhite:0.85 alpha:1.0];
+    [self.attachedPhotoBarView addSubview:self.attachedPhotoThumbView];
+    
+    UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(58, 14, width - 100, 20)];
+    lbl.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    lbl.font = [UIFont systemFontOfSize:13];
+    lbl.textColor = [UIColor colorWithWhite:0.3 alpha:1.0];
+    lbl.text = @"Прикрепленное фото";
+    lbl.backgroundColor = [UIColor clearColor];
+    [self.attachedPhotoBarView addSubview:lbl];
+    
+    self.attachedPhotoCancelButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.attachedPhotoCancelButton.frame = CGRectMake(width - 34, 9, 30, 30);
+    self.attachedPhotoCancelButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [self.attachedPhotoCancelButton setTitle:@"✕" forState:UIControlStateNormal];
+    [self.attachedPhotoCancelButton setTitleColor:[UIColor colorWithWhite:0.55 alpha:1.0] forState:UIControlStateNormal];
+    self.attachedPhotoCancelButton.titleLabel.font = [UIFont systemFontOfSize:14];
+    [self.attachedPhotoCancelButton addTarget:self action:@selector(cancelAttachedPhotoAction) forControlEvents:UIControlEventTouchUpInside];
+    [self.attachedPhotoBarView addSubview:self.attachedPhotoCancelButton];
+    
+    [self.inputContainerView addSubview:self.attachedPhotoBarView];
+}
+
+- (void)fetchPinnedMessage {
+    [[VKMessagesService sharedService] fetchConversationWithPeerId:self.peerId completion:^(VKConversation *conversation, VKMessage *pinnedMessage, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (pinnedMessage) {
+                self.pinnedMessage = pinnedMessage;
+                if (pinnedMessage.fromId > 0 && !pinnedMessage.senderUser) {
+                    pinnedMessage.senderUser = [self senderUserForMessage:pinnedMessage];
+                }
+            } else {
+                self.pinnedMessage = nil;
+            }
+            [self updateLayoutAnimated:YES];
+        });
+    }];
+}
+
+- (void)pinnedBannerTapped {
+    if (!self.pinnedMessage) return;
+    NSInteger targetId = self.pinnedMessage.messageId;
+    for (NSInteger i = 0; i < self.messages.count; i++) {
+        VKMessage *m = self.messages[i];
+        if (m.messageId == targetId) {
+            NSIndexPath *path = [NSIndexPath indexPathForRow:i inSection:0];
+            [self.tableView scrollToRowAtIndexPath:path atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
+            return;
+        }
+    }
+    // Если сообщение еще не подгружено в текущих сообщениях
+    NSString *preview = [self textForMessage:self.pinnedMessage];
+    VKUser *author = [self senderUserForMessage:self.pinnedMessage];
+    NSString *authorName = author ? author.displayName : @"Закрепленное сообщение";
+    UIAlertView *av = [[UIAlertView alloc] initWithTitle:authorName message:preview delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+    [av show];
+}
+
+- (void)unpinBannerAction {
+    UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:@"Открепить сообщение?"
+                                                       delegate:self
+                                              cancelButtonTitle:@"Отмена"
+                                         destructiveButtonTitle:@"Открепить"
+                                              otherButtonTitles:nil];
+    sheet.tag = 5005;
+    [sheet showInView:self.view];
+}
+
+- (void)cancelReplyForwardAction {
+    self.replyingMessage = nil;
+    self.forwardingMessages = nil;
+    [self updateLayoutAnimated:YES];
+}
+
+- (void)cancelAttachedPhotoAction {
+    self.pendingImageToSend = nil;
+    self.attachedPhotoThumbView.image = nil;
+    [self updateLayoutAnimated:YES];
+}
+
+- (void)handleMessageLongPress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateBegan) return;
+    CGPoint pt = [gesture locationInView:self.tableView];
+    NSIndexPath *indexPath = [self.tableView indexPathForRowAtPoint:pt];
+    if (!indexPath || indexPath.row >= (NSInteger)self.messages.count) return;
+    
+    VKMessage *msg = self.messages[indexPath.row];
+    if ([msg isServiceAction]) return;
+    
+    self.selectedMessageForAction = msg;
+    
+    BOOL isPinned = (self.pinnedMessage && self.pinnedMessage.messageId == msg.messageId);
+    NSString *pinTitle = isPinned ? @"Открепить сообщение" : @"Закрепить сообщение";
+    
+    UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil
+                                                       delegate:self
+                                              cancelButtonTitle:@"Отмена"
+                                         destructiveButtonTitle:nil
+                                              otherButtonTitles:@"Ответить", @"Переслать", pinTitle, @"Копировать текст", nil];
+    sheet.tag = 5004;
+    [sheet showInView:self.view];
+}
+
+- (void)updateLayoutAnimated:(BOOL)animated {
+    [self updateLayoutWithKeyboardHeight:self.currentKeyboardHeight duration:animated ? 0.25 : 0 curve:0 animated:animated];
+}
+
+- (void)updateLayoutWithKeyboardHeight:(CGFloat)kbHeight duration:(NSTimeInterval)duration curve:(UIViewAnimationOptions)curve animated:(BOOL)animated {
+    CGFloat width = self.view.bounds.size.width;
+    CGFloat height = self.view.bounds.size.height;
+    
+    BOOL hasPin = (self.pinnedMessage != nil);
+    CGFloat pinH = hasPin ? 40.0 : 0.0;
+    
+    BOOL hasReply = (self.replyingMessage != nil || self.forwardingMessages.count > 0);
+    CGFloat replyH = hasReply ? 38.0 : 0.0;
+    
+    BOOL hasPhoto = (self.pendingImageToSend != nil);
+    CGFloat photoH = hasPhoto ? 48.0 : 0.0;
+    
+    CGFloat inputBaseH = 48.0;
+    CGFloat totalInputH = inputBaseH + replyH + photoH;
+    
+    void (^layoutBlock)(void) = ^{
+        // 1. Pinned banner
+        self.pinnedBannerView.hidden = !hasPin;
+        self.pinnedBannerView.frame = CGRectMake(0, 0, width, pinH);
+        if (hasPin) {
+            VKUser *u = [self senderUserForMessage:self.pinnedMessage];
+            NSString *authorStr = u ? u.displayName : (self.pinnedMessage.fromId > 0 ? [NSString stringWithFormat:@"id%ld", (long)self.pinnedMessage.fromId] : @"Сообщение");
+            self.pinnedSenderLabel.text = [NSString stringWithFormat:@"Закрепленное сообщение · %@", authorStr];
+            self.pinnedTextLabel.text = [self textForMessage:self.pinnedMessage];
+        }
+        
+        // 2. Input container & its subviews
+        if (self.peerId > 2000000000 && self.isLeftOrKicked) {
+            self.inputContainerView.hidden = YES;
+            self.leaveReturnBannerView.hidden = NO;
+            self.leaveReturnBannerView.frame = CGRectMake(0, height - 48.0, width, 48.0);
+            self.tableView.frame = CGRectMake(0, pinH, width, height - 48.0 - pinH);
+        } else {
+            self.inputContainerView.hidden = NO;
+            self.leaveReturnBannerView.hidden = YES;
+            self.inputContainerView.frame = CGRectMake(0, height - kbHeight - totalInputH, width, totalInputH);
+            self.tableView.frame = CGRectMake(0, pinH, width, height - kbHeight - totalInputH - pinH);
+            
+            // Subsections of inputContainerView
+            CGFloat currentY = 0.0;
+            if (hasReply) {
+                self.replyForwardBarView.hidden = NO;
+                self.replyForwardBarView.frame = CGRectMake(0, currentY, width, replyH);
+                if (self.replyingMessage) {
+                    VKUser *ru = [self senderUserForMessage:self.replyingMessage];
+                    NSString *name = ru ? ru.displayName : (self.replyingMessage.fromId > 0 ? [NSString stringWithFormat:@"id%ld", (long)self.replyingMessage.fromId] : @"");
+                    self.replyAuthorLabel.text = name.length > 0 ? [NSString stringWithFormat:@"Ответ для %@", name] : @"Ответ на сообщение";
+                    self.replyTextLabel.text = [self textForMessage:self.replyingMessage];
+                } else if (self.forwardingMessages.count > 0) {
+                    self.replyAuthorLabel.text = [NSString stringWithFormat:@"Пересылаемых сообщений: %lu", (unsigned long)self.forwardingMessages.count];
+                    self.replyTextLabel.text = [self textForMessage:self.forwardingMessages[0]];
+                }
+                currentY += replyH;
+            } else {
+                self.replyForwardBarView.hidden = YES;
+            }
+            
+            if (hasPhoto) {
+                self.attachedPhotoBarView.hidden = NO;
+                self.attachedPhotoBarView.frame = CGRectMake(0, currentY, width, photoH);
+                currentY += photoH;
+            } else {
+                self.attachedPhotoBarView.hidden = YES;
+            }
+            
+            // Controls inside input container
+            self.attachButton.frame = CGRectMake(8, currentY + 7, 34, 34);
+            self.messageTextField.frame = CGRectMake(48, currentY + 7, width - 110, 34);
+            self.sendButton.frame = CGRectMake(width - 58, currentY + 7, 52, 34);
+        }
+    };
+    
+    if (animated && duration > 0.0) {
+        [UIView animateWithDuration:duration delay:0 options:curve animations:layoutBlock completion:nil];
+    } else {
+        layoutBlock();
+    }
+}
+
 #pragma mark - Keyboard Handling
 
 - (void)keyboardWillShow:(NSNotification *)notification {
@@ -603,18 +950,13 @@
     NSTimeInterval duration = [[info objectForKey:UIKeyboardAnimationDurationUserInfoKey] doubleValue];
     UIViewAnimationOptions curve = [[info objectForKey:UIKeyboardAnimationCurveUserInfoKey] unsignedIntegerValue] << 16;
     
-    CGFloat kbHeight = kbFrame.size.height;
-    CGFloat viewHeight = self.view.bounds.size.height;
+    self.currentKeyboardHeight = kbFrame.size.height;
+    [self updateLayoutWithKeyboardHeight:self.currentKeyboardHeight duration:duration curve:curve animated:YES];
     
-    [UIView animateWithDuration:duration delay:0 options:curve animations:^{
-        self.inputContainerView.frame = CGRectMake(0, viewHeight - kbHeight - 48.0, self.view.bounds.size.width, 48.0);
-        self.tableView.frame = CGRectMake(0, 0, self.view.bounds.size.width, viewHeight - kbHeight - 48.0);
-    } completion:^(BOOL finished) {
-        if (self.messages.count > 0) {
-            NSIndexPath *lastPath = [NSIndexPath indexPathForRow:self.messages.count - 1 inSection:0];
-            [self.tableView scrollToRowAtIndexPath:lastPath atScrollPosition:UITableViewScrollPositionBottom animated:YES];
-        }
-    }];
+    if (self.messages.count > 0) {
+        NSIndexPath *lastPath = [NSIndexPath indexPathForRow:self.messages.count - 1 inSection:0];
+        [self.tableView scrollToRowAtIndexPath:lastPath atScrollPosition:UITableViewScrollPositionBottom animated:YES];
+    }
 }
 
 - (void)keyboardWillHide:(NSNotification *)notification {
@@ -622,12 +964,8 @@
     NSTimeInterval duration = [[info objectForKey:UIKeyboardAnimationDurationUserInfoKey] doubleValue];
     UIViewAnimationOptions curve = [[info objectForKey:UIKeyboardAnimationCurveUserInfoKey] unsignedIntegerValue] << 16;
     
-    CGFloat viewHeight = self.view.bounds.size.height;
-    
-    [UIView animateWithDuration:duration delay:0 options:curve animations:^{
-        self.inputContainerView.frame = CGRectMake(0, viewHeight - 48.0, self.view.bounds.size.width, 48.0);
-        self.tableView.frame = CGRectMake(0, 0, self.view.bounds.size.width, viewHeight - 48.0);
-    } completion:nil];
+    self.currentKeyboardHeight = 0.0;
+    [self updateLayoutWithKeyboardHeight:0.0 duration:duration curve:curve animated:YES];
 }
 
 #pragma mark - LongPoll Handlers
@@ -766,6 +1104,71 @@
             // Список участников
             [self openMembersList];
         }
+    } else if (actionSheet.tag == 5004) {
+        // Контекстное меню сообщения: Ответить, Переслать, Закрепить/Открепить, Копировать
+        VKMessage *msg = self.selectedMessageForAction;
+        if (!msg) return;
+        
+        if (buttonIndex == 0) {
+            // Ответить
+            self.replyingMessage = msg;
+            self.forwardingMessages = nil;
+            [self updateLayoutAnimated:YES];
+            [self.messageTextField becomeFirstResponder];
+        } else if (buttonIndex == 1) {
+            // Переслать
+            self.replyingMessage = nil;
+            self.forwardingMessages = [NSMutableArray arrayWithObject:msg];
+            [self updateLayoutAnimated:YES];
+            [self.messageTextField becomeFirstResponder];
+        } else if (buttonIndex == 2) {
+            // Закрепить / Открепить
+            if (self.pinnedMessage && self.pinnedMessage.messageId == msg.messageId) {
+                [[VKMessagesService sharedService] unpinMessageWithPeerId:self.peerId completion:^(BOOL success, NSError *error) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if (success) {
+                            self.pinnedMessage = nil;
+                            [self updateLayoutAnimated:YES];
+                        } else if (error) {
+                            UIAlertView *av = [[UIAlertView alloc] initWithTitle:@"Ошибка" message:error.localizedDescription delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                            [av show];
+                        }
+                    });
+                }];
+            } else {
+                [[VKMessagesService sharedService] pinMessageWithPeerId:self.peerId messageId:msg.messageId completion:^(BOOL success, NSError *error) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if (success) {
+                            self.pinnedMessage = msg;
+                            [self updateLayoutAnimated:YES];
+                        } else if (error) {
+                            UIAlertView *av = [[UIAlertView alloc] initWithTitle:@"Ошибка" message:error.localizedDescription delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                            [av show];
+                        }
+                    });
+                }];
+            }
+        } else if (buttonIndex == 3) {
+            // Копировать текст
+            if (msg.text.length > 0) {
+                [UIPasteboard generalPasteboard].string = msg.text;
+            }
+        }
+    } else if (actionSheet.tag == 5005) {
+        // Подтверждение открепления из плашки закрепа
+        if (buttonIndex == 0) {
+            [[VKMessagesService sharedService] unpinMessageWithPeerId:self.peerId completion:^(BOOL success, NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (success) {
+                        self.pinnedMessage = nil;
+                        [self updateLayoutAnimated:YES];
+                    } else if (error) {
+                        UIAlertView *av = [[UIAlertView alloc] initWithTitle:@"Ошибка" message:error.localizedDescription delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                        [av show];
+                    }
+                });
+            }];
+        }
     }
 }
 
@@ -778,17 +1181,12 @@
 #pragma mark - UIImagePickerControllerDelegate
 
 - (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary *)info {
-    UIImage *chosenImage = info[UIImagePickerControllerOriginalImage];
+    UIImage *chosenImage = info[UIImagePickerControllerEditedImage] ?: info[UIImagePickerControllerOriginalImage];
     [picker dismissViewControllerAnimated:YES completion:^{
         if (chosenImage) {
-            VKPhotoEditorViewController *editor = [[VKPhotoEditorViewController alloc] initWithImage:chosenImage];
-            editor.onImageEdited = ^(UIImage *editedImage) {
-                if (editedImage) {
-                    UIAlertView *a = [[UIAlertView alloc] initWithTitle:@"Фото отредактировано" message:@"Фотография обработана в редакторе" delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
-                    [a show];
-                }
-            };
-            [self presentViewController:editor animated:YES completion:nil];
+            self.pendingImageToSend = chosenImage;
+            self.attachedPhotoThumbView.image = chosenImage;
+            [self updateLayoutAnimated:YES];
         }
     }];
 }
@@ -940,30 +1338,74 @@
 
 - (void)sendMessage {
     NSString *text = [self.messageTextField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (text.length == 0) return;
+    if (text.length == 0 && !self.pendingImageToSend && self.forwardingMessages.count == 0) return;
     
     self.sendButton.userInteractionEnabled = NO;
     [VKCrashLogger log:@"[VKChatViewController] Sending message to peerId=%ld", (long)self.peerId];
     
-    [[VKMessagesService sharedService] sendMessageToPeerId:self.peerId text:text completion:^(BOOL success, NSInteger messageId, NSError *error) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.sendButton.userInteractionEnabled = YES;
-            if (success) {
-                self.messageTextField.text = @"";
-                [self loadHistory];
-            } else if (error) {
-                // Если ошибка доступа к чату (пользователь исключен или вышел)
-                if (error.code == 15 || error.code == 917 ||
-                    [error.localizedDescription rangeOfString:@"chat" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-                    [error.localizedDescription rangeOfString:@"kicked" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-                    self.isLeftOrKicked = YES;
-                    [self updateInputBarVisibility];
-                }
-                UIAlertView *errAlert = [[UIAlertView alloc] initWithTitle:@"Не удалось отправить" message:error.localizedDescription delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
-                [errAlert show];
+    NSInteger replyTo = self.replyingMessage ? self.replyingMessage.messageId : 0;
+    NSString *fwdStr = nil;
+    if (self.forwardingMessages.count > 0) {
+        NSMutableArray *ids = [NSMutableArray array];
+        for (VKMessage *m in self.forwardingMessages) {
+            [ids addObject:@(m.messageId)];
+        }
+        fwdStr = [ids componentsJoinedByString:@","];
+    }
+    
+    if (self.pendingImageToSend) {
+        UIImage *imgToSend = self.pendingImageToSend;
+        [[VKMessagesService sharedService] uploadMessagePhoto:imgToSend peerId:self.peerId completion:^(NSString *attachmentString, NSError *uploadError) {
+            if (uploadError || !attachmentString) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    self.sendButton.userInteractionEnabled = YES;
+                    UIAlertView *err = [[UIAlertView alloc] initWithTitle:@"Ошибка загрузки фото" message:uploadError.localizedDescription ?: @"Не удалось загрузить изображение" delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                    [err show];
+                });
+                return;
             }
-        });
-    }];
+            
+            [[VKMessagesService sharedService] sendMessageToPeerId:self.peerId text:text attachment:attachmentString replyTo:replyTo forwardMsgs:fwdStr completion:^(BOOL success, NSInteger messageId, NSError *sendError) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    self.sendButton.userInteractionEnabled = YES;
+                    if (success) {
+                        self.messageTextField.text = @"";
+                        self.pendingImageToSend = nil;
+                        self.attachedPhotoThumbView.image = nil;
+                        self.replyingMessage = nil;
+                        self.forwardingMessages = nil;
+                        [self updateLayoutAnimated:YES];
+                        [self loadHistory];
+                    } else {
+                        UIAlertView *err = [[UIAlertView alloc] initWithTitle:@"Не удалось отправить" message:sendError.localizedDescription delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                        [err show];
+                    }
+                });
+            }];
+        }];
+    } else {
+        [[VKMessagesService sharedService] sendMessageToPeerId:self.peerId text:text attachment:nil replyTo:replyTo forwardMsgs:fwdStr completion:^(BOOL success, NSInteger messageId, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.sendButton.userInteractionEnabled = YES;
+                if (success) {
+                    self.messageTextField.text = @"";
+                    self.replyingMessage = nil;
+                    self.forwardingMessages = nil;
+                    [self updateLayoutAnimated:YES];
+                    [self loadHistory];
+                } else if (error) {
+                    if (error.code == 15 || error.code == 917 ||
+                        [error.localizedDescription rangeOfString:@"chat" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                        [error.localizedDescription rangeOfString:@"kicked" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                        self.isLeftOrKicked = YES;
+                        [self updateInputBarVisibility];
+                    }
+                    UIAlertView *errAlert = [[UIAlertView alloc] initWithTitle:@"Не удалось отправить" message:error.localizedDescription delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                    [errAlert show];
+                }
+            });
+        }];
+    }
 }
 
 #pragma mark - Table View Data Source & Delegate
@@ -977,24 +1419,51 @@
 }
 
 - (NSString *)textForMessage:(VKMessage *)msg {
+    if (!msg) return @"";
     NSString *baseText = msg.text ?: @"";
-    NSString *attachText = nil;
+    NSMutableArray *attachDescriptions = [NSMutableArray array];
+    
     if (msg.attachments.count > 0) {
-        VKAttachment *att = msg.attachments[0];
-        if (att.type == VKAttachmentTypePhoto) attachText = @"[Фотография]";
-        else if (att.type == VKAttachmentTypeSticker) attachText = @"[Стикер]";
-        else if (att.type == VKAttachmentTypeGif) attachText = @"[GIF]";
-        else if (att.type == VKAttachmentTypeAudio) attachText = [NSString stringWithFormat:@"🎵 %@ — %@", att.audioArtist ?: @"", att.audioTitle ?: @"Трек"];
-        else if (att.type == VKAttachmentTypeDoc) attachText = [NSString stringWithFormat:@"📄 %@", att.docTitle ?: @"Документ"];
-        else if (att.type == VKAttachmentTypeVideo) attachText = [NSString stringWithFormat:@"🎬 %@", att.videoTitle ?: @"Видео"];
-        else if (att.type == VKAttachmentTypeWall) attachText = [NSString stringWithFormat:@"📋 Запись на стене%@", att.wallText.length > 0 ? [NSString stringWithFormat:@":\n«%@»", att.wallText] : @""];
-        else attachText = @"[Вложение]";
+        for (VKAttachment *att in msg.attachments) {
+            if (![att isKindOfClass:[VKAttachment class]]) continue;
+            if (att.type == VKAttachmentTypePhoto) {
+                if (msg.attachments.count > 1 || baseText.length > 0) {
+                    [attachDescriptions addObject:@"[Фотография]"];
+                }
+            } else if (att.type == VKAttachmentTypeSticker) {
+                [attachDescriptions addObject:@"[Стикер]"];
+            } else if (att.type == VKAttachmentTypeGif) {
+                [attachDescriptions addObject:@"[GIF-анимация]"];
+            } else if (att.type == VKAttachmentTypeAudio) {
+                NSString *aud = [NSString stringWithFormat:@"🎵 %@ — %@", att.audioArtist ?: @"", att.audioTitle ?: @"Трек"];
+                [attachDescriptions addObject:aud];
+            } else if (att.type == VKAttachmentTypeDoc) {
+                NSString *doc = [NSString stringWithFormat:@"📄 %@%@", att.docTitle ?: @"Документ", (att.docSize.length > 0 ? [NSString stringWithFormat:@" (%@)", att.docSize] : @"")];
+                [attachDescriptions addObject:doc];
+            } else if (att.type == VKAttachmentTypeVideo) {
+                NSString *vid = [NSString stringWithFormat:@"🎬 %@", att.videoTitle ?: @"Видеозапись"];
+                [attachDescriptions addObject:vid];
+            } else if (att.type == VKAttachmentTypeWall) {
+                NSString *wall = [NSString stringWithFormat:@"📋 Запись на стене%@", att.wallText.length > 0 ? [NSString stringWithFormat:@": «%@»", att.wallText] : @""];
+                [attachDescriptions addObject:wall];
+            } else if (att.type == VKAttachmentTypeLink) {
+                NSString *lnk = [NSString stringWithFormat:@"🔗 %@", att.linkTitle ?: att.linkURL ?: @"Ссылка"];
+                [attachDescriptions addObject:lnk];
+            } else if (att.type == VKAttachmentTypePoll) {
+                NSString *poll = [NSString stringWithFormat:@"📊 Опрос: %@", att.pollQuestion ?: @""];
+                [attachDescriptions addObject:poll];
+            } else {
+                [attachDescriptions addObject:@"[Вложение]"];
+            }
+        }
     }
-    if (baseText.length > 0 && attachText.length > 0) {
-        return [NSString stringWithFormat:@"%@\n%@", baseText, attachText];
+    
+    NSString *allAttachStr = [attachDescriptions componentsJoinedByString:@"\n"];
+    if (baseText.length > 0 && allAttachStr.length > 0) {
+        return [NSString stringWithFormat:@"%@\n%@", baseText, allAttachStr];
     }
     if (baseText.length > 0) return baseText;
-    if (attachText.length > 0) return attachText;
+    if (allAttachStr.length > 0) return allAttachStr;
     return @"";
 }
 
@@ -1023,7 +1492,9 @@
     CGFloat authorHeaderH = showAuthor ? 18.0 : 0.0;
     
     BOOL hasPhoto = (msg.attachments.count > 0 && [msg.attachments[0] isKindOfClass:[VKAttachment class]] && ((VKAttachment *)msg.attachments[0]).type == VKAttachmentTypePhoto);
-    CGFloat extraH = (hasPhoto ? 138.0 : 0.0) + authorHeaderH;
+    BOOL hasReply = (msg.replyMessage != nil || (msg.fwdMessages && msg.fwdMessages.count > 0));
+    CGFloat replyExtraH = hasReply ? 34.0 : 0.0;
+    CGFloat extraH = (hasPhoto ? 138.0 : 0.0) + authorHeaderH + replyExtraH;
     
     CGFloat maxTextW = width - (showAuthor ? 46.0 : 10.0) - 50.0;
     NSString *displayText = [self textForMessage:msg];
@@ -1114,6 +1585,31 @@
         UITapGestureRecognizer *photoTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(chatPhotoTapped:)];
         [photoIV addGestureRecognizer:photoTap];
         
+        // Цитата ответа / пересылки
+        UIView *quoteView = [[UIView alloc] initWithFrame:CGRectZero];
+        quoteView.tag = 1011;
+        quoteView.clipsToBounds = YES;
+        quoteView.hidden = YES;
+        [bubble addSubview:quoteView];
+        
+        UIView *quoteBar = [[UIView alloc] initWithFrame:CGRectMake(0, 1, 2.5, 28)];
+        quoteBar.tag = 1012;
+        quoteBar.layer.cornerRadius = 1.25;
+        quoteBar.clipsToBounds = YES;
+        [quoteView addSubview:quoteBar];
+        
+        UILabel *quoteAuthorLabel = [[UILabel alloc] initWithFrame:CGRectMake(7, 0, 180, 14)];
+        quoteAuthorLabel.tag = 1013;
+        quoteAuthorLabel.font = [UIFont boldSystemFontOfSize:11.5];
+        quoteAuthorLabel.backgroundColor = [UIColor clearColor];
+        [quoteView addSubview:quoteAuthorLabel];
+        
+        UILabel *quoteTextLabel = [[UILabel alloc] initWithFrame:CGRectMake(7, 14, 180, 14)];
+        quoteTextLabel.tag = 1014;
+        quoteTextLabel.font = [UIFont systemFontOfSize:11];
+        quoteTextLabel.backgroundColor = [UIColor clearColor];
+        [quoteView addSubview:quoteTextLabel];
+        
         // Текст сообщения
         UILabel *textLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         textLabel.tag = 1002;
@@ -1141,6 +1637,10 @@
     UIImageView *bubble = (UIImageView *)[cell.contentView viewWithTag:1001];
     UILabel *authorNameLabel = (UILabel *)[bubble viewWithTag:1006];
     UIImageView *photoIV = (UIImageView *)[bubble viewWithTag:1004];
+    UIView *quoteView = [bubble viewWithTag:1011];
+    UIView *quoteBar = [quoteView viewWithTag:1012];
+    UILabel *quoteAuthorLabel = (UILabel *)[quoteView viewWithTag:1013];
+    UILabel *quoteTextLabel = (UILabel *)[quoteView viewWithTag:1014];
     UILabel *textLabel = (UILabel *)[bubble viewWithTag:1002];
     UILabel *timeLabel = (UILabel *)[bubble viewWithTag:1003];
     
@@ -1216,7 +1716,7 @@
         return cell;
     }
     
-    // 3. Обычное сообщение / вложения
+    // 3. Обычное сообщение / вложения / ответ
     servicePill.hidden = YES;
     stickerIV.hidden = YES;
     stickerTimeLabel.hidden = YES;
@@ -1229,6 +1729,25 @@
     VKUser *author = showAuthor ? [self senderUserForMessage:msg] : nil;
     NSString *authorNameStr = author ? author.displayName : (msg.fromId != 0 ? [NSString stringWithFormat:@"id%ld", (long)msg.fromId] : @"");
     
+    BOOL hasReply = (msg.replyMessage != nil || (msg.fwdMessages && msg.fwdMessages.count > 0));
+    if (hasReply) {
+        quoteView.hidden = NO;
+        if (msg.replyMessage) {
+            VKUser *ru = [self senderUserForMessage:msg.replyMessage];
+            NSString *authorName = ru ? ru.displayName : (msg.replyMessage.fromId > 0 ? [NSString stringWithFormat:@"id%ld", (long)msg.replyMessage.fromId] : @"Сообщение");
+            quoteAuthorLabel.text = authorName;
+            quoteTextLabel.text = [self textForMessage:msg.replyMessage];
+        } else if (msg.fwdMessages.count > 0) {
+            VKMessage *fwd = msg.fwdMessages[0];
+            VKUser *fu = [self senderUserForMessage:fwd];
+            NSString *fwdAuthor = fu ? fu.displayName : (fwd.fromId > 0 ? [NSString stringWithFormat:@"id%ld", (long)fwd.fromId] : @"Сообщение");
+            quoteAuthorLabel.text = msg.fwdMessages.count > 1 ? [NSString stringWithFormat:@"%@ (+%lu)", fwdAuthor, (unsigned long)(msg.fwdMessages.count - 1)] : fwdAuthor;
+            quoteTextLabel.text = [self textForMessage:fwd];
+        }
+    } else {
+        quoteView.hidden = YES;
+    }
+    
     NSString *displayText = [self textForMessage:msg];
     textLabel.text = displayText;
     
@@ -1239,6 +1758,9 @@
     
     // Расчет ширины пузыря
     CGFloat bubbleWidth = MAX(hasPhoto ? 196.0 : 86.0, ceilf(size.width) + 28.0);
+    if (hasReply) {
+        bubbleWidth = MAX(bubbleWidth, 190.0);
+    }
     
     // Если исходящее однострочное: обеспечиваем место для времени и галочек прочтения, чтобы не накладывались
     if (msg.isOutgoing && size.height <= 22.0) {
@@ -1253,7 +1775,8 @@
     bubbleWidth = MIN(bubbleWidth, maxTextW + 36.0);
     
     CGFloat authorHeaderH = showAuthor ? 18.0 : 0.0;
-    CGFloat bubbleHeight = ceilf(size.height) + 22.0 + (hasPhoto ? photoH + 8.0 : 0.0) + authorHeaderH;
+    CGFloat replyExtraH = hasReply ? 34.0 : 0.0;
+    CGFloat bubbleHeight = ceilf(size.height) + 22.0 + (hasPhoto ? photoH + 8.0 : 0.0) + authorHeaderH + replyExtraH;
     
     if (hasPhoto) {
         photoIV.hidden = NO;
@@ -1300,6 +1823,15 @@
         }
         
         CGFloat topY = 6.0;
+        if (hasReply) {
+            quoteBar.backgroundColor = isSkeuomorph ? [UIColor whiteColor] : [UIColor colorWithRed:80.0/255.0 green:140.0/255.0 blue:210.0/255.0 alpha:1.0];
+            quoteAuthorLabel.textColor = isSkeuomorph ? [UIColor whiteColor] : [UIColor colorWithRed:80.0/255.0 green:140.0/255.0 blue:210.0/255.0 alpha:1.0];
+            quoteTextLabel.textColor = isSkeuomorph ? [UIColor colorWithWhite:0.9 alpha:1.0] : [UIColor colorWithWhite:0.35 alpha:1.0];
+            quoteView.frame = CGRectMake(12, topY, bubbleWidth - 24, 30);
+            quoteAuthorLabel.frame = CGRectMake(7, 0, bubbleWidth - 32, 14);
+            quoteTextLabel.frame = CGRectMake(7, 14, bubbleWidth - 32, 14);
+            topY += 34.0;
+        }
         if (hasPhoto) {
             photoIV.frame = CGRectMake(8, topY, bubbleWidth - 20, photoH);
             topY += photoH + 6.0;
@@ -1367,6 +1899,16 @@
             authorNameLabel.hidden = YES;
         }
         
+        if (hasReply) {
+            quoteBar.backgroundColor = [[VKThemeManager sharedManager] accentColor];
+            quoteAuthorLabel.textColor = [[VKThemeManager sharedManager] accentColor];
+            quoteTextLabel.textColor = [UIColor colorWithWhite:0.35 alpha:1.0];
+            quoteView.frame = CGRectMake(14, topY, bubbleWidth - 28, 30);
+            quoteAuthorLabel.frame = CGRectMake(7, 0, bubbleWidth - 36, 14);
+            quoteTextLabel.frame = CGRectMake(7, 14, bubbleWidth - 36, 14);
+            topY += 34.0;
+        }
+        
         if (hasPhoto) {
             photoIV.frame = CGRectMake(14, topY, bubbleWidth - 22, photoH);
             topY += photoH + 6.0;
@@ -1383,18 +1925,59 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    if (indexPath.row < (NSInteger)self.messages.count) {
-        VKMessage *msg = self.messages[indexPath.row];
-        for (VKAttachment *att in msg.attachments) {
-            if (att.type == VKAttachmentTypeWall && att.wallPostId != 0) {
-                VKPost *dummyPost = [[VKPost alloc] init];
-                dummyPost.vkID = att.wallPostId;
-                dummyPost.ownerID = att.wallOwnerId;
-                dummyPost.text = att.wallText;
-                VKPostDetailViewController *postVC = [[VKPostDetailViewController alloc] initWithPost:dummyPost];
-                [self.navigationController pushViewController:postVC animated:YES];
-                break;
+    if (indexPath.row >= (NSInteger)self.messages.count) return;
+    
+    VKMessage *msg = self.messages[indexPath.row];
+    
+    // 1. Если сообщение содержит ответ — скроллим к исходному сообщению при наличии в истории
+    if (msg.replyMessage) {
+        NSInteger targetMid = msg.replyMessage.messageId;
+        for (NSInteger i = 0; i < self.messages.count; i++) {
+            VKMessage *m = self.messages[i];
+            if (m.messageId == targetMid) {
+                NSIndexPath *targetPath = [NSIndexPath indexPathForRow:i inSection:0];
+                [self.tableView scrollToRowAtIndexPath:targetPath atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
+                return;
             }
+        }
+    }
+    
+    // 2. Взаимодействие со вложениями
+    for (VKAttachment *att in msg.attachments) {
+        if (![att isKindOfClass:[VKAttachment class]]) continue;
+        if (att.type == VKAttachmentTypeWall && att.wallPostId != 0) {
+            VKPost *dummyPost = [[VKPost alloc] init];
+            dummyPost.vkID = att.wallPostId;
+            dummyPost.ownerID = att.wallOwnerId;
+            dummyPost.text = att.wallText;
+            VKPostDetailViewController *postVC = [[VKPostDetailViewController alloc] initWithPost:dummyPost];
+            [self.navigationController pushViewController:postVC animated:YES];
+            return;
+        } else if (att.type == VKAttachmentTypeAudio && (att.audioURL.length > 0 || att.audioId != 0)) {
+            VKAudioTrack *track = [[VKAudioTrack alloc] init];
+            track.audioId = att.audioId;
+            track.trackId = att.audioId;
+            track.ownerId = att.audioOwnerId;
+            track.artist = att.audioArtist ?: @"";
+            track.title = att.audioTitle ?: @"";
+            track.streamURL = att.audioURL;
+            track.url = att.audioURL;
+            [[VKAudioPlayer sharedPlayer] playTrack:track];
+            VKAudioPlayerViewController *pvc = [[VKAudioPlayerViewController alloc] init];
+            [self presentViewController:pvc animated:YES completion:nil];
+            return;
+        } else if (att.type == VKAttachmentTypeLink && att.linkURL.length > 0) {
+            NSURL *u = [NSURL URLWithString:att.linkURL];
+            if (u) [[UIApplication sharedApplication] openURL:u];
+            return;
+        } else if (att.type == VKAttachmentTypeDoc && att.docURL.length > 0) {
+            NSURL *u = [NSURL URLWithString:att.docURL];
+            if (u) [[UIApplication sharedApplication] openURL:u];
+            return;
+        } else if (att.type == VKAttachmentTypeVideo && att.videoURL.length > 0) {
+            NSURL *u = [NSURL URLWithString:att.videoURL];
+            if (u) [[UIApplication sharedApplication] openURL:u];
+            return;
         }
     }
 }
