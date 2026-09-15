@@ -13,6 +13,7 @@
 #import "VKNetworkStatusManager.h"
 #import "VKNetworkBannerView.h"
 #import "VKLongPollService.h"
+#import "VKBackgroundVisualizerManager.h"
 
 @interface VKNavigationController : UINavigationController <UIGestureRecognizerDelegate>
 - (void)updateNavBarTheme;
@@ -127,6 +128,7 @@
     [self updateTabBarVisibility];
     
     [[VKNetworkBannerView sharedBanner] attachToWindow:self.window];
+    [[VKBackgroundVisualizerManager sharedManager] setupWithWindow:self.window];
     
     if ([[VKAuthService sharedService] isAuthenticated]) {
         [[VKLongPollService sharedService] start];
@@ -252,6 +254,8 @@
         VKNavigationController *loginNav = [[VKNavigationController alloc] initWithRootViewController:loginVC];
         self.window.rootViewController = loginNav;
     }
+    
+    [[VKBackgroundVisualizerManager sharedManager] updateVisualizerState];
 }
 
 - (void)dealloc {

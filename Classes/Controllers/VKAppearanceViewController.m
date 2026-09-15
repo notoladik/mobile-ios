@@ -1,6 +1,10 @@
 #import "VKAppearanceViewController.h"
 #import "VKThemeManager.h"
 #import "VKSideMenuManager.h"
+#import "VKBackgroundVisualizerManager.h"
+
+@interface VKAppearanceViewController () <UIActionSheetDelegate>
+@end
 
 @implementation VKAppearanceViewController
 
@@ -32,7 +36,7 @@
 #pragma mark - Table View Data Source
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 3;
+    return 4;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
@@ -40,8 +44,10 @@
         return @"Тема оформления интерфейса";
     } else if (section == 1) {
         return @"Навигация";
-    } else {
+    } else if (section == 2) {
         return @"Аудиоплеер";
+    } else {
+        return @"Фоновая визуализация (Fun)";
     }
 }
 
@@ -50,13 +56,21 @@
         return @"Выбранная тема меняет стиль карточек, навигационной панели, скруглений и цвета элементов.";
     } else if (section == 1) {
         return @"При включении бокового меню кнопка ≡ в навигационной панели открывает выдвижную панель со всеми разделами ВКонтакте.";
-    } else {
+    } else if (section == 2) {
         return @"Включение режима визуализатора активирует динамические эффекты и спектроанализатор в плеере. При выключении отображается оригинальная обложка VK.";
+    } else {
+        return @"Живая визуализация на фоне всего клиента ВКонтакте. Динамически танцует под ритм музыки либо мягко переливается в покое, не мешая нажатиям и прокрутке.";
     }
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return 3;
+    if (section == 1) return 1;
+    if (section == 2) return 1;
+    
+    if ([[VKBackgroundVisualizerManager sharedManager] isEnabled]) {
+        return 5;
+    }
     return 1;
 }
 
@@ -95,7 +109,7 @@
         UISwitch *sw = (UISwitch *)cell.accessoryView;
         sw.on = [[VKSideMenuManager sharedManager] isSideMenuEnabled];
         return cell;
-    } else {
+    } else if (indexPath.section == 2) {
         static NSString *VisSwitchCellId = @"VKVisualizerSwitchCell";
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:VisSwitchCellId];
         if (!cell) {
@@ -112,6 +126,78 @@
         UISwitch *sw = (UISwitch *)cell.accessoryView;
         sw.on = [[NSUserDefaults standardUserDefaults] objectForKey:@"openvk.audio.visualizer.enabled"] ? [[NSUserDefaults standardUserDefaults] boolForKey:@"openvk.audio.visualizer.enabled"] : YES;
         return cell;
+    } else {
+        VKBackgroundVisualizerManager *bgMan = [VKBackgroundVisualizerManager sharedManager];
+        
+        if (indexPath.row == 0) {
+            static NSString *BgVisMainSwitchCellId = @"VKBgVisMainSwitchCell";
+            UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:BgVisMainSwitchCellId];
+            if (!cell) {
+                cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:BgVisMainSwitchCellId];
+                cell.selectionStyle = UITableViewCellSelectionStyleNone;
+                cell.textLabel.font = [UIFont boldSystemFontOfSize:15];
+                
+                UISwitch *sw = [[UISwitch alloc] init];
+                [sw addTarget:self action:@selector(toggleBgVisualizerSwitch:) forControlEvents:UIControlEventValueChanged];
+                cell.accessoryView = sw;
+            }
+            cell.textLabel.text = @"Визуализатор на фоне";
+            UISwitch *sw = (UISwitch *)cell.accessoryView;
+            sw.on = bgMan.isEnabled;
+            return cell;
+        } else if (indexPath.row == 1) {
+            static NSString *BgVisValueCellId = @"VKBgVisValueCell";
+            UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:BgVisValueCellId];
+            if (!cell) {
+                cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:BgVisValueCellId];
+                cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+                cell.textLabel.font = [UIFont systemFontOfSize:15];
+                cell.detailTextLabel.font = [UIFont systemFontOfSize:14];
+            }
+            cell.textLabel.text = @"Стиль визуализации";
+            cell.detailTextLabel.text = [bgMan titleForStyle:bgMan.style];
+            return cell;
+        } else if (indexPath.row == 2) {
+            static NSString *BgVisValueCellId = @"VKBgVisValueCell";
+            UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:BgVisValueCellId];
+            if (!cell) {
+                cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:BgVisValueCellId];
+                cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+                cell.textLabel.font = [UIFont systemFontOfSize:15];
+                cell.detailTextLabel.font = [UIFont systemFontOfSize:14];
+            }
+            cell.textLabel.text = @"Режим слоя";
+            cell.detailTextLabel.text = [bgMan titleForLayerMode:bgMan.layerMode];
+            return cell;
+        } else if (indexPath.row == 3) {
+            static NSString *BgVisValueCellId = @"VKBgVisValueCell";
+            UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:BgVisValueCellId];
+            if (!cell) {
+                cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:BgVisValueCellId];
+                cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+                cell.textLabel.font = [UIFont systemFontOfSize:15];
+                cell.detailTextLabel.font = [UIFont systemFontOfSize:14];
+            }
+            cell.textLabel.text = @"Прозрачность / Яркость";
+            cell.detailTextLabel.text = [bgMan titleForOpacity:bgMan.opacity];
+            return cell;
+        } else {
+            static NSString *BgVisOnlyPlayingCellId = @"VKBgVisOnlyPlayingCell";
+            UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:BgVisOnlyPlayingCellId];
+            if (!cell) {
+                cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:BgVisOnlyPlayingCellId];
+                cell.selectionStyle = UITableViewCellSelectionStyleNone;
+                cell.textLabel.font = [UIFont systemFontOfSize:15];
+                
+                UISwitch *sw = [[UISwitch alloc] init];
+                [sw addTarget:self action:@selector(toggleBgVisualizerOnlyPlayingSwitch:) forControlEvents:UIControlEventValueChanged];
+                cell.accessoryView = sw;
+            }
+            cell.textLabel.text = @"Только при музыке";
+            UISwitch *sw = (UISwitch *)cell.accessoryView;
+            sw.on = bgMan.onlyWhenPlaying;
+            return cell;
+        }
     }
 }
 
@@ -124,12 +210,74 @@
     [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
+- (void)toggleBgVisualizerSwitch:(UISwitch *)sender {
+    [[VKBackgroundVisualizerManager sharedManager] setIsEnabled:sender.isOn];
+    [self.tableView reloadData];
+}
+
+- (void)toggleBgVisualizerOnlyPlayingSwitch:(UISwitch *)sender {
+    [[VKBackgroundVisualizerManager sharedManager] setOnlyWhenPlaying:sender.isOn];
+}
+
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     
     if (indexPath.section == 0) {
         [[VKThemeManager sharedManager] applyTheme:(VKThemeType)indexPath.row];
         [self.tableView reloadData];
+    } else if (indexPath.section == 3) {
+        if (indexPath.row == 1) {
+            UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:@"Стиль визуализации"
+                                                               delegate:self
+                                                      cancelButtonTitle:@"Отмена"
+                                                 destructiveButtonTitle:nil
+                                                      otherButtonTitles:@"🌊  Неоновые волны", @"📊  Ретро-эквалайзер", @"✨  Северное сияние", @"🌌  Звёздная пыль", nil];
+            sheet.tag = 9001;
+            [sheet showInView:self.view];
+        } else if (indexPath.row == 2) {
+            UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:@"Режим отображения"
+                                                               delegate:self
+                                                      cancelButtonTitle:@"Отмена"
+                                                 destructiveButtonTitle:nil
+                                                      otherButtonTitles:@"Поверх контента (Наложение)", @"Подложка под контент (Задний план)", nil];
+            sheet.tag = 9002;
+            [sheet showInView:self.view];
+        } else if (indexPath.row == 3) {
+            UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:@"Прозрачность"
+                                                               delegate:self
+                                                      cancelButtonTitle:@"Отмена"
+                                                 destructiveButtonTitle:nil
+                                                      otherButtonTitles:@"15% (Нежная)", @"25% (Оптимальная)", @"40% (Насыщенная)", @"60% (Яркая)", nil];
+            sheet.tag = 9003;
+            [sheet showInView:self.view];
+        }
+    }
+}
+
+#pragma mark - UIActionSheetDelegate
+
+- (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
+    if (buttonIndex == actionSheet.cancelButtonIndex) return;
+    
+    VKBackgroundVisualizerManager *bgMan = [VKBackgroundVisualizerManager sharedManager];
+    if (actionSheet.tag == 9001) {
+        if (buttonIndex >= 0 && buttonIndex <= 3) {
+            bgMan.style = (VKBackgroundVisualizerStyle)buttonIndex;
+            [self.tableView reloadData];
+        }
+    } else if (actionSheet.tag == 9002) {
+        if (buttonIndex == 0) {
+            bgMan.layerMode = VKBackgroundVisualizerLayerModeOverlay;
+        } else if (buttonIndex == 1) {
+            bgMan.layerMode = VKBackgroundVisualizerLayerModeUnderlay;
+        }
+        [self.tableView reloadData];
+    } else if (actionSheet.tag == 9003) {
+        CGFloat opacities[4] = { 0.15f, 0.25f, 0.40f, 0.60f };
+        if (buttonIndex >= 0 && buttonIndex < 4) {
+            bgMan.opacity = opacities[buttonIndex];
+            [self.tableView reloadData];
+        }
     }
 }
 
