@@ -450,4 +450,130 @@
     }];
 }
 
+- (void)editMessageWithPeerId:(NSInteger)peerId
+                    messageId:(NSInteger)messageId
+                         text:(NSString *)text
+                   completion:(void (^)(BOOL success, NSError *error))completion {
+    if (messageId <= 0) {
+        if (completion) completion(NO, [NSError errorWithDomain:@"VKMessagesService" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"Invalid messageId"}]);
+        return;
+    }
+    
+    NSDictionary *params = @{
+        @"peer_id": @(peerId),
+        @"message_id": @(messageId),
+        @"message": text ?: @""
+    };
+    
+    [[VKAPIClient sharedClient] callMethod:@"messages.edit" parameters:params completionHandler:^(id response, NSError *error) {
+        if (error) {
+            if (completion) completion(NO, error);
+            return;
+        }
+        if (completion) completion(YES, nil);
+    }];
+}
+
+- (void)deleteMessagesWithIds:(NSArray<NSNumber *> *)messageIds
+                 deleteForAll:(BOOL)deleteForAll
+                       peerId:(NSInteger)peerId
+                   completion:(void (^)(BOOL success, NSError *error))completion {
+    if (messageIds.count == 0) {
+        if (completion) completion(NO, nil);
+        return;
+    }
+    
+    NSMutableArray *strIds = [NSMutableArray array];
+    for (NSNumber *mid in messageIds) {
+        [strIds addObject:[mid description]];
+    }
+    
+    NSMutableDictionary *params = [NSMutableDictionary dictionaryWithDictionary:@{
+        @"message_ids": [strIds componentsJoinedByString:@","],
+        @"delete_for_all": deleteForAll ? @"1" : @"0"
+    }];
+    if (peerId != 0) {
+        params[@"peer_id"] = @(peerId);
+    }
+    
+    [[VKAPIClient sharedClient] callMethod:@"messages.delete" parameters:params completionHandler:^(id response, NSError *error) {
+        if (error) {
+            if (completion) completion(NO, error);
+            return;
+        }
+        if (completion) completion(YES, nil);
+    }];
+}
+
+- (void)fetchMessageViewersWithPeerId:(NSInteger)peerId
+                            messageId:(NSInteger)messageId
+                           completion:(void (^)(NSArray<VKUser *> *viewers, NSError *error))completion {
+    if (messageId <= 0) {
+        if (completion) completion(@[], nil);
+        return;
+    }
+    
+    NSDictionary *params = @{
+        @"peer_id": @(peerId),
+        @"message_id": @(messageId),
+        @"extended": @"1",
+        @"fields": @"photo_50,photo_100,photo_200,online,last_seen,sex,verified"
+    };
+    
+    [[VKAPIClient sharedClient] callMethod:@"messages.getMessageViewers" parameters:params completionHandler:^(id response, NSError *error) {
+        if (error) {
+            if (completion) completion(@[], error);
+            return;
+        }
+        
+        NSDictionary *dict = [response isKindOfClass:[NSDictionary class]] ? (response[@"response"] ?: response) : nil;
+        NSArray *rawProfiles = dict[@"profiles"];
+        NSMutableArray *viewers = [NSMutableArray array];
+        if ([rawProfiles isKindOfClass:[NSArray class]]) {
+            for (NSDictionary *p in rawProfiles) {
+                VKUser *u = [VKUser userFromDictionary:p];
+                if (u) [viewers addObject:u];
+            }
+        }
+        if (completion) completion(viewers, nil);
+    }];
+}
+
+- (void)setSilenceModeForPeerId:(NSInteger)peerId
+                           time:(NSInteger)time
+                     completion:(void (^)(BOOL success, NSError *error))completion {
+    NSDictionary *params = @{
+        @"peer_id": @(peerId),
+        @"time": @(time),
+        @"sound": (time == 0 ? @1 : @0)
+    };
+    
+    [[VKAPIClient sharedClient] callMethod:@"account.setSilenceMode" parameters:params completionHandler:^(id response, NSError *error) {
+        if (error) {
+            if (completion) completion(NO, error);
+            return;
+        }
+        if (completion) completion(YES, nil);
+    }];
+}
+
+- (void)setMemberRoleWithPeerId:(NSInteger)peerId
+                         userId:(NSInteger)userId
+                           role:(NSString *)role
+                     completion:(void (^)(BOOL success, NSError *error))completion {
+    NSDictionary *params = @{
+        @"peer_id": @(peerId),
+        @"user_id": @(userId),
+        @"role": role ?: @"member"
+    };
+    
+    [[VKAPIClient sharedClient] callMethod:@"messages.setMemberRole" parameters:params completionHandler:^(id response, NSError *error) {
+        if (error) {
+            if (completion) completion(NO, error);
+            return;
+        }
+        if (completion) completion(YES, nil);
+    }];
+}
+
 @end

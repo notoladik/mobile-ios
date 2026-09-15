@@ -7,12 +7,14 @@
 #import "VKAuthService.h"
 #import "VKCrashLogger.h"
 
-@interface VKChatSettingsViewController () <UIAlertViewDelegate>
+@interface VKChatSettingsViewController () <UIAlertViewDelegate, UIActionSheetDelegate>
 @property (nonatomic, strong) NSMutableArray<VKUser *> *members;
 @property (nonatomic, assign) BOOL isLoading;
 @property (nonatomic, strong) UIImageView *headerAvatarView;
 @property (nonatomic, strong) UILabel *headerTitleLabel;
 @property (nonatomic, strong) UILabel *headerMembersLabel;
+@property (nonatomic, strong) VKUser *selectedMemberForAction;
+@property (nonatomic, strong) UISwitch *muteSwitch;
 @end
 
 @implementation VKChatSettingsViewController
@@ -261,7 +263,9 @@
                 cell.selectionStyle = UITableViewCellSelectionStyleNone;
                 UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectZero];
                 sw.on = YES;
+                [sw addTarget:self action:@selector(muteSwitchChanged:) forControlEvents:UIControlEventValueChanged];
                 cell.accessoryView = sw;
+                self.muteSwitch = sw;
             }
             cell.textLabel.text = @"Уведомления";
             cell.textLabel.textColor = [UIColor blackColor];
@@ -393,6 +397,28 @@
     return [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"Cell"];
 }
 
+- (void)muteSwitchChanged:(UISwitch *)sender {
+    if (sender.isOn) {
+        [[VKMessagesService sharedService] setSilenceModeForPeerId:(2000000000 + self.chatId) time:0 completion:^(BOOL success, NSError *error) {
+            if (!success && error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    sender.on = NO;
+                    UIAlertView *av = [[UIAlertView alloc] initWithTitle:@"Ошибка" message:error.localizedDescription delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                    [av show];
+                });
+            }
+        }];
+    } else {
+        UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:@"Отключить уведомления"
+                                                           delegate:self
+                                                  cancelButtonTitle:@"Отмена"
+                                             destructiveButtonTitle:nil
+                                                  otherButtonTitles:@"На 1 час", @"На 8 часов", @"Навсегда", nil];
+        sheet.tag = 6001;
+        [sheet showInView:self.view];
+    }
+}
+
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     
@@ -414,8 +440,20 @@
         NSInteger memberIndex = self.isMember ? (indexPath.row - 1) : indexPath.row;
         if (memberIndex < (NSInteger)self.members.count) {
             VKUser *user = self.members[memberIndex];
-            VKProfileViewController *profVC = [[VKProfileViewController alloc] initWithUser:user];
-            [self.navigationController pushViewController:profVC animated:YES];
+            NSInteger myId = [[VKAuthService sharedService] currentUserId];
+            if (myId == self.adminId && user.uid != myId) {
+                self.selectedMemberForAction = user;
+                UIActionSheet *modSheet = [[UIActionSheet alloc] initWithTitle:user.displayName ?: @"Участник"
+                                                                      delegate:self
+                                                             cancelButtonTitle:@"Отмена"
+                                                        destructiveButtonTitle:@"Исключить из беседы"
+                                                             otherButtonTitles:@"Открыть профиль", @"Назначить администратором", nil];
+                modSheet.tag = 6002;
+                [modSheet showInView:self.view];
+            } else {
+                VKProfileViewController *profVC = [[VKProfileViewController alloc] initWithUser:user];
+                [self.navigationController pushViewController:profVC animated:YES];
+            }
         }
         return;
     }
@@ -540,6 +578,67 @@
                 }
             });
         }];
+    }
+}
+
+- (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
+    if (actionSheet.tag == 6001) {
+        if (buttonIndex == actionSheet.cancelButtonIndex) {
+            self.muteSwitch.on = YES;
+            return;
+        }
+        NSInteger silenceTime = 3600;
+        if (buttonIndex == 0) {
+            silenceTime = 3600;
+        } else if (buttonIndex == 1) {
+            silenceTime = 28800;
+        } else if (buttonIndex == 2) {
+            silenceTime = -1;
+        }
+        [[VKMessagesService sharedService] setSilenceModeForPeerId:(2000000000 + self.chatId) time:silenceTime completion:^(BOOL success, NSError *error) {
+            if (!success && error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    self.muteSwitch.on = YES;
+                    UIAlertView *av = [[UIAlertView alloc] initWithTitle:@"Ошибка" message:error.localizedDescription delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                    [av show];
+                });
+            }
+        }];
+    } else if (actionSheet.tag == 6002) {
+        VKUser *user = self.selectedMemberForAction;
+        if (!user) return;
+        
+        if (buttonIndex == actionSheet.destructiveButtonIndex) {
+            [[VKMessagesService sharedService] removeChatUserWithUserId:user.uid chatId:self.chatId completion:^(BOOL success, NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (success) {
+                        [self.members removeObject:user];
+                        self.membersCount = self.members.count;
+                        self.headerMembersLabel.text = [self membersCountString:self.membersCount];
+                        [self.tableView reloadData];
+                    } else {
+                        UIAlertView *err = [[UIAlertView alloc] initWithTitle:@"Ошибка" message:error.localizedDescription ?: @"Не удалось исключить пользователя" delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                        [err show];
+                    }
+                });
+            }];
+        } else if (buttonIndex == 1) {
+            VKProfileViewController *profVC = [[VKProfileViewController alloc] initWithUser:user];
+            [self.navigationController pushViewController:profVC animated:YES];
+        } else if (buttonIndex == 2) {
+            [[VKMessagesService sharedService] setMemberRoleWithPeerId:(2000000000 + self.chatId) userId:user.uid role:@"admin" completion:^(BOOL success, NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (success) {
+                        UIAlertView *av = [[UIAlertView alloc] initWithTitle:@"Успешно" message:[NSString stringWithFormat:@"%@ теперь администратор беседы", user.displayName] delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                        [av show];
+                        [self loadChatDetails];
+                    } else {
+                        UIAlertView *err = [[UIAlertView alloc] initWithTitle:@"Ошибка" message:error.localizedDescription ?: @"Не удалось назначить роль" delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                        [err show];
+                    }
+                });
+            }];
+        }
     }
 }
 

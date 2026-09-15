@@ -17,6 +17,7 @@
 #import "VKAudioPlayer.h"
 #import "VKAudioPlayerViewController.h"
 #import "VKAudioTrack.h"
+#import "VKMessageViewersViewController.h"
 #import <QuartzCore/QuartzCore.h>
 
 @interface VKChatUserButton : UIButton
@@ -60,6 +61,12 @@
 @property (nonatomic, strong) UIButton *replyCancelButton;
 @property (nonatomic, strong) VKMessage *replyingMessage;
 @property (nonatomic, strong) NSMutableArray<VKMessage *> *forwardingMessages;
+
+// Панель редактирования сообщения
+@property (nonatomic, strong) UIView *editingBarView;
+@property (nonatomic, strong) UILabel *editingTextLabel;
+@property (nonatomic, strong) UIButton *editingCancelButton;
+@property (nonatomic, strong) VKMessage *editingMessage;
 
 // Прикрепленное изображение перед отправкой
 @property (nonatomic, strong) UIView *attachedPhotoBarView;
@@ -253,6 +260,7 @@
     [self setupPinnedBannerView];
     [self setupReplyForwardBarView];
     [self setupAttachedPhotoBarView];
+    [self setupEditingBarView];
     [self fetchPinnedMessage];
     
     // Уведомления клавиатуры
@@ -778,6 +786,53 @@
     [self.inputContainerView addSubview:self.attachedPhotoBarView];
 }
 
+- (void)setupEditingBarView {
+    CGFloat width = self.view.bounds.size.width;
+    BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
+    
+    self.editingBarView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 38.0)];
+    self.editingBarView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    self.editingBarView.backgroundColor = isSkeuomorph ? [UIColor colorWithRed:235.0/255.0 green:238.0/255.0 blue:242.0/255.0 alpha:1.0] : [UIColor colorWithRed:245.0/255.0 green:246.0/255.0 blue:249.0/255.0 alpha:1.0];
+    self.editingBarView.hidden = YES;
+    
+    UIView *topSep = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 0.5)];
+    topSep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    topSep.backgroundColor = isSkeuomorph ? [UIColor colorWithWhite:0.75 alpha:1.0] : [UIColor colorWithRed:220.0/255.0 green:222.0/255.0 blue:226.0/255.0 alpha:1.0];
+    [self.editingBarView addSubview:topSep];
+    
+    UIView *accentLine = [[UIView alloc] initWithFrame:CGRectMake(10, 5, 2.5, 28)];
+    accentLine.backgroundColor = [[VKThemeManager sharedManager] accentColor];
+    accentLine.layer.cornerRadius = 1.25;
+    accentLine.clipsToBounds = YES;
+    [self.editingBarView addSubview:accentLine];
+    
+    UILabel *titleLbl = [[UILabel alloc] initWithFrame:CGRectMake(20, 3, width - 62, 16)];
+    titleLbl.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    titleLbl.font = [UIFont boldSystemFontOfSize:11.5];
+    titleLbl.textColor = [[VKThemeManager sharedManager] accentColor];
+    titleLbl.text = @"Редактирование";
+    titleLbl.backgroundColor = [UIColor clearColor];
+    [self.editingBarView addSubview:titleLbl];
+    
+    self.editingTextLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 19, width - 62, 15)];
+    self.editingTextLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    self.editingTextLabel.font = [UIFont systemFontOfSize:11.5];
+    self.editingTextLabel.textColor = [UIColor colorWithWhite:0.35 alpha:1.0];
+    self.editingTextLabel.backgroundColor = [UIColor clearColor];
+    [self.editingBarView addSubview:self.editingTextLabel];
+    
+    self.editingCancelButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.editingCancelButton.frame = CGRectMake(width - 34, 4, 30, 30);
+    self.editingCancelButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [self.editingCancelButton setTitle:@"✕" forState:UIControlStateNormal];
+    [self.editingCancelButton setTitleColor:[UIColor colorWithWhite:0.55 alpha:1.0] forState:UIControlStateNormal];
+    self.editingCancelButton.titleLabel.font = [UIFont systemFontOfSize:14];
+    [self.editingCancelButton addTarget:self action:@selector(cancelEditingAction) forControlEvents:UIControlEventTouchUpInside];
+    [self.editingBarView addSubview:self.editingCancelButton];
+    
+    [self.inputContainerView addSubview:self.editingBarView];
+}
+
 - (void)fetchPinnedMessage {
     [[VKMessagesService sharedService] fetchConversationWithPeerId:self.peerId completion:^(VKConversation *conversation, VKMessage *pinnedMessage, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -835,6 +890,12 @@
     [self updateLayoutAnimated:YES];
 }
 
+- (void)cancelEditingAction {
+    self.editingMessage = nil;
+    self.messageTextField.text = @"";
+    [self updateLayoutAnimated:YES];
+}
+
 - (void)handleMessageLongPress:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state != UIGestureRecognizerStateBegan) return;
     CGPoint pt = [gesture locationInView:self.tableView];
@@ -851,9 +912,24 @@
     
     UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil
                                                        delegate:self
-                                              cancelButtonTitle:@"Отмена"
-                                         destructiveButtonTitle:nil
-                                              otherButtonTitles:@"Ответить", @"Переслать", pinTitle, @"Копировать текст", nil];
+                                              cancelButtonTitle:nil
+                                         destructiveButtonTitle:@"Удалить"
+                                              otherButtonTitles:nil];
+    
+    [sheet addButtonWithTitle:@"Ответить"];
+    [sheet addButtonWithTitle:@"Переслать"];
+    if (msg.isOutgoing && ![self isStickerMessage:msg]) {
+        [sheet addButtonWithTitle:@"Редактировать"];
+    }
+    if (self.peerId > 2000000000 || msg.isOutgoing) {
+        [sheet addButtonWithTitle:@"Кто прочитал"];
+    }
+    [sheet addButtonWithTitle:pinTitle];
+    if (msg.text.length > 0) {
+        [sheet addButtonWithTitle:@"Копировать текст"];
+    }
+    
+    sheet.cancelButtonIndex = [sheet addButtonWithTitle:@"Отмена"];
     sheet.tag = 5004;
     [sheet showInView:self.view];
 }
@@ -875,8 +951,11 @@
     BOOL hasPhoto = (self.pendingImageToSend != nil);
     CGFloat photoH = hasPhoto ? 48.0 : 0.0;
     
+    BOOL hasEdit = (self.editingMessage != nil);
+    CGFloat editH = hasEdit ? 38.0 : 0.0;
+    
     CGFloat inputBaseH = 48.0;
-    CGFloat totalInputH = inputBaseH + replyH + photoH;
+    CGFloat totalInputH = inputBaseH + replyH + photoH + editH;
     
     void (^layoutBlock)(void) = ^{
         // 1. Pinned banner
@@ -903,6 +982,17 @@
             
             // Subsections of inputContainerView
             CGFloat currentY = 0.0;
+            if (hasEdit) {
+                self.editingBarView.hidden = NO;
+                self.editingBarView.frame = CGRectMake(0, currentY, width, editH);
+                self.editingTextLabel.text = [self textForMessage:self.editingMessage];
+                currentY += editH;
+                [self.sendButton setTitle:@"Сохр." forState:UIControlStateNormal];
+            } else {
+                self.editingBarView.hidden = YES;
+                [self.sendButton setTitle:@"Отпр." forState:UIControlStateNormal];
+            }
+            
             if (hasReply) {
                 self.replyForwardBarView.hidden = NO;
                 self.replyForwardBarView.frame = CGRectMake(0, currentY, width, replyH);
@@ -1105,24 +1195,47 @@
             [self openMembersList];
         }
     } else if (actionSheet.tag == 5004) {
-        // Контекстное меню сообщения: Ответить, Переслать, Закрепить/Открепить, Копировать
+        if (buttonIndex == actionSheet.cancelButtonIndex) return;
+        
         VKMessage *msg = self.selectedMessageForAction;
         if (!msg) return;
         
-        if (buttonIndex == 0) {
-            // Ответить
+        if (buttonIndex == actionSheet.destructiveButtonIndex) {
+            UIActionSheet *delSheet = [[UIActionSheet alloc] initWithTitle:@"Удалить сообщение?"
+                                                                  delegate:self
+                                                         cancelButtonTitle:@"Отмена"
+                                                    destructiveButtonTitle:@"Удалить для всех"
+                                                         otherButtonTitles:@"Удалить только у меня", nil];
+            delSheet.tag = 5006;
+            [delSheet showInView:self.view];
+            return;
+        }
+        
+        NSString *title = [actionSheet buttonTitleAtIndex:buttonIndex];
+        if ([title isEqualToString:@"Ответить"]) {
             self.replyingMessage = msg;
             self.forwardingMessages = nil;
+            self.editingMessage = nil;
             [self updateLayoutAnimated:YES];
             [self.messageTextField becomeFirstResponder];
-        } else if (buttonIndex == 1) {
-            // Переслать
+        } else if ([title isEqualToString:@"Переслать"]) {
             self.replyingMessage = nil;
             self.forwardingMessages = [NSMutableArray arrayWithObject:msg];
+            self.editingMessage = nil;
             [self updateLayoutAnimated:YES];
             [self.messageTextField becomeFirstResponder];
-        } else if (buttonIndex == 2) {
-            // Закрепить / Открепить
+        } else if ([title isEqualToString:@"Редактировать"]) {
+            self.editingMessage = msg;
+            self.replyingMessage = nil;
+            self.forwardingMessages = nil;
+            self.messageTextField.text = msg.text ?: @"";
+            [self updateLayoutAnimated:YES];
+            [self.messageTextField becomeFirstResponder];
+        } else if ([title isEqualToString:@"Кто прочитал"]) {
+            VKMessageViewersViewController *viewersVC = [[VKMessageViewersViewController alloc] initWithPeerId:self.peerId messageId:msg.messageId];
+            UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:viewersVC];
+            [self presentViewController:nav animated:YES completion:nil];
+        } else if ([title hasPrefix:@"Закрепить"] || [title hasPrefix:@"Открепить"]) {
             if (self.pinnedMessage && self.pinnedMessage.messageId == msg.messageId) {
                 [[VKMessagesService sharedService] unpinMessageWithPeerId:self.peerId completion:^(BOOL success, NSError *error) {
                     dispatch_async(dispatch_get_main_queue(), ^{
@@ -1148,8 +1261,7 @@
                     });
                 }];
             }
-        } else if (buttonIndex == 3) {
-            // Копировать текст
+        } else if ([title isEqualToString:@"Копировать текст"]) {
             if (msg.text.length > 0) {
                 [UIPasteboard generalPasteboard].string = msg.text;
             }
@@ -1169,6 +1281,30 @@
                 });
             }];
         }
+    } else if (actionSheet.tag == 5006) {
+        if (buttonIndex == actionSheet.cancelButtonIndex) return;
+        BOOL deleteForAll = (buttonIndex == actionSheet.destructiveButtonIndex);
+        VKMessage *msg = self.selectedMessageForAction;
+        if (!msg) return;
+        NSInteger mid = msg.messageId;
+        [[VKMessagesService sharedService] deleteMessagesWithIds:@[@(mid)] deleteForAll:deleteForAll peerId:self.peerId completion:^(BOOL success, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (success) {
+                    NSInteger idx = [self.messages indexOfObject:msg];
+                    if (idx != NSNotFound) {
+                        [self.messages removeObjectAtIndex:idx];
+                        [self.tableView reloadData];
+                    }
+                    if (self.pinnedMessage && self.pinnedMessage.messageId == mid) {
+                        self.pinnedMessage = nil;
+                        [self updateLayoutAnimated:YES];
+                    }
+                } else {
+                    UIAlertView *err = [[UIAlertView alloc] initWithTitle:@"Ошибка удаления" message:error.localizedDescription ?: @"Не удалось удалить сообщение" delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                    [err show];
+                }
+            });
+        }];
     }
 }
 
@@ -1338,6 +1474,29 @@
 
 - (void)sendMessage {
     NSString *text = [self.messageTextField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    
+    if (self.editingMessage) {
+        if (text.length == 0) return;
+        self.sendButton.userInteractionEnabled = NO;
+        VKMessage *msgToEdit = self.editingMessage;
+        [[VKMessagesService sharedService] editMessageWithPeerId:self.peerId messageId:msgToEdit.messageId text:text completion:^(BOOL success, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.sendButton.userInteractionEnabled = YES;
+                if (success) {
+                    msgToEdit.text = text;
+                    self.editingMessage = nil;
+                    self.messageTextField.text = @"";
+                    [self updateLayoutAnimated:YES];
+                    [self.tableView reloadData];
+                } else {
+                    UIAlertView *err = [[UIAlertView alloc] initWithTitle:@"Ошибка изменения" message:error.localizedDescription ?: @"Не удалось изменить сообщение" delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                    [err show];
+                }
+            });
+        }];
+        return;
+    }
+    
     if (text.length == 0 && !self.pendingImageToSend && self.forwardingMessages.count == 0) return;
     
     self.sendButton.userInteractionEnabled = NO;

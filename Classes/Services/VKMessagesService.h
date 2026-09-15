@@ -62,4 +62,27 @@
                           chatId:(NSInteger)chatId
                       completion:(void (^)(BOOL success, NSError *error))completion;
 
+- (void)editMessageWithPeerId:(NSInteger)peerId
+                    messageId:(NSInteger)messageId
+                         text:(NSString *)text
+                   completion:(void (^)(BOOL success, NSError *error))completion;
+
+- (void)deleteMessagesWithIds:(NSArray<NSNumber *> *)messageIds
+                 deleteForAll:(BOOL)deleteForAll
+                       peerId:(NSInteger)peerId
+                   completion:(void (^)(BOOL success, NSError *error))completion;
+
+- (void)fetchMessageViewersWithPeerId:(NSInteger)peerId
+                            messageId:(NSInteger)messageId
+                           completion:(void (^)(NSArray<VKUser *> *viewers, NSError *error))completion;
+
+- (void)setSilenceModeForPeerId:(NSInteger)peerId
+                           time:(NSInteger)time
+                     completion:(void (^)(BOOL success, NSError *error))completion;
+
+- (void)setMemberRoleWithPeerId:(NSInteger)peerId
+                         userId:(NSInteger)userId
+                           role:(NSString *)role
+                     completion:(void (^)(BOOL success, NSError *error))completion;
+
 @end
