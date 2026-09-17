@@ -2,6 +2,7 @@
 #import "VKAuthService.h"
 #import "VKLoginViewController.h"
 #import "VKAppearanceViewController.h"
+#import "VKDataStorageViewController.h"
 #import "VKImageLoader.h"
 #import "VKSupportersService.h"
 #import "VKSupportersViewController.h"
@@ -212,13 +213,8 @@
     } else if (indexPath.section == 1) {
         if (indexPath.row == 5) {
             // Данные и память
-            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Очистка кэша"
-                                                            message:@"Вы хотите очистить кэш изображений и данных?"
-                                                           delegate:self
-                                                  cancelButtonTitle:@"Отмена"
-                                                  otherButtonTitles:@"Очистить", nil];
-            alert.tag = 501;
-            [alert show];
+            VKDataStorageViewController *storageVC = [[VKDataStorageViewController alloc] init];
+            [self.navigationController pushViewController:storageVC animated:YES];
         } else if (indexPath.row == 6) {
             // Внешний вид
             VKAppearanceViewController *appearanceVC = [[VKAppearanceViewController alloc] init];

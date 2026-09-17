@@ -126,4 +126,20 @@ static void HandleSignal(int sig) {
     return res;
 }
 
++ (unsigned long long)totalLogSizeBytes {
+    unsigned long long total = 0;
+    NSString *appLog = [self logFilePath];
+    NSString *crashLog = [self crashLogFilePath];
+    NSDictionary *a1 = [[NSFileManager defaultManager] attributesOfItemAtPath:appLog error:nil];
+    if (a1) total += [a1 fileSize];
+    NSDictionary *a2 = [[NSFileManager defaultManager] attributesOfItemAtPath:crashLog error:nil];
+    if (a2) total += [a2 fileSize];
+    return total;
+}
+
++ (void)clearAllLogs {
+    [[NSFileManager defaultManager] removeItemAtPath:[self logFilePath] error:nil];
+    [[NSFileManager defaultManager] removeItemAtPath:[self crashLogFilePath] error:nil];
+}
+
 @end

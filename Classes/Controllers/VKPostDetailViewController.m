@@ -31,6 +31,7 @@
 @property (nonatomic, copy) void (^onMoreTapped)(void);
 @property (nonatomic, copy) void (^onLikeTapped)(void);
 @property (nonatomic, copy) void (^onPhotoTapped)(NSString *photoURL, UIImage *image);
+@property (nonatomic, copy) void (^onPhotoWithFullURLTapped)(NSString *photoURL, NSString *fullPhotoURL, UIImage *image);
 @property (nonatomic, copy) void (^onAudioTapped)(VKAttachment *audio);
 @property (nonatomic, copy) void (^onVideoTapped)(VKAttachment *video);
 @property (nonatomic, copy) void (^onDocTapped)(VKAttachment *doc);
@@ -504,8 +505,11 @@
     if (idx >= 0 && idx < (NSInteger)self.currentComment.attachments.count) {
         VKAttachment *att = self.currentComment.attachments[idx];
         NSString *url = att.photoURL ?: att.gifPreviewURL;
+        NSString *full = att.photoURLFull ?: url;
         UIImage *img = [(UIImageView *)tap.view image];
-        if (self.onPhotoTapped) {
+        if (self.onPhotoWithFullURLTapped) {
+            self.onPhotoWithFullURLTapped(url, full, img);
+        } else if (self.onPhotoTapped) {
             self.onPhotoTapped(url, img);
         }
     }
@@ -1066,8 +1070,18 @@
                 [weakSelf.tableView reloadData];
             }];
         };
+        cell.onPhotosGalleryWithFullURLsTapped = ^(NSArray<NSString *> *photoURLs, NSArray<NSString *> *fullPhotoURLs, NSInteger initialIndex) {
+            VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithPhotoURLs:photoURLs fullPhotoURLs:fullPhotoURLs initialIndex:initialIndex];
+            [weakSelf presentViewController:viewer animated:YES completion:nil];
+        };
+        
         cell.onPhotosGalleryTapped = ^(NSArray<NSString *> *photoURLs, NSInteger initialIndex) {
             VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithPhotoURLs:photoURLs initialIndex:initialIndex];
+            [weakSelf presentViewController:viewer animated:YES completion:nil];
+        };
+        
+        cell.onPhotoWithFullURLTapped = ^(NSString *photoURL, NSString *fullPhotoURL, UIImage *image) {
+            VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithImageURL:photoURL fullImageURL:fullPhotoURL initialImage:image];
             [weakSelf presentViewController:viewer animated:YES completion:nil];
         };
         
@@ -1192,6 +1206,13 @@
             
             cell.onMoreTapped = ^{
                 [weakSelf showCommentActionSheetForComment:comment];
+            };
+            
+            cell.onPhotoWithFullURLTapped = ^(NSString *photoURL, NSString *fullPhotoURL, UIImage *image) {
+                if (photoURL.length > 0) {
+                    VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithImageURL:photoURL fullImageURL:fullPhotoURL initialImage:image];
+                    [weakSelf presentViewController:viewer animated:YES completion:nil];
+                }
             };
             
             cell.onPhotoTapped = ^(NSString *photoURL, UIImage *image) {

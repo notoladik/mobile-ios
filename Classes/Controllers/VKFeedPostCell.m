@@ -341,16 +341,31 @@
 
 - (void)photoCellTapped:(UITapGestureRecognizer *)gesture {
     NSInteger index = gesture.view.tag;
-    if (self.onPhotosGalleryTapped && self.currentPhotos.count > 0) {
+    if (self.currentPhotos.count > 0) {
         NSMutableArray<NSString *> *urls = [NSMutableArray array];
+        NSMutableArray<NSString *> *fullUrls = [NSMutableArray array];
         for (VKAttachment *att in self.currentPhotos) {
-            if (att.photoURL.length > 0) [urls addObject:att.photoURL];
+            if (att.photoURL.length > 0) {
+                [urls addObject:att.photoURL];
+                [fullUrls addObject:att.photoURLFull ?: att.photoURL];
+            }
         }
-        self.onPhotosGalleryTapped(urls, index);
-    } else if (self.onPhotoTapped && index < (NSInteger)self.currentPhotos.count) {
+        if (self.onPhotosGalleryWithFullURLsTapped && urls.count > 0) {
+            self.onPhotosGalleryWithFullURLsTapped(urls, fullUrls, index);
+            return;
+        } else if (self.onPhotosGalleryTapped && urls.count > 0) {
+            self.onPhotosGalleryTapped(urls, index);
+            return;
+        }
+    }
+    if (index < (NSInteger)self.currentPhotos.count) {
         VKAttachment *att = self.currentPhotos[index];
         UIImageView *iv = (UIImageView *)gesture.view;
-        self.onPhotoTapped(att.photoURL, iv.image);
+        if (self.onPhotoWithFullURLTapped) {
+            self.onPhotoWithFullURLTapped(att.photoURL, att.photoURLFull, iv.image);
+        } else if (self.onPhotoTapped) {
+            self.onPhotoTapped(att.photoURL, iv.image);
+        }
     }
 }
 
@@ -358,15 +373,25 @@
     if (self.currentPost.repostHistory.count == 0) return;
     VKPost *rep = self.currentPost.repostHistory[0];
     NSMutableArray<NSString *> *urls = [NSMutableArray array];
+    NSMutableArray<NSString *> *fullUrls = [NSMutableArray array];
     for (VKAttachment *att in rep.attachments) {
-        if (att.type == VKAttachmentTypePhoto && att.photoURL.length > 0) [urls addObject:att.photoURL];
+        if (att.type == VKAttachmentTypePhoto && att.photoURL.length > 0) {
+            [urls addObject:att.photoURL];
+            [fullUrls addObject:att.photoURLFull ?: att.photoURL];
+        }
     }
     NSInteger index = gesture.view.tag;
-    if (self.onPhotosGalleryTapped && urls.count > 0) {
+    if (self.onPhotosGalleryWithFullURLsTapped && urls.count > 0) {
+        self.onPhotosGalleryWithFullURLsTapped(urls, fullUrls, index);
+    } else if (self.onPhotosGalleryTapped && urls.count > 0) {
         self.onPhotosGalleryTapped(urls, index);
-    } else if (self.onPhotoTapped && index < (NSInteger)urls.count) {
+    } else if (index < (NSInteger)urls.count) {
         UIImageView *iv = (UIImageView *)gesture.view;
-        self.onPhotoTapped(urls[index], iv.image);
+        if (self.onPhotoWithFullURLTapped) {
+            self.onPhotoWithFullURLTapped(urls[index], fullUrls[index], iv.image);
+        } else if (self.onPhotoTapped) {
+            self.onPhotoTapped(urls[index], iv.image);
+        }
     }
 }
 

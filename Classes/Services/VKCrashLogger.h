@@ -8,5 +8,7 @@
 + (NSString *)crashLogFilePath;
 + (NSString *)readCrashLog;
 + (NSString *)readAllLogs;
++ (unsigned long long)totalLogSizeBytes;
++ (void)clearAllLogs;
 
 @end

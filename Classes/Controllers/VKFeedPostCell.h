@@ -55,7 +55,9 @@
 @property (nonatomic, copy) void (^onToggleTextExpanded)(VKPost *post);
 @property (nonatomic, copy) void (^onToggleRepostTextExpanded)(VKPost *post);
 @property (nonatomic, copy) void (^onPhotoTapped)(NSString *imageURL, UIImage *image);
+@property (nonatomic, copy) void (^onPhotoWithFullURLTapped)(NSString *imageURL, NSString *fullImageURL, UIImage *image);
 @property (nonatomic, copy) void (^onPhotosGalleryTapped)(NSArray<NSString *> *photoURLs, NSInteger initialIndex);
+@property (nonatomic, copy) void (^onPhotosGalleryWithFullURLsTapped)(NSArray<NSString *> *photoURLs, NSArray<NSString *> *fullPhotoURLs, NSInteger initialIndex);
 @property (nonatomic, copy) void (^onVideoTapped)(VKAttachment *videoAttachment);
 @property (nonatomic, copy) void (^onAudioTapped)(VKAttachment *audioAttachment);
 @property (nonatomic, copy) void (^onPollVoted)(VKAttachment *pollAttachment, NSInteger optionId);

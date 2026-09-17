@@ -3,8 +3,11 @@
 #import "VKImageLoader.h"
 #import <QuartzCore/QuartzCore.h>
 
+#import "VKAttachment.h"
+
 @interface VKPhotoViewerViewController () <UIScrollViewDelegate, UIActionSheetDelegate, UIGestureRecognizerDelegate>
 @property (nonatomic, strong) NSArray<NSString *> *photoURLs;
+@property (nonatomic, strong) NSArray<NSString *> *fullPhotoURLs;
 @property (nonatomic, assign) NSInteger currentIndex;
 @property (nonatomic, strong) UIImage *initialSingleImage;
 
@@ -20,6 +23,8 @@
 @property (nonatomic, strong) UIView *bottomBarView;
 @property (nonatomic, strong) UIButton *saveButton;
 @property (nonatomic, strong) UIButton *shareButton;
+@property (nonatomic, strong) UIButton *hqButton;
+@property (nonatomic, strong) UIActivityIndicatorView *hqSpinner;
 
 @property (nonatomic, assign) BOOL isBarsHidden;
 @property (nonatomic, assign) CGPoint dragStartPoint;
@@ -29,9 +34,14 @@
 @implementation VKPhotoViewerViewController
 
 - (instancetype)initWithImageURL:(NSString *)imageURL initialImage:(UIImage *)initialImage {
+    return [self initWithImageURL:imageURL fullImageURL:imageURL initialImage:initialImage];
+}
+
+- (instancetype)initWithImageURL:(NSString *)imageURL fullImageURL:(NSString *)fullImageURL initialImage:(UIImage *)initialImage {
     self = [super init];
     if (self) {
         _photoURLs = imageURL.length > 0 ? @[imageURL] : @[];
+        _fullPhotoURLs = fullImageURL.length > 0 ? @[fullImageURL] : _photoURLs;
         _currentIndex = 0;
         _initialSingleImage = initialImage;
         self.modalPresentationStyle = UIModalPresentationFullScreen;
@@ -40,13 +50,32 @@
 }
 
 - (instancetype)initWithPhotoURLs:(NSArray<NSString *> *)photoURLs initialIndex:(NSInteger)initialIndex {
+    return [self initWithPhotoURLs:photoURLs fullPhotoURLs:photoURLs initialIndex:initialIndex];
+}
+
+- (instancetype)initWithPhotoURLs:(NSArray<NSString *> *)photoURLs fullPhotoURLs:(NSArray<NSString *> *)fullPhotoURLs initialIndex:(NSInteger)initialIndex {
     self = [super init];
     if (self) {
         _photoURLs = (photoURLs.count > 0) ? [photoURLs copy] : @[];
+        _fullPhotoURLs = (fullPhotoURLs.count > 0) ? [fullPhotoURLs copy] : _photoURLs;
         _currentIndex = (initialIndex >= 0 && initialIndex < (NSInteger)_photoURLs.count) ? initialIndex : 0;
         self.modalPresentationStyle = UIModalPresentationFullScreen;
     }
     return self;
+}
+
+- (instancetype)initWithAttachments:(NSArray<VKAttachment *> *)attachments initialIndex:(NSInteger)initialIndex {
+    NSMutableArray *urls = [NSMutableArray array];
+    NSMutableArray *fulls = [NSMutableArray array];
+    for (VKAttachment *att in attachments) {
+        if (att.type == VKAttachmentTypePhoto) {
+            NSString *low = att.photoURLLow ?: att.photoURL;
+            NSString *full = att.photoURLFull ?: att.photoURL;
+            if (low.length > 0) [urls addObject:low];
+            if (full.length > 0) [fulls addObject:full];
+        }
+    }
+    return [self initWithPhotoURLs:urls fullPhotoURLs:fulls initialIndex:initialIndex];
 }
 
 - (void)viewDidLoad {
@@ -185,7 +214,24 @@
     [self.shareButton addTarget:self action:@selector(sharePhotoAction) forControlEvents:UIControlEventTouchUpInside];
     [self.bottomBarView addSubview:self.shareButton];
     
+    // Кнопка загрузки HQ
+    CGFloat hqW = 76.0;
+    self.hqButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.hqButton.frame = CGRectMake((bounds.size.width - hqW) / 2.0, 7, hqW, 34);
+    self.hqButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+    self.hqButton.layer.cornerRadius = 6.0;
+    self.hqButton.layer.borderWidth = 1.0;
+    self.hqButton.titleLabel.font = [UIFont boldSystemFontOfSize:13];
+    [self.hqButton addTarget:self action:@selector(loadHQPhotoAction) forControlEvents:UIControlEventTouchUpInside];
+    [self.bottomBarView addSubview:self.hqButton];
+    
+    self.hqSpinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleWhite];
+    self.hqSpinner.frame = CGRectMake((hqW - 20) / 2.0, 7, 20, 20);
+    self.hqSpinner.hidesWhenStopped = YES;
+    [self.hqButton addSubview:self.hqSpinner];
+    
     [self updateTitleForIndex:self.currentIndex];
+    [self updateHQButtonState];
 }
 
 - (void)updateTitleForIndex:(NSInteger)index {
@@ -413,6 +459,7 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)b {
         if (page >= 0 && page < (NSInteger)self.photoURLs.count) {
             self.currentIndex = page;
             [self updateTitleForIndex:page];
+            [self updateHQButtonState];
             
             for (NSInteger i = 0; i < (NSInteger)self.zoomScrollViews.count; i++) {
                 if (i != page) {
@@ -425,6 +472,68 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)b {
 
 - (BOOL)prefersStatusBarHidden {
     return YES;
+}
+
+- (void)updateHQButtonState {
+    if (self.currentIndex < 0 || self.currentIndex >= (NSInteger)self.photoURLs.count) {
+        self.hqButton.hidden = YES;
+        return;
+    }
+    self.hqButton.hidden = NO;
+    NSString *currentURL = self.photoURLs[self.currentIndex];
+    NSString *fullURL = (self.currentIndex < (NSInteger)self.fullPhotoURLs.count) ? self.fullPhotoURLs[self.currentIndex] : nil;
+    
+    BOOL isAlreadyFull = (fullURL.length == 0) || [fullURL isEqualToString:currentURL];
+    BOOL isFullOnDisk = fullURL ? [[VKImageLoader sharedLoader] isImageCachedOnDiskForURL:fullURL] : NO;
+    
+    if (isAlreadyFull || isFullOnDisk) {
+        [self.hqButton setTitle:@"HQ ✓" forState:UIControlStateNormal];
+        [self.hqButton setTitleColor:[UIColor colorWithWhite:1.0 alpha:0.55] forState:UIControlStateNormal];
+        self.hqButton.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.1];
+        self.hqButton.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
+        self.hqButton.enabled = NO;
+    } else {
+        [self.hqButton setTitle:@"HQ" forState:UIControlStateNormal];
+        [self.hqButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        self.hqButton.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.25];
+        self.hqButton.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.85].CGColor;
+        self.hqButton.enabled = YES;
+    }
+}
+
+- (void)loadHQPhotoAction {
+    if (self.currentIndex < 0 || self.currentIndex >= (NSInteger)self.fullPhotoURLs.count) return;
+    NSString *fullURL = self.fullPhotoURLs[self.currentIndex];
+    if (!fullURL || fullURL.length == 0) return;
+    
+    [self.hqButton setTitle:@"" forState:UIControlStateNormal];
+    [self.hqSpinner startAnimating];
+    self.hqButton.enabled = NO;
+    
+    NSInteger pageIndex = self.currentIndex;
+    [[VKImageLoader sharedLoader] loadImageWithURL:fullURL completion:^(UIImage *fullImg) {
+        [self.hqSpinner stopAnimating];
+        if (fullImg) {
+            if (pageIndex < (NSInteger)self.imageViews.count) {
+                UIImageView *iv = self.imageViews[pageIndex];
+                [UIView transitionWithView:iv
+                                  duration:0.35
+                                   options:UIViewAnimationOptionTransitionCrossDissolve
+                                animations:^{
+                                    iv.image = fullImg;
+                                } completion:nil];
+                if (pageIndex < (NSInteger)self.zoomScrollViews.count) {
+                    [self centerImageInScrollView:self.zoomScrollViews[pageIndex]];
+                }
+            }
+            NSMutableArray *mutURLs = [self.photoURLs mutableCopy];
+            if (pageIndex < (NSInteger)mutURLs.count) {
+                mutURLs[pageIndex] = fullURL;
+                self.photoURLs = [mutURLs copy];
+            }
+        }
+        [self updateHQButtonState];
+    }];
 }
 
 @end

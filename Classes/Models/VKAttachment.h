@@ -28,6 +28,8 @@ typedef NS_ENUM(NSInteger, VKAttachmentType) {
 @property (nonatomic, assign) NSInteger photoId;
 @property (nonatomic, assign) NSInteger ownerId;
 @property (nonatomic, copy) NSString *photoURL;
+@property (nonatomic, copy) NSString *photoURLLow;
+@property (nonatomic, copy) NSString *photoURLFull;
 @property (nonatomic, assign) CGFloat photoWidth;
 @property (nonatomic, assign) CGFloat photoHeight;
 @property (nonatomic, assign) NSInteger photoLikes;

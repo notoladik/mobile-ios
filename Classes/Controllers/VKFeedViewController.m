@@ -410,8 +410,18 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
         [weakSelf.navigationController pushViewController:profVC animated:YES];
     };
     
+    cell.onPhotosGalleryWithFullURLsTapped = ^(NSArray<NSString *> *photoURLs, NSArray<NSString *> *fullPhotoURLs, NSInteger initialIndex) {
+        VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithPhotoURLs:photoURLs fullPhotoURLs:fullPhotoURLs initialIndex:initialIndex];
+        [weakSelf presentViewController:viewer animated:YES completion:nil];
+    };
+    
     cell.onPhotosGalleryTapped = ^(NSArray<NSString *> *photoURLs, NSInteger initialIndex) {
         VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithPhotoURLs:photoURLs initialIndex:initialIndex];
+        [weakSelf presentViewController:viewer animated:YES completion:nil];
+    };
+    
+    cell.onPhotoWithFullURLTapped = ^(NSString *photoURL, NSString *fullPhotoURL, UIImage *image) {
+        VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithImageURL:photoURL fullImageURL:fullPhotoURL initialImage:image];
         [weakSelf presentViewController:viewer animated:YES completion:nil];
     };
     

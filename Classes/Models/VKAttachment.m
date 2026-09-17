@@ -21,19 +21,58 @@
         att.ownerId = [p[@"owner_id"] integerValue];
         
         NSArray *sizes = p[@"sizes"];
+        NSString *lowURL = nil;
+        NSString *fullURL = nil;
+        CGFloat lowW = 0, lowH = 0;
+        CGFloat fullW = 0, fullH = 0;
+        
         if ([sizes isKindOfClass:[NSArray class]] && sizes.count > 0) {
-            NSDictionary *best = [sizes lastObject];
+            NSDictionary *lowDict = nil;
+            NSDictionary *fullDict = [sizes lastObject];
+            
             for (NSDictionary *s in sizes) {
-                if ([s[@"type"] isEqualToString:@"z"] || [s[@"type"] isEqualToString:@"y"] || [s[@"type"] isEqualToString:@"x"]) {
-                    best = s;
+                NSString *st = s[@"type"];
+                if ([st isEqualToString:@"m"] || [st isEqualToString:@"x"]) {
+                    lowDict = s;
                     break;
                 }
             }
-            att.photoURL = best[@"url"] ?: best[@"src"];
-            att.photoWidth = [best[@"width"] floatValue];
-            att.photoHeight = [best[@"height"] floatValue];
+            if (!lowDict) lowDict = sizes[0];
+            
+            for (NSDictionary *s in sizes) {
+                NSString *st = s[@"type"];
+                if ([st isEqualToString:@"w"] || [st isEqualToString:@"z"] || [st isEqualToString:@"y"]) {
+                    fullDict = s;
+                    break;
+                }
+            }
+            
+            lowURL = lowDict[@"url"] ?: lowDict[@"src"];
+            lowW = [lowDict[@"width"] floatValue];
+            lowH = [lowDict[@"height"] floatValue];
+            
+            fullURL = fullDict[@"url"] ?: fullDict[@"src"];
+            fullW = [fullDict[@"width"] floatValue];
+            fullH = [fullDict[@"height"] floatValue];
         } else {
-            att.photoURL = p[@"photo_807"] ?: p[@"photo_604"] ?: p[@"photo_1280"] ?: p[@"photo_130"];
+            lowURL = p[@"photo_130"] ?: p[@"photo_604"] ?: p[@"photo_75"];
+            fullURL = p[@"photo_1280"] ?: p[@"photo_807"] ?: p[@"photo_604"] ?: p[@"photo_130"];
+            lowW = 320; lowH = 240;
+            fullW = 800; fullH = 600;
+        }
+        
+        att.photoURLLow = lowURL ?: fullURL;
+        att.photoURLFull = fullURL ?: lowURL;
+        
+        NSInteger qualityPref = [[NSUserDefaults standardUserDefaults] integerForKey:@"VKPhotoQualityPreference"];
+        if (qualityPref == 1) { // High quality
+            att.photoURL = att.photoURLFull;
+            att.photoWidth = (fullW > 0) ? fullW : (lowW > 0 ? lowW : 320);
+            att.photoHeight = (fullH > 0) ? fullH : (lowH > 0 ? lowH : 240);
+        } else { // Low quality (traffic saver) - default 0
+            att.photoURL = att.photoURLLow;
+            att.photoWidth = (lowW > 0) ? lowW : (fullW > 0 ? fullW : 320);
+            att.photoHeight = (lowH > 0) ? lowH : (fullH > 0 ? fullH : 240);
         }
         
         att.photoLikes = [p[@"likes"][@"count"] integerValue];
