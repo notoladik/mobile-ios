@@ -309,7 +309,7 @@
 }
 
 - (BOOL)application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey,id> *)options {
-    return [self application:app openURL:url sourceApplication:nil annotation:nil];
+    return [self application:app openURL:url sourceApplication:@"" annotation:@{}];
 }
 
 @end

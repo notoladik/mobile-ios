@@ -14,20 +14,28 @@
 #import "VKCrashLogger.h"
 #import "VKShareManager.h"
 
-#pragma mark - VKCommentCell (Идентично скриншоту VK iOS)
+#pragma mark - VKCommentCell (Идентично скриншоту VK iOS с поддержкой вложений)
 
 @interface VKCommentCell : UITableViewCell
 @property (nonatomic, strong) UIImageView *avatarImageView;
 @property (nonatomic, strong) UILabel *nameLabel;
 @property (nonatomic, strong) UILabel *dateLabel;
 @property (nonatomic, strong) UILabel *commentTextLabel;
+@property (nonatomic, strong) UIView *attachmentsContainerView;
 @property (nonatomic, strong) UIButton *replyButton;
 @property (nonatomic, strong) UIButton *moreButton;
 @property (nonatomic, strong) UIButton *likeButton;
+
 @property (nonatomic, copy) void (^onAvatarTapped)(void);
 @property (nonatomic, copy) void (^onReplyTapped)(void);
 @property (nonatomic, copy) void (^onMoreTapped)(void);
 @property (nonatomic, copy) void (^onLikeTapped)(void);
+@property (nonatomic, copy) void (^onPhotoTapped)(NSString *photoURL, UIImage *image);
+@property (nonatomic, copy) void (^onAudioTapped)(VKAttachment *audio);
+@property (nonatomic, copy) void (^onVideoTapped)(VKAttachment *video);
+@property (nonatomic, copy) void (^onDocTapped)(VKAttachment *doc);
+@property (nonatomic, copy) void (^onLinkTapped)(NSString *url);
+
 @property (nonatomic, strong) VKComment *currentComment;
 @property (nonatomic, assign) NSUInteger configurationGeneration;
 @end
@@ -52,7 +60,7 @@
         
         _nameLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         _nameLabel.font = [UIFont boldSystemFontOfSize:14];
-        _nameLabel.textColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]; // #4A76A8
+        _nameLabel.textColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
         [self.contentView addSubview:_nameLabel];
         
         _commentTextLabel = [[UILabel alloc] initWithFrame:CGRectZero];
@@ -60,6 +68,10 @@
         _commentTextLabel.textColor = [UIColor colorWithRed:20.0/255.0 green:20.0/255.0 blue:24.0/255.0 alpha:1.0];
         _commentTextLabel.numberOfLines = 0;
         [self.contentView addSubview:_commentTextLabel];
+        
+        _attachmentsContainerView = [[UIView alloc] initWithFrame:CGRectZero];
+        _attachmentsContainerView.clipsToBounds = YES;
+        [self.contentView addSubview:_attachmentsContainerView];
         
         _dateLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         _dateLabel.font = [UIFont systemFontOfSize:11.5];
@@ -102,7 +114,14 @@
     self.onReplyTapped = nil;
     self.onMoreTapped = nil;
     self.onLikeTapped = nil;
+    self.onPhotoTapped = nil;
+    self.onAudioTapped = nil;
+    self.onVideoTapped = nil;
+    self.onDocTapped = nil;
+    self.onLinkTapped = nil;
     self.avatarImageView.image = nil;
+    [[self.attachmentsContainerView subviews] makeObjectsPerformSelector:@selector(removeFromSuperview)];
+    self.attachmentsContainerView.frame = CGRectZero;
 }
 
 - (void)avatarClicked {
@@ -160,18 +179,45 @@
 + (CGFloat)heightForComment:(VKComment *)comment width:(CGFloat)width {
     if (!comment) return 44.0;
     CGFloat textWidth = MAX(50.0, width - 68.0);
-    NSAttributedString *attr = [self attributedTextForComment:comment.text];
     
     CGFloat textH = 0;
-    if ([attr respondsToSelector:@selector(boundingRectWithSize:options:context:)]) {
-        CGRect rect = [attr boundingRectWithSize:CGSizeMake(textWidth, CGFLOAT_MAX) options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading context:nil];
-        textH = ceilf(rect.size.height);
-    } else {
-        CGSize sz = [comment.text sizeWithFont:[UIFont systemFontOfSize:14] constrainedToSize:CGSizeMake(textWidth, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
-        textH = ceilf(sz.height);
+    if (comment.text.length > 0) {
+        NSAttributedString *attr = [self attributedTextForComment:comment.text];
+        if ([attr respondsToSelector:@selector(boundingRectWithSize:options:context:)]) {
+            CGRect rect = [attr boundingRectWithSize:CGSizeMake(textWidth, CGFLOAT_MAX) options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading context:nil];
+            textH = ceilf(rect.size.height);
+        } else {
+            CGSize sz = [comment.text sizeWithFont:[UIFont systemFontOfSize:14] constrainedToSize:CGSizeMake(textWidth, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
+            textH = ceilf(sz.height);
+        }
     }
-    // Reserve enough vertical space for comfortable 26pt action targets.
-    return MAX(62.0, textH + 52.0);
+    
+    CGFloat attsH = 0;
+    for (VKAttachment *att in comment.attachments) {
+        if (![att isKindOfClass:[VKAttachment class]]) continue;
+        if (att.type == VKAttachmentTypePhoto || att.type == VKAttachmentTypeGif) {
+            CGFloat maxW = MIN(220.0, textWidth);
+            CGFloat h = 150.0;
+            if (att.photoWidth > 0 && att.photoHeight > 0) {
+                h = roundf(maxW * (att.photoHeight / att.photoWidth));
+                h = MIN(180.0, MAX(70.0, h));
+            }
+            attsH += h + 6.0;
+        } else if (att.type == VKAttachmentTypeSticker) {
+            attsH += 128.0 + 6.0;
+        } else if (att.type == VKAttachmentTypeAudio) {
+            attsH += 44.0 + 6.0;
+        } else if (att.type == VKAttachmentTypeVideo) {
+            attsH += 130.0 + 6.0;
+        } else if (att.type == VKAttachmentTypeDoc) {
+            attsH += 38.0 + 6.0;
+        } else if (att.type == VKAttachmentTypeLink) {
+            attsH += 42.0 + 6.0;
+        }
+    }
+    
+    CGFloat contentH = (textH > 0 ? (textH + 4.0) : 0) + attsH;
+    return MAX(62.0, 28.0 + contentH + 32.0);
 }
 
 - (void)configureWithComment:(VKComment *)comment width:(CGFloat)width {
@@ -200,21 +246,238 @@
     CGSize nameSize = [self.nameLabel.text sizeWithFont:[UIFont boldSystemFontOfSize:14]];
     self.nameLabel.frame = CGRectMake(58, 8, MIN(nameSize.width, width - 130), 18);
     
-    NSAttributedString *attr = [VKCommentCell attributedTextForComment:comment.text];
-    self.commentTextLabel.attributedText = attr;
-    
     CGFloat textWidth = MAX(50.0, width - 68.0);
     CGFloat textH = 0;
-    if ([attr respondsToSelector:@selector(boundingRectWithSize:options:context:)]) {
-        CGRect rect = [attr boundingRectWithSize:CGSizeMake(textWidth, CGFLOAT_MAX) options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading context:nil];
-        textH = ceilf(rect.size.height);
+    if (comment.text.length > 0) {
+        NSAttributedString *attr = [VKCommentCell attributedTextForComment:comment.text];
+        self.commentTextLabel.attributedText = attr;
+        if ([attr respondsToSelector:@selector(boundingRectWithSize:options:context:)]) {
+            CGRect rect = [attr boundingRectWithSize:CGSizeMake(textWidth, CGFLOAT_MAX) options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading context:nil];
+            textH = ceilf(rect.size.height);
+        } else {
+            CGSize sz = [comment.text sizeWithFont:[UIFont systemFontOfSize:14] constrainedToSize:CGSizeMake(textWidth, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
+            textH = ceilf(sz.height);
+        }
+        self.commentTextLabel.frame = CGRectMake(58, 28, textWidth, textH);
+        self.commentTextLabel.hidden = NO;
     } else {
-        CGSize sz = [comment.text sizeWithFont:[UIFont systemFontOfSize:14] constrainedToSize:CGSizeMake(textWidth, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
-        textH = ceilf(sz.height);
+        self.commentTextLabel.text = nil;
+        self.commentTextLabel.frame = CGRectZero;
+        self.commentTextLabel.hidden = YES;
     }
-    self.commentTextLabel.frame = CGRectMake(58, 28, textWidth, textH);
     
-    CGFloat bottomY = 28 + textH + 4.0;
+    // Рендеринг вложений
+    [[self.attachmentsContainerView subviews] makeObjectsPerformSelector:@selector(removeFromSuperview)];
+    
+    CGFloat startAttY = (textH > 0) ? (28.0 + textH + 6.0) : 28.0;
+    CGFloat currentY = 0;
+    
+    __weak typeof(self) weakSelf = self;
+    
+    for (VKAttachment *att in comment.attachments) {
+        if (![att isKindOfClass:[VKAttachment class]]) continue;
+        
+        if (att.type == VKAttachmentTypePhoto || att.type == VKAttachmentTypeGif) {
+            CGFloat maxW = MIN(220.0, textWidth);
+            CGFloat h = 150.0;
+            if (att.photoWidth > 0 && att.photoHeight > 0) {
+                h = roundf(maxW * (att.photoHeight / att.photoWidth));
+                h = MIN(180.0, MAX(70.0, h));
+            }
+            
+            UIImageView *photoView = [[UIImageView alloc] initWithFrame:CGRectMake(0, currentY, maxW, h)];
+            photoView.layer.cornerRadius = 6.0;
+            photoView.clipsToBounds = YES;
+            photoView.contentMode = UIViewContentModeScaleAspectFill;
+            photoView.backgroundColor = [UIColor colorWithWhite:0.92 alpha:1.0];
+            photoView.userInteractionEnabled = YES;
+            
+            NSString *url = att.photoURL ?: att.gifPreviewURL;
+            if (url) {
+                [[VKImageLoader sharedLoader] loadImageWithURL:url completion:^(UIImage *img) {
+                    if (img && weakSelf.configurationGeneration == generation) {
+                        photoView.image = img;
+                    }
+                }];
+            }
+            
+            UITapGestureRecognizer *pTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handlePhotoTap:)];
+            photoView.tag = 1000 + (NSInteger)[comment.attachments indexOfObject:att];
+            [photoView addGestureRecognizer:pTap];
+            
+            [self.attachmentsContainerView addSubview:photoView];
+            currentY += h + 6.0;
+            
+        } else if (att.type == VKAttachmentTypeSticker) {
+            UIImageView *stickView = [[UIImageView alloc] initWithFrame:CGRectMake(0, currentY, 128, 128)];
+            stickView.contentMode = UIViewContentModeScaleAspectFit;
+            stickView.backgroundColor = [UIColor clearColor];
+            
+            if (att.stickerURL) {
+                [[VKImageLoader sharedLoader] loadImageWithURL:att.stickerURL completion:^(UIImage *img) {
+                    if (img && weakSelf.configurationGeneration == generation) {
+                        stickView.image = img;
+                    }
+                }];
+            }
+            [self.attachmentsContainerView addSubview:stickView];
+            currentY += 128.0 + 6.0;
+            
+        } else if (att.type == VKAttachmentTypeAudio) {
+            UIView *audioCard = [[UIView alloc] initWithFrame:CGRectMake(0, currentY, MIN(240.0, textWidth), 44)];
+            audioCard.backgroundColor = [UIColor colorWithRed:242.0/255.0 green:245.0/255.0 blue:248.0/255.0 alpha:1.0];
+            audioCard.layer.cornerRadius = 6.0;
+            audioCard.clipsToBounds = YES;
+            audioCard.userInteractionEnabled = YES;
+            
+            UIButton *playBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+            playBtn.frame = CGRectMake(6, 7, 30, 30);
+            playBtn.layer.cornerRadius = 15.0;
+            playBtn.backgroundColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
+            [playBtn setTitle:@"▶" forState:UIControlStateNormal];
+            playBtn.titleLabel.font = [UIFont systemFontOfSize:12];
+            [playBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+            playBtn.userInteractionEnabled = NO;
+            [audioCard addSubview:playBtn];
+            
+            UILabel *titleLbl = [[UILabel alloc] initWithFrame:CGRectMake(42, 4, audioCard.bounds.size.width - 48, 18)];
+            titleLbl.font = [UIFont boldSystemFontOfSize:12.5];
+            titleLbl.textColor = [UIColor colorWithRed:30.0/255.0 green:30.0/255.0 blue:30.0/255.0 alpha:1.0];
+            titleLbl.text = att.audioTitle ?: @"Аудиозапись";
+            [audioCard addSubview:titleLbl];
+            
+            UILabel *artistLbl = [[UILabel alloc] initWithFrame:CGRectMake(42, 22, audioCard.bounds.size.width - 48, 16)];
+            artistLbl.font = [UIFont systemFontOfSize:11];
+            artistLbl.textColor = [UIColor grayColor];
+            artistLbl.text = att.audioArtist ?: @"Неизвестный исполнитель";
+            [audioCard addSubview:artistLbl];
+            
+            UITapGestureRecognizer *aTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleAudioTap:)];
+            audioCard.tag = 1000 + (NSInteger)[comment.attachments indexOfObject:att];
+            [audioCard addGestureRecognizer:aTap];
+            
+            [self.attachmentsContainerView addSubview:audioCard];
+            currentY += 44.0 + 6.0;
+            
+        } else if (att.type == VKAttachmentTypeVideo) {
+            CGFloat vW = MIN(220.0, textWidth);
+            CGFloat vH = 130.0;
+            UIView *vidCard = [[UIView alloc] initWithFrame:CGRectMake(0, currentY, vW, vH)];
+            vidCard.layer.cornerRadius = 6.0;
+            vidCard.clipsToBounds = YES;
+            vidCard.backgroundColor = [UIColor blackColor];
+            vidCard.userInteractionEnabled = YES;
+            
+            UIImageView *thumb = [[UIImageView alloc] initWithFrame:vidCard.bounds];
+            thumb.contentMode = UIViewContentModeScaleAspectFill;
+            thumb.clipsToBounds = YES;
+            if (att.videoImageURL) {
+                [[VKImageLoader sharedLoader] loadImageWithURL:att.videoImageURL completion:^(UIImage *img) {
+                    if (img && weakSelf.configurationGeneration == generation) {
+                        thumb.image = img;
+                    }
+                }];
+            }
+            [vidCard addSubview:thumb];
+            
+            UIView *overlay = [[UIView alloc] initWithFrame:vidCard.bounds];
+            overlay.backgroundColor = [UIColor colorWithWhite:0 alpha:0.25];
+            [vidCard addSubview:overlay];
+            
+            UILabel *playIco = [[UILabel alloc] initWithFrame:CGRectMake((vW - 36)/2.0, (vH - 36)/2.0, 36, 36)];
+            playIco.text = @"▶";
+            playIco.textAlignment = NSTextAlignmentCenter;
+            playIco.textColor = [UIColor whiteColor];
+            playIco.font = [UIFont systemFontOfSize:20];
+            playIco.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5];
+            playIco.layer.cornerRadius = 18.0;
+            playIco.clipsToBounds = YES;
+            [vidCard addSubview:playIco];
+            
+            if (att.videoTitle) {
+                UILabel *vTitle = [[UILabel alloc] initWithFrame:CGRectMake(6, vH - 22, vW - 12, 18)];
+                vTitle.font = [UIFont boldSystemFontOfSize:11];
+                vTitle.textColor = [UIColor whiteColor];
+                vTitle.shadowColor = [UIColor blackColor];
+                vTitle.shadowOffset = CGSizeMake(0, 1);
+                vTitle.text = att.videoTitle;
+                [vidCard addSubview:vTitle];
+            }
+            
+            UITapGestureRecognizer *vTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleVideoTap:)];
+            vidCard.tag = 1000 + (NSInteger)[comment.attachments indexOfObject:att];
+            [vidCard addGestureRecognizer:vTap];
+            
+            [self.attachmentsContainerView addSubview:vidCard];
+            currentY += vH + 6.0;
+            
+        } else if (att.type == VKAttachmentTypeDoc) {
+            UIView *docCard = [[UIView alloc] initWithFrame:CGRectMake(0, currentY, MIN(240.0, textWidth), 38)];
+            docCard.backgroundColor = [UIColor colorWithRed:244.0/255.0 green:246.0/255.0 blue:249.0/255.0 alpha:1.0];
+            docCard.layer.cornerRadius = 6.0;
+            docCard.clipsToBounds = YES;
+            docCard.userInteractionEnabled = YES;
+            
+            UILabel *docIco = [[UILabel alloc] initWithFrame:CGRectMake(8, 7, 24, 24)];
+            docIco.text = @"📄";
+            docIco.font = [UIFont systemFontOfSize:18];
+            [docCard addSubview:docIco];
+            
+            UILabel *docTitle = [[UILabel alloc] initWithFrame:CGRectMake(36, 4, docCard.bounds.size.width - 42, 16)];
+            docTitle.font = [UIFont boldSystemFontOfSize:12];
+            docTitle.textColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
+            docTitle.text = att.docTitle ?: @"Документ";
+            [docCard addSubview:docTitle];
+            
+            UILabel *docSub = [[UILabel alloc] initWithFrame:CGRectMake(36, 20, docCard.bounds.size.width - 42, 14)];
+            docSub.font = [UIFont systemFontOfSize:10.5];
+            docSub.textColor = [UIColor grayColor];
+            docSub.text = att.docSize ?: (att.docExt ? [att.docExt uppercaseString] : @"Файл");
+            [docCard addSubview:docSub];
+            
+            UITapGestureRecognizer *dTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleDocTap:)];
+            docCard.tag = 1000 + (NSInteger)[comment.attachments indexOfObject:att];
+            [docCard addGestureRecognizer:dTap];
+            
+            [self.attachmentsContainerView addSubview:docCard];
+            currentY += 38.0 + 6.0;
+            
+        } else if (att.type == VKAttachmentTypeLink) {
+            UIView *linkCard = [[UIView alloc] initWithFrame:CGRectMake(0, currentY, MIN(240.0, textWidth), 42)];
+            linkCard.backgroundColor = [UIColor colorWithRed:244.0/255.0 green:246.0/255.0 blue:249.0/255.0 alpha:1.0];
+            linkCard.layer.cornerRadius = 6.0;
+            linkCard.clipsToBounds = YES;
+            linkCard.userInteractionEnabled = YES;
+            
+            UILabel *linkIco = [[UILabel alloc] initWithFrame:CGRectMake(8, 9, 24, 24)];
+            linkIco.text = @"🔗";
+            linkIco.font = [UIFont systemFontOfSize:16];
+            [linkCard addSubview:linkIco];
+            
+            UILabel *lTitle = [[UILabel alloc] initWithFrame:CGRectMake(36, 4, linkCard.bounds.size.width - 42, 16)];
+            lTitle.font = [UIFont boldSystemFontOfSize:12];
+            lTitle.textColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
+            lTitle.text = att.linkTitle ?: (att.linkURL ?: @"Ссылка");
+            [linkCard addSubview:lTitle];
+            
+            UILabel *lSub = [[UILabel alloc] initWithFrame:CGRectMake(36, 22, linkCard.bounds.size.width - 42, 14)];
+            lSub.font = [UIFont systemFontOfSize:10.5];
+            lSub.textColor = [UIColor grayColor];
+            lSub.text = att.linkURL ?: @"";
+            [linkCard addSubview:lSub];
+            
+            UITapGestureRecognizer *lTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleLinkTap:)];
+            linkCard.tag = 1000 + (NSInteger)[comment.attachments indexOfObject:att];
+            [linkCard addGestureRecognizer:lTap];
+            
+            [self.attachmentsContainerView addSubview:linkCard];
+            currentY += 42.0 + 6.0;
+        }
+    }
+    
+    self.attachmentsContainerView.frame = CGRectMake(58, startAttY, textWidth, currentY);
+    
+    CGFloat bottomY = startAttY + currentY + 4.0;
     NSString *dateStr = comment.timeAgo ?: @"сегодня";
     CGSize dateSize = [dateStr sizeWithFont:[UIFont systemFontOfSize:11.5]];
     self.dateLabel.text = dateStr;
@@ -236,11 +499,55 @@
     [self.likeButton setTitleColor:heartColor forState:UIControlStateNormal];
 }
 
+- (void)handlePhotoTap:(UITapGestureRecognizer *)tap {
+    NSInteger idx = tap.view.tag - 1000;
+    if (idx >= 0 && idx < (NSInteger)self.currentComment.attachments.count) {
+        VKAttachment *att = self.currentComment.attachments[idx];
+        NSString *url = att.photoURL ?: att.gifPreviewURL;
+        UIImage *img = [(UIImageView *)tap.view image];
+        if (self.onPhotoTapped) {
+            self.onPhotoTapped(url, img);
+        }
+    }
+}
+
+- (void)handleAudioTap:(UITapGestureRecognizer *)tap {
+    NSInteger idx = tap.view.tag - 1000;
+    if (idx >= 0 && idx < (NSInteger)self.currentComment.attachments.count) {
+        VKAttachment *att = self.currentComment.attachments[idx];
+        if (self.onAudioTapped) self.onAudioTapped(att);
+    }
+}
+
+- (void)handleVideoTap:(UITapGestureRecognizer *)tap {
+    NSInteger idx = tap.view.tag - 1000;
+    if (idx >= 0 && idx < (NSInteger)self.currentComment.attachments.count) {
+        VKAttachment *att = self.currentComment.attachments[idx];
+        if (self.onVideoTapped) self.onVideoTapped(att);
+    }
+}
+
+- (void)handleDocTap:(UITapGestureRecognizer *)tap {
+    NSInteger idx = tap.view.tag - 1000;
+    if (idx >= 0 && idx < (NSInteger)self.currentComment.attachments.count) {
+        VKAttachment *att = self.currentComment.attachments[idx];
+        if (self.onDocTapped) self.onDocTapped(att);
+    }
+}
+
+- (void)handleLinkTap:(UITapGestureRecognizer *)tap {
+    NSInteger idx = tap.view.tag - 1000;
+    if (idx >= 0 && idx < (NSInteger)self.currentComment.attachments.count) {
+        VKAttachment *att = self.currentComment.attachments[idx];
+        if (self.onLinkTapped) self.onLinkTapped(att.linkURL);
+    }
+}
+
 @end
 
 #pragma mark - VKPostDetailViewController
 
-@interface VKPostDetailViewController () <UIActionSheetDelegate, UIAlertViewDelegate>
+@interface VKPostDetailViewController () <UITableViewDataSource, UITableViewDelegate, UIActionSheetDelegate, UIAlertViewDelegate, UITextFieldDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UIRefreshControl *refreshControl;
 @property (nonatomic, strong) NSMutableArray *comments;
@@ -252,6 +559,12 @@
 @property (nonatomic, assign) BOOL isLoading;
 @property (nonatomic, strong) VKComment *selectedCommentForAction;
 @property (nonatomic, assign) NSInteger replyingToCommentId;
+
+@property (nonatomic, strong) UIImage *attachedImage;
+@property (nonatomic, strong) UIView *attachmentPreviewBar;
+@property (nonatomic, strong) UIImageView *attachmentPreviewImageView;
+@property (nonatomic, strong) UIButton *removeAttachmentButton;
+@property (nonatomic, assign) CGFloat lastKeyboardHeight;
 @end
 
 @implementation VKPostDetailViewController
@@ -355,7 +668,43 @@
     self.inputContainerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
     self.inputContainerView.backgroundColor = [UIColor colorWithRed:246.0/255.0 green:247.0/255.0 blue:249.0/255.0 alpha:1.0];
     
+    // Панель предпросмотра прикрепленного фото
+    self.attachmentPreviewBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 54)];
+    self.attachmentPreviewBar.backgroundColor = [UIColor colorWithRed:238.0/255.0 green:240.0/255.0 blue:244.0/255.0 alpha:1.0];
+    self.attachmentPreviewBar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    self.attachmentPreviewBar.hidden = YES;
+    
+    UIView *pTopLine = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 0.5)];
+    pTopLine.backgroundColor = [UIColor colorWithRed:215.0/255.0 green:218.0/255.0 blue:224.0/255.0 alpha:1.0];
+    pTopLine.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [self.attachmentPreviewBar addSubview:pTopLine];
+    
+    self.attachmentPreviewImageView = [[UIImageView alloc] initWithFrame:CGRectMake(12, 6, 42, 42)];
+    self.attachmentPreviewImageView.layer.cornerRadius = 4.0;
+    self.attachmentPreviewImageView.clipsToBounds = YES;
+    self.attachmentPreviewImageView.contentMode = UIViewContentModeScaleAspectFill;
+    [self.attachmentPreviewBar addSubview:self.attachmentPreviewImageView];
+    
+    UILabel *pLabel = [[UILabel alloc] initWithFrame:CGRectMake(62, 16, self.view.bounds.size.width - 110, 20)];
+    pLabel.text = @"Прикреплена фотография";
+    pLabel.font = [UIFont systemFontOfSize:13];
+    pLabel.textColor = [UIColor colorWithRed:60.0/255.0 green:65.0/255.0 blue:75.0/255.0 alpha:1.0];
+    pLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [self.attachmentPreviewBar addSubview:pLabel];
+    
+    self.removeAttachmentButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.removeAttachmentButton.frame = CGRectMake(self.view.bounds.size.width - 40, 11, 32, 32);
+    self.removeAttachmentButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [self.removeAttachmentButton setTitle:@"✕" forState:UIControlStateNormal];
+    [self.removeAttachmentButton setTitleColor:[UIColor colorWithRed:140.0/255.0 green:150.0/255.0 blue:160.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+    self.removeAttachmentButton.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    [self.removeAttachmentButton addTarget:self action:@selector(removeAttachmentAction) forControlEvents:UIControlEventTouchUpInside];
+    [self.attachmentPreviewBar addSubview:self.removeAttachmentButton];
+    
+    [self.inputContainerView addSubview:self.attachmentPreviewBar];
+    
     UIView *topLine = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 0.5)];
+    topLine.tag = 888;
     topLine.backgroundColor = [UIColor colorWithRed:215.0/255.0 green:218.0/255.0 blue:224.0/255.0 alpha:1.0];
     topLine.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [self.inputContainerView addSubview:topLine];
@@ -373,6 +722,7 @@
     CGFloat tfX = 46.0;
     CGFloat tfW = self.view.bounds.size.width - tfX - 58.0;
     UIView *fieldBg = [[UIView alloc] initWithFrame:CGRectMake(tfX, 7, tfW, 32)];
+    fieldBg.tag = 777;
     fieldBg.backgroundColor = [UIColor whiteColor];
     fieldBg.layer.cornerRadius = 16.0;
     fieldBg.layer.borderWidth = 0.5;
@@ -411,9 +761,60 @@
     [self.view addSubview:self.inputContainerView];
 }
 
+- (void)showAttachmentPreviewWithImage:(UIImage *)image {
+    self.attachedImage = image;
+    self.attachmentPreviewImageView.image = image;
+    self.attachmentPreviewBar.hidden = NO;
+    [self.sendButton setTitleColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+    [self relayoutInputBarAnimated:YES];
+}
+
+- (void)removeAttachmentAction {
+    self.attachedImage = nil;
+    self.attachmentPreviewBar.hidden = YES;
+    [self textFieldChanged];
+    [self relayoutInputBarAnimated:YES];
+}
+
+- (CGFloat)currentInputBarHeight {
+    return self.attachedImage ? (46.0 + 54.0) : 46.0;
+}
+
+- (void)relayoutInputBarAnimated:(BOOL)animated {
+    CGFloat h = [self currentInputBarHeight];
+    CGFloat y = self.view.bounds.size.height - h - self.lastKeyboardHeight;
+    
+    void (^layoutBlock)(void) = ^{
+        self.inputContainerView.frame = CGRectMake(0, y, self.view.bounds.size.width, h);
+        self.attachmentPreviewBar.frame = CGRectMake(0, 0, self.view.bounds.size.width, 54);
+        
+        CGFloat baseFieldY = self.attachedImage ? 54.0 : 0.0;
+        
+        UIView *topLine = [self.inputContainerView viewWithTag:888];
+        topLine.frame = CGRectMake(0, baseFieldY, self.view.bounds.size.width, 0.5);
+        
+        self.attachButton.frame = CGRectMake(6, baseFieldY + 6, 34, 34);
+        
+        UIView *fieldBg = [self.inputContainerView viewWithTag:777];
+        CGFloat tfX = 46.0;
+        CGFloat tfW = self.view.bounds.size.width - tfX - 58.0;
+        fieldBg.frame = CGRectMake(tfX, baseFieldY + 7, tfW, 32);
+        
+        self.sendButton.frame = CGRectMake(self.view.bounds.size.width - 54, baseFieldY + 7, 48, 32);
+        
+        self.tableView.frame = CGRectMake(0, 0, self.view.bounds.size.width, y);
+    };
+    
+    if (animated) {
+        [UIView animateWithDuration:0.25 animations:layoutBlock];
+    } else {
+        layoutBlock();
+    }
+}
+
 - (void)textFieldChanged {
     NSString *trimmed = [self.commentTextField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (trimmed.length > 0) {
+    if (trimmed.length > 0 || self.attachedImage != nil) {
         [self.sendButton setTitleColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] forState:UIControlStateNormal];
     } else {
         [self.sendButton setTitleColor:[UIColor colorWithRed:160.0/255.0 green:170.0/255.0 blue:180.0/255.0 alpha:1.0] forState:UIControlStateNormal];
@@ -429,20 +830,19 @@
     NSDictionary *info = [notif userInfo];
     CGRect kbFrame = [info[UIKeyboardFrameEndUserInfoKey] CGRectValue];
     NSTimeInterval duration = [info[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    self.lastKeyboardHeight = kbFrame.size.height;
     
     [UIView animateWithDuration:duration animations:^{
-        self.inputContainerView.frame = CGRectMake(0, self.view.bounds.size.height - kbFrame.size.height - 46.0, self.view.bounds.size.width, 46.0);
-        self.tableView.frame = CGRectMake(0, 0, self.view.bounds.size.width, self.view.bounds.size.height - kbFrame.size.height - 46.0);
+        [self relayoutInputBarAnimated:NO];
     }];
 }
 
 - (void)keyboardWillHide:(NSNotification *)notif {
-    NSDictionary *info = [notif userInfo];
-    NSTimeInterval duration = [info[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    NSTimeInterval duration = [notif.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    self.lastKeyboardHeight = 0;
     
     [UIView animateWithDuration:duration animations:^{
-        self.inputContainerView.frame = CGRectMake(0, self.view.bounds.size.height - 46.0, self.view.bounds.size.width, 46.0);
-        self.tableView.frame = CGRectMake(0, 0, self.view.bounds.size.width, self.view.bounds.size.height - 46.0);
+        [self relayoutInputBarAnimated:NO];
     }];
 }
 
@@ -457,13 +857,40 @@
 }
 
 - (void)attachAction {
-    UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:@"Прикрепить к комментарию"
+    UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:@"Прикрепить фотографию"
                                                        delegate:self
                                               cancelButtonTitle:@"Отмена"
                                          destructiveButtonTitle:nil
-                                              otherButtonTitles:@"Фотография", @"Документ", nil];
+                                              otherButtonTitles:nil];
+    if ([UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeCamera]) {
+        [sheet addButtonWithTitle:@"Сделать снимок"];
+    }
+    [sheet addButtonWithTitle:@"Выбрать из медиатеки"];
+    sheet.cancelButtonIndex = [sheet addButtonWithTitle:@"Отмена"];
     sheet.tag = 1002;
     [sheet showInView:self.view];
+}
+
+- (void)openImagePickerWithSourceType:(UIImagePickerControllerSourceType)type {
+    if (![UIImagePickerController isSourceTypeAvailable:type]) return;
+    UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+    picker.delegate = (id<UIImagePickerControllerDelegate, UINavigationControllerDelegate>)self;
+    picker.sourceType = type;
+    picker.allowsEditing = NO;
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary *)info {
+    UIImage *img = info[UIImagePickerControllerOriginalImage];
+    [picker dismissViewControllerAnimated:YES completion:^{
+        if (img) {
+            [self showAttachmentPreviewWithImage:img];
+        }
+    }];
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
+    [picker dismissViewControllerAnimated:YES completion:nil];
 }
 
 - (void)loadComments {
@@ -485,35 +912,85 @@
 
 - (void)sendComment {
     NSString *text = [self.commentTextField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (text.length == 0) return;
+    if (text.length == 0 && !self.attachedImage) return;
     
     self.sendButton.userInteractionEnabled = NO;
     NSInteger replyId = self.replyingToCommentId;
     
-    [VKCrashLogger log:@"[VKPostDetailViewController] Sending comment: owner=%ld, post=%ld, text='%@', replyTo=%ld", (long)self.post.ownerID, (long)self.post.vkID, text, (long)replyId];
-    
-    [[VKCommentsService sharedService] addCommentForOwnerId:self.post.ownerID postId:self.post.vkID message:text replyToCid:replyId completion:^(BOOL success, NSInteger commentId, NSError *error) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.sendButton.userInteractionEnabled = YES;
-            if (success) {
-                [VKCrashLogger log:@"[VKPostDetailViewController] Comment created successfully with ID=%ld", (long)commentId];
-                self.commentTextField.text = @"";
-                self.replyingToCommentId = 0;
-                [self textFieldChanged];
-                [self.commentTextField resignFirstResponder];
-                [self loadComments];
-            } else {
-                NSString *errMsg = error.localizedDescription ?: @"Не удалось отправить комментарий. Проверьте соединение с сервером.";
-                [VKCrashLogger log:@"[VKPostDetailViewController] Error creating comment: %@", errMsg];
-                UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Ошибка"
-                                                                message:errMsg
-                                                               delegate:nil
-                                                      cancelButtonTitle:@"OK"
-                                                      otherButtonTitles:nil];
-                [alert show];
-            }
-        });
-    }];
+    if (self.attachedImage) {
+        [self.sendButton setTitle:@"..." forState:UIControlStateNormal];
+        UIImage *uploadImg = self.attachedImage;
+        [[VKFeedService sharedService] uploadWallPhoto:uploadImg ownerId:self.post.ownerID completion:^(NSString *attachmentString, NSError *uploadError) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (uploadError || !attachmentString) {
+                    self.sendButton.userInteractionEnabled = YES;
+                    [self.sendButton setTitle:@"Отпр." forState:UIControlStateNormal];
+                    NSString *errMsg = uploadError.localizedDescription ?: @"Не удалось загрузить фото";
+                    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Ошибка загрузки"
+                                                                    message:errMsg
+                                                                   delegate:nil
+                                                          cancelButtonTitle:@"OK"
+                                                          otherButtonTitles:nil];
+                    [alert show];
+                    return;
+                }
+                
+                [[VKCommentsService sharedService] addCommentForOwnerId:self.post.ownerID
+                                                                 postId:self.post.vkID
+                                                                message:text
+                                                             replyToCid:replyId
+                                                            attachments:attachmentString
+                                                             completion:^(BOOL success, NSInteger commentId, NSError *error) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        self.sendButton.userInteractionEnabled = YES;
+                        [self.sendButton setTitle:@"Отпр." forState:UIControlStateNormal];
+                        if (success) {
+                            [self removeAttachmentAction];
+                            self.commentTextField.text = @"";
+                            self.replyingToCommentId = 0;
+                            [self textFieldChanged];
+                            [self.commentTextField resignFirstResponder];
+                            [self loadComments];
+                        } else {
+                            NSString *errMsg = error.localizedDescription ?: @"Не удалось отправить комментарий.";
+                            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Ошибка"
+                                                                            message:errMsg
+                                                                           delegate:nil
+                                                                  cancelButtonTitle:@"OK"
+                                                                  otherButtonTitles:nil];
+                            [alert show];
+                        }
+                    });
+                }];
+            });
+        }];
+    } else {
+        [[VKCommentsService sharedService] addCommentForOwnerId:self.post.ownerID
+                                                         postId:self.post.vkID
+                                                        message:text
+                                                     replyToCid:replyId
+                                                    attachments:nil
+                                                     completion:^(BOOL success, NSInteger commentId, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.sendButton.userInteractionEnabled = YES;
+                if (success) {
+                    self.commentTextField.text = @"";
+                    self.replyingToCommentId = 0;
+                    [self textFieldChanged];
+                    [self.commentTextField resignFirstResponder];
+                    [self loadComments];
+                } else {
+                    NSString *errMsg = error.localizedDescription ?: @"Не удалось отправить комментарий.";
+                    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Ошибка"
+                                                                    message:errMsg
+                                                                   delegate:nil
+                                                          cancelButtonTitle:@"OK"
+                                                          otherButtonTitles:nil];
+                    [alert show];
+                }
+            });
+        }];
+    }
 }
 
 #pragma mark - Table View Data Source
@@ -716,6 +1193,40 @@
             cell.onMoreTapped = ^{
                 [weakSelf showCommentActionSheetForComment:comment];
             };
+            
+            cell.onPhotoTapped = ^(NSString *photoURL, UIImage *image) {
+                if (photoURL.length > 0) {
+                    VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithImageURL:photoURL initialImage:image];
+                    [weakSelf presentViewController:viewer animated:YES completion:nil];
+                }
+            };
+            
+            cell.onAudioTapped = ^(VKAttachment *audio) {
+                if (audio.audioURL.length > 0) {
+                    VKAudioTrack *track = [[VKAudioTrack alloc] init];
+                    track.title = audio.audioTitle ?: @"Аудиозапись";
+                    track.artist = audio.audioArtist ?: @"";
+                    track.url = audio.audioURL;
+                    [[VKAudioPlayer sharedPlayer] playTrack:track];
+                }
+            };
+            
+            cell.onVideoTapped = ^(VKAttachment *video) {
+                VKVideoPlayerViewController *player = [[VKVideoPlayerViewController alloc] initWithAttachment:video];
+                [weakSelf presentViewController:player animated:YES completion:nil];
+            };
+            
+            cell.onDocTapped = ^(VKAttachment *doc) {
+                if (doc.docURL.length > 0) {
+                    [[UIApplication sharedApplication] openURL:[NSURL URLWithString:doc.docURL]];
+                }
+            };
+            
+            cell.onLinkTapped = ^(NSString *linkUrl) {
+                if (linkUrl.length > 0) {
+                    [[UIApplication sharedApplication] openURL:[NSURL URLWithString:linkUrl]];
+                }
+            };
         }
         return cell;
     }
@@ -779,6 +1290,14 @@
             // Поделиться
         } else if (buttonIndex == 1) {
             [UIPasteboard generalPasteboard].string = [NSString stringWithFormat:@"https://openvk.su/wall%ld_%ld", (long)self.post.ownerID, (long)self.post.vkID];
+        }
+    } else if (actionSheet.tag == 1002) {
+        if (buttonIndex == actionSheet.cancelButtonIndex) return;
+        NSString *title = [actionSheet buttonTitleAtIndex:buttonIndex];
+        if ([title isEqualToString:@"Сделать снимок"]) {
+            [self openImagePickerWithSourceType:UIImagePickerControllerSourceTypeCamera];
+        } else if ([title isEqualToString:@"Выбрать из медиатеки"]) {
+            [self openImagePickerWithSourceType:UIImagePickerControllerSourceTypePhotoLibrary];
         }
     }
 }

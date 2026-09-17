@@ -69,6 +69,15 @@
                      message:(NSString *)message
                   replyToCid:(NSInteger)replyToCid
                   completion:(void (^)(BOOL success, NSInteger commentId, NSError *error))completion {
+    [self addCommentForOwnerId:ownerId postId:postId message:message replyToCid:replyToCid attachments:nil completion:completion];
+}
+
+- (void)addCommentForOwnerId:(NSInteger)ownerId
+                      postId:(NSInteger)postId
+                     message:(NSString *)message
+                  replyToCid:(NSInteger)replyToCid
+                 attachments:(NSString *)attachments
+                  completion:(void (^)(BOOL success, NSInteger commentId, NSError *error))completion {
     
     NSMutableDictionary *params = [NSMutableDictionary dictionaryWithDictionary:@{
         @"owner_id": @(ownerId),
@@ -79,6 +88,9 @@
     if (replyToCid > 0) {
         params[@"reply_to_comment"] = @(replyToCid);
         params[@"reply_to_cid"] = @(replyToCid);
+    }
+    if (attachments.length > 0) {
+        params[@"attachments"] = attachments;
     }
     
     [[VKAPIClient sharedClient] callMethod:@"wall.createComment" parameters:params completionHandler:^(id response, NSError *error) {
@@ -123,12 +135,23 @@
                     commentId:(NSInteger)commentId
                       message:(NSString *)message
                    completion:(void (^)(BOOL success, NSError *error))completion {
+    [self editCommentForOwnerId:ownerId commentId:commentId message:message attachments:nil completion:completion];
+}
+
+- (void)editCommentForOwnerId:(NSInteger)ownerId
+                    commentId:(NSInteger)commentId
+                      message:(NSString *)message
+                  attachments:(NSString *)attachments
+                   completion:(void (^)(BOOL success, NSError *error))completion {
     
-    NSDictionary *params = @{
+    NSMutableDictionary *params = [NSMutableDictionary dictionaryWithDictionary:@{
         @"owner_id": @(ownerId),
         @"comment_id": @(commentId),
         @"message": message ?: @""
-    };
+    }];
+    if (attachments.length > 0) {
+        params[@"attachments"] = attachments;
+    }
     
     [[VKAPIClient sharedClient] callMethod:@"wall.editComment" parameters:params completionHandler:^(id response, NSError *error) {
         if (completion) {
