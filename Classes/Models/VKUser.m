@@ -17,6 +17,7 @@
     if (user.displayName.length == 0) user.displayName = dict[@"name"] ?: user.username;
     
     user.avatarURL = dict[@"photo_100"] ?: dict[@"photo_200"] ?: dict[@"photo_50"] ?: dict[@"photo_max"];
+    user.avatarURLFull = dict[@"photo_max_orig"] ?: dict[@"photo_400_orig"] ?: dict[@"photo_200_orig"] ?: dict[@"photo_max"] ?: user.avatarURL;
     
     if ([dict[@"city"] isKindOfClass:[NSDictionary class]]) {
         user.city = dict[@"city"][@"title"];

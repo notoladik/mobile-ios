@@ -214,6 +214,9 @@
         
         _likeButton = [UIButton buttonWithType:UIButtonTypeCustom];
         [_likeButton addTarget:self action:@selector(likeTapped) forControlEvents:UIControlEventTouchUpInside];
+        UILongPressGestureRecognizer *lpLike = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(likeButtonLongPressed:)];
+        lpLike.minimumPressDuration = 0.45;
+        [_likeButton addGestureRecognizer:lpLike];
         [_actionsContainerView addSubview:_likeButton];
         
         _commentsButton = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -222,6 +225,9 @@
         
         _repostButton = [UIButton buttonWithType:UIButtonTypeCustom];
         [_repostButton addTarget:self action:@selector(repostTapped) forControlEvents:UIControlEventTouchUpInside];
+        UILongPressGestureRecognizer *lpRepost = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(repostButtonLongPressed:)];
+        lpRepost.minimumPressDuration = 0.45;
+        [_repostButton addGestureRecognizer:lpRepost];
         [_actionsContainerView addSubview:_repostButton];
     }
     return self;

@@ -15,6 +15,7 @@ typedef NS_ENUM(NSInteger, VKProfileAccessStatus) {
 @property (nonatomic, copy) NSString *username;
 @property (nonatomic, copy) NSString *displayName;
 @property (nonatomic, copy) NSString *avatarURL;
+@property (nonatomic, copy) NSString *avatarURLFull;
 @property (nonatomic, copy) NSString *city;
 @property (nonatomic, assign) BOOL isOnline;
 @property (nonatomic, copy) NSString *onlinePlatform;

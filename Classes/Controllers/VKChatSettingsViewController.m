@@ -1,3 +1,4 @@
+#import "VKPhotoViewerViewController.h"
 #import "VKChatSettingsViewController.h"
 #import "VKMessagesService.h"
 #import "VKProfileViewController.h"
@@ -71,6 +72,8 @@
     avatar.clipsToBounds = YES;
     avatar.backgroundColor = [UIColor colorWithWhite:0.9 alpha:1.0];
     avatar.contentMode = UIViewContentModeScaleAspectFill;
+    avatar.userInteractionEnabled = YES;
+    [avatar addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(chatAvatarTapped)]];
     [header addSubview:avatar];
     self.headerAvatarView = avatar;
     

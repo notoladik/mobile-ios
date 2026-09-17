@@ -17,7 +17,7 @@
         // Group profile
         NSDictionary *params = @{
             @"group_id": @(labs(userId)),
-            @"fields": @"description,status,verified,site,members_count,can_post,can_suggest,is_admin,is_member"
+            @"fields": @"description,status,verified,site,members_count,can_post,can_suggest,is_admin,is_member,photo_50,photo_100,photo_200"
         };
         [[VKAPIClient sharedClient] callMethod:@"groups.getById" parameters:params completionHandler:^(id response, NSError *error) {
             if (error) {
@@ -37,7 +37,7 @@
     } else {
         // User profile
         NSMutableDictionary *params = [NSMutableDictionary dictionaryWithDictionary:@{
-            @"fields": @"photo_100,photo_200,city,online,verified,screen_name,status,about,site,sex,can_write_on_wall,can_post,friend_status,counters"
+            @"fields": @"photo_100,photo_200,photo_max,photo_400_orig,photo_max_orig,city,online,verified,screen_name,status,about,site,sex,can_write_on_wall,can_post,friend_status,counters"
         }];
         if (userId > 0) {
             params[@"user_ids"] = @(userId);

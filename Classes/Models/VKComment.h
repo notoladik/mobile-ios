@@ -5,6 +5,7 @@
 @interface VKComment : NSObject
 
 @property (nonatomic, assign) NSInteger commentId;
+@property (nonatomic, assign) NSInteger ownerId;
 @property (nonatomic, assign) NSInteger fromId;
 @property (nonatomic, strong) VKUser *author;
 @property (nonatomic, copy) NSString *text;

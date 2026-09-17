@@ -7,6 +7,7 @@
     
     VKComment *c = [[VKComment alloc] init];
     c.commentId = [dict[@"id"] integerValue];
+    c.ownerId = [dict[@"owner_id"] integerValue];
     c.fromId = [dict[@"from_id"] integerValue];
     
     if (c.fromId > 0) {

@@ -300,6 +300,11 @@
             UIButton *actionBtn = (UIButton *)[cell.contentView viewWithTag:804];
             
             avatar.image = nil;
+            avatar.userInteractionEnabled = YES;
+            for (UIGestureRecognizer *gr in avatar.gestureRecognizers) {
+                [avatar removeGestureRecognizer:gr];
+            }
+            [avatar addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(profileAvatarTapped:)]];
             if (self.user.avatarURL) {
                 [[VKImageLoader sharedLoader] loadImageWithURL:self.user.avatarURL completion:^(UIImage *img) {
                     if (img) avatar.image = img;

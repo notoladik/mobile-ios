@@ -53,7 +53,7 @@
             NSMutableArray *comments = [NSMutableArray array];
             for (NSDictionary *item in rawItems) {
                 VKComment *c = [VKComment commentFromDictionary:item profiles:profiles groups:groups];
-                if (c) [comments addObject:c];
+                if (c) { if (c.ownerId == 0) c.ownerId = ownerId; [comments addObject:c]; }
             }
             
             if (completion) completion(comments, total, nil);

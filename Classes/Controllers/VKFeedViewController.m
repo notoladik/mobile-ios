@@ -1,3 +1,4 @@
+#import "VKLikesListViewController.h"
 #import "VKFeedViewController.h"
 #import "VKFeedPostCell.h"
 #import "VKFeedService.h"
@@ -358,6 +359,14 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     __weak typeof(self) weakSelf = self;
     cell.onLikeTapped = ^(VKPost *p) {
         [[VKFeedService sharedService] likePost:p completion:nil];
+    };
+    
+    cell.onShowLikesTapped = ^(VKPost *p, NSInteger filter) {
+        VKLikesListViewController *likesVC = [[VKLikesListViewController alloc] initWithType:@"post"
+                                                                                     ownerId:p.ownerID
+                                                                                      itemId:p.vkID
+                                                                               initialFilter:filter];
+        [weakSelf.navigationController pushViewController:likesVC animated:YES];
     };
     
     cell.onCommentTapped = ^(VKPost *p) {

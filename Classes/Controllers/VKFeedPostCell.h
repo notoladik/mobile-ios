@@ -47,6 +47,7 @@
 @property (nonatomic, strong) VKPost *currentPost;
 @property (nonatomic, assign) BOOL isExplicitRevealed;
 @property (nonatomic, copy) void (^onLikeTapped)(VKPost *post);
+@property (nonatomic, copy) void (^onShowLikesTapped)(VKPost *post, NSInteger filter);
 @property (nonatomic, copy) void (^onCommentTapped)(VKPost *post);
 @property (nonatomic, copy) void (^onRepostTapped)(VKPost *post);
 @property (nonatomic, copy) void (^onAuthorTapped)(VKUser *user);

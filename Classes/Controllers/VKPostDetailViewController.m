@@ -1,3 +1,4 @@
+#import "VKLikesListViewController.h"
 #import "VKPostDetailViewController.h"
 #import "VKCommentsService.h"
 #import "VKFeedService.h"
@@ -29,6 +30,7 @@
 @property (nonatomic, copy) void (^onAvatarTapped)(void);
 @property (nonatomic, copy) void (^onReplyTapped)(void);
 @property (nonatomic, copy) void (^onMoreTapped)(void);
+@property (nonatomic, copy) void (^onShowCommentLikesTapped)(VKComment *comment);
 @property (nonatomic, copy) void (^onLikeTapped)(void);
 @property (nonatomic, copy) void (^onPhotoTapped)(NSString *photoURL, UIImage *image);
 @property (nonatomic, copy) void (^onPhotoWithFullURLTapped)(NSString *photoURL, NSString *fullPhotoURL, UIImage *image);
@@ -102,6 +104,9 @@
         _likeButton.titleLabel.font = [UIFont systemFontOfSize:12.5];
         _likeButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentRight;
         [_likeButton addTarget:self action:@selector(likeClicked) forControlEvents:UIControlEventTouchUpInside];
+        UILongPressGestureRecognizer *lpComm = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(commentLikeLongPressed:)];
+        lpComm.minimumPressDuration = 0.45;
+        [_likeButton addGestureRecognizer:lpComm];
         [self.contentView addSubview:_likeButton];
     }
     return self;
@@ -1060,11 +1065,19 @@
             cell = [[VKFeedPostCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:PostCellId];
         }
         [cell configureWithPost:self.post isRevealed:YES width:tableView.bounds.size.width];
+        __weak typeof(self) weakSelf = self;
         cell.onLikeTapped = ^(VKPost *p) {
             [[VKFeedService sharedService] likePost:p completion:nil];
         };
         
-        __weak typeof(self) weakSelf = self;
+        cell.onShowLikesTapped = ^(VKPost *p, NSInteger filter) {
+            VKLikesListViewController *likesVC = [[VKLikesListViewController alloc] initWithType:@"post"
+                                                                                         ownerId:p.ownerID
+                                                                                          itemId:p.vkID
+                                                                                   initialFilter:filter];
+            [weakSelf.navigationController pushViewController:likesVC animated:YES];
+        };
+        
         cell.onRepostTapped = ^(VKPost *p) {
             [[VKShareManager sharedManager] presentShareSheetForPost:p fromViewController:weakSelf completion:^{
                 [weakSelf.tableView reloadData];
@@ -1208,6 +1221,14 @@
                 [weakSelf showCommentActionSheetForComment:comment];
             };
             
+            cell.onShowCommentLikesTapped = ^(VKComment *comm) {
+                VKLikesListViewController *likesVC = [[VKLikesListViewController alloc] initWithType:@"comment"
+                                                                                             ownerId:comm.ownerId ?: weakSelf.post.ownerID
+                                                                                              itemId:comm.commentId
+                                                                                       initialFilter:0];
+                [weakSelf.navigationController pushViewController:likesVC animated:YES];
+            };
+            
             cell.onPhotoWithFullURLTapped = ^(NSString *photoURL, NSString *fullPhotoURL, UIImage *image) {
                 if (photoURL.length > 0) {
                     VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithImageURL:photoURL fullImageURL:fullPhotoURL initialImage:image];
@@ -1268,28 +1289,39 @@
     NSInteger myId = [[VKAuthService sharedService] currentUserId];
     BOOL isMyComment = (comment.fromId == myId || (comment.author && comment.author.uid == myId));
     
-    UIActionSheet *sheet = nil;
+    UIActionSheet *sheet = [[UIActionSheet alloc] init];
+    sheet.delegate = self;
+    sheet.tag = isMyComment ? 2001 : 2002;
+    
     if (isMyComment) {
-        sheet = [[UIActionSheet alloc] initWithTitle:nil
-                                            delegate:self
-                                   cancelButtonTitle:@"Отмена"
-                              destructiveButtonTitle:@"Удалить"
-                                   otherButtonTitles:@"Ответить", @"Редактировать", @"Скопировать", nil];
-        sheet.tag = 2001;
+        sheet.destructiveButtonIndex = [sheet addButtonWithTitle:@"Удалить"];
+        [sheet addButtonWithTitle:@"Ответить"];
+        [sheet addButtonWithTitle:@"Редактировать"];
+        [sheet addButtonWithTitle:@"Скопировать"];
     } else {
-        sheet = [[UIActionSheet alloc] initWithTitle:nil
-                                            delegate:self
-                                   cancelButtonTitle:@"Отмена"
-                              destructiveButtonTitle:nil
-                                   otherButtonTitles:@"Ответить", @"Скопировать", @"Пожаловаться", nil];
-        sheet.tag = 2002;
+        [sheet addButtonWithTitle:@"Ответить"];
+        [sheet addButtonWithTitle:@"Скопировать"];
+        [sheet addButtonWithTitle:@"Пожаловаться"];
     }
+    if (comment.likesCount > 0) {
+        [sheet addButtonWithTitle:@"Кто оценил"];
+    }
+    sheet.cancelButtonIndex = [sheet addButtonWithTitle:@"Отмена"];
     [sheet showInView:self.view];
 }
 
 - (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
     if (actionSheet.tag == 2001) {
         // Меню своего комментария: 0: Удалить, 1: Ответить, 2: Редактировать, 3: Скопировать
+        NSString *btnTitle = [actionSheet buttonTitleAtIndex:buttonIndex];
+        if ([btnTitle isEqualToString:@"Кто оценил"]) {
+            VKLikesListViewController *likesVC = [[VKLikesListViewController alloc] initWithType:@"comment"
+                                                                                         ownerId:self.selectedCommentForAction.ownerId ?: self.post.ownerID
+                                                                                          itemId:self.selectedCommentForAction.commentId
+                                                                                   initialFilter:0];
+            [self.navigationController pushViewController:likesVC animated:YES];
+            return;
+        }
         if (buttonIndex == 0) {
             [self deleteSelectedComment];
         } else if (buttonIndex == 1) {
@@ -1301,6 +1333,15 @@
         }
     } else if (actionSheet.tag == 2002) {
         // Меню чужого комментария: 0: Ответить, 1: Скопировать, 2: Пожаловаться
+        NSString *btnTitle = [actionSheet buttonTitleAtIndex:buttonIndex];
+        if ([btnTitle isEqualToString:@"Кто оценил"]) {
+            VKLikesListViewController *likesVC = [[VKLikesListViewController alloc] initWithType:@"comment"
+                                                                                         ownerId:self.selectedCommentForAction.ownerId ?: self.post.ownerID
+                                                                                          itemId:self.selectedCommentForAction.commentId
+                                                                                   initialFilter:0];
+            [self.navigationController pushViewController:likesVC animated:YES];
+            return;
+        }
         if (buttonIndex == 0) {
             [self replyToSelectedComment];
         } else if (buttonIndex == 1) {
