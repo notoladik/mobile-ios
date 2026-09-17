@@ -4,6 +4,9 @@
 #if ENABLE_MILKDROP_VISUALIZER
 #import "VKProjectMGLView.h"
 #endif
+#if ENABLE_AVS_VISUALIZER
+#import "VKAVSGLView.h"
+#endif
 #import "VKImageLoader.h"
 #import "VKThemeManager.h"
 #import <MediaPlayer/MediaPlayer.h>
@@ -17,6 +20,9 @@
 @property (nonatomic, strong) UIImageView *coverImageView;
 #if ENABLE_MILKDROP_VISUALIZER
 @property (nonatomic, strong) VKProjectMGLView *visualizerView;
+#endif
+#if ENABLE_AVS_VISUALIZER
+@property (nonatomic, strong) VKAVSGLView *avsView;
 #endif
 @property (nonatomic, strong) UIView *lyricsContainerView;
 @property (nonatomic, strong) UITextView *lyricsTextView;
@@ -65,11 +71,7 @@
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [VKMiniPlayerBar sharedBar].hidden = YES;
-#if ENABLE_MILKDROP_VISUALIZER
-    if (self.isVisualizerActive) {
-        [self.visualizerView startAnimation];
-    }
-#endif
+    [self applyVisualizerState];
     [self updateUI];
 }
 
@@ -78,6 +80,9 @@
     [VKMiniPlayerBar sharedBar].hidden = NO;
 #if ENABLE_MILKDROP_VISUALIZER
     [self.visualizerView stopAnimation];
+#endif
+#if ENABLE_AVS_VISUALIZER
+    [self.avsView stopAnimation];
 #endif
 }
 
@@ -172,14 +177,18 @@
     [self.coverContainerView addSubview:self.coverImageView];
     
 #if ENABLE_MILKDROP_VISUALIZER
-    // Официальный OpenGL ES визуализатор Milkdrop 2 (projectM)
     self.visualizerView = [[VKProjectMGLView alloc] initWithFrame:CGRectZero];
-    self.visualizerView.hidden = !self.isVisualizerActive;
+    self.visualizerView.hidden = YES;
     [self.coverContainerView addSubview:self.visualizerView];
-    if (self.isVisualizerActive) {
-        [self.coverContainerView bringSubviewToFront:self.visualizerView];
-    }
 #endif
+#if ENABLE_AVS_VISUALIZER
+    self.avsView = [[VKAVSGLView alloc] initWithFrame:CGRectZero];
+    self.avsView.hidden = YES;
+    [self.coverContainerView addSubview:self.avsView];
+#endif
+    UILongPressGestureRecognizer *visLp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPressVisualizer:)];
+    visLp.minimumPressDuration = 0.6;
+    [self.coverContainerView addGestureRecognizer:visLp];
     
     // Оверлей текста песни (Lyrics)
     self.lyricsContainerView = [[UIView alloc] initWithFrame:CGRectZero];
@@ -329,6 +338,9 @@
 #if ENABLE_MILKDROP_VISUALIZER
     self.visualizerView.frame = self.coverContainerView.bounds;
 #endif
+#if ENABLE_AVS_VISUALIZER
+    self.avsView.frame = self.coverContainerView.bounds;
+#endif
     self.lyricsContainerView.frame = self.coverContainerView.bounds;
     self.lyricsTextView.frame = CGRectMake(10, 34, coverSize - 20, coverSize - 44);
     self.lyricsCloseButton.frame = CGRectMake(coverSize - 36, 2, 32, 32);
@@ -416,19 +428,106 @@
     }
 }
 
-- (void)toggleCoverOrVisualizer {
+- (void)applyVisualizerState {
+    NSInteger engine = [[NSUserDefaults standardUserDefaults] integerForKey:@"openvk.audio.visualizer.engine"];
+    BOOL isPlaying = [VKAudioPlayer sharedPlayer].isPlaying;
 #if ENABLE_MILKDROP_VISUALIZER
+    self.visualizerView.isPlaying = isPlaying;
+#endif
+#if ENABLE_AVS_VISUALIZER
+    self.avsView.isPlaying = isPlaying;
+#endif
+#if ENABLE_AVS_VISUALIZER
+    self.avsView.isPlaying = isPlaying;
+#endif
+
+    if (self.isVisualizerActive) {
+        if (engine == 1) {
+#if ENABLE_AVS_VISUALIZER
+            self.avsView.hidden = NO;
+            [self.coverContainerView bringSubviewToFront:self.avsView];
+            [self.avsView startAnimation];
+#endif
+#if ENABLE_MILKDROP_VISUALIZER
+            self.visualizerView.hidden = YES;
+            [self.visualizerView stopAnimation];
+#endif
+        } else {
+#if ENABLE_MILKDROP_VISUALIZER
+            self.visualizerView.hidden = NO;
+            [self.coverContainerView bringSubviewToFront:self.visualizerView];
+            [self.visualizerView startAnimation];
+#endif
+#if ENABLE_AVS_VISUALIZER
+            self.avsView.hidden = YES;
+            [self.avsView stopAnimation];
+#endif
+        }
+    } else {
+#if ENABLE_MILKDROP_VISUALIZER
+        self.visualizerView.hidden = YES;
+        [self.visualizerView stopAnimation];
+#endif
+#if ENABLE_AVS_VISUALIZER
+        self.avsView.hidden = YES;
+        [self.avsView stopAnimation];
+#endif
+    }
+}
+
+- (void)handleLongPressVisualizer:(UILongPressGestureRecognizer *)lp {
+    if (lp.state == UIGestureRecognizerStateBegan) {
+        NSInteger engine = [[NSUserDefaults standardUserDefaults] integerForKey:@"openvk.audio.visualizer.engine"];
+        engine = (engine == 0) ? 1 : 0;
+        [[NSUserDefaults standardUserDefaults] setInteger:engine forKey:@"openvk.audio.visualizer.engine"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+        
+        if (!self.isVisualizerActive) {
+            self.isVisualizerActive = YES;
+            [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"openvk.audio.visualizer.enabled"];
+            [[NSUserDefaults standardUserDefaults] synchronize];
+        }
+        [self applyVisualizerState];
+        if (engine == 1) {
+#if ENABLE_AVS_VISUALIZER
+            [self.avsView showPresetBadge];
+#endif
+        } else {
+#if ENABLE_MILKDROP_VISUALIZER
+            [self.visualizerView showPresetBadge];
+#endif
+        }
+    }
+}
+
+- (void)toggleCoverOrVisualizer {
     if (!self.isVisualizerActive) {
         self.isVisualizerActive = YES;
-        self.visualizerView.hidden = NO;
-        [self.coverContainerView bringSubviewToFront:self.visualizerView];
-        [self.visualizerView showPresetBadge];
+        [self applyVisualizerState];
+        NSInteger engine = [[NSUserDefaults standardUserDefaults] integerForKey:@"openvk.audio.visualizer.engine"];
+        if (engine == 1) {
+#if ENABLE_AVS_VISUALIZER
+            [self.avsView showPresetBadge];
+#endif
+        } else {
+#if ENABLE_MILKDROP_VISUALIZER
+            [self.visualizerView showPresetBadge];
+#endif
+        }
     } else {
-        [self.visualizerView nextPreset];
+        NSInteger engine = [[NSUserDefaults standardUserDefaults] integerForKey:@"openvk.audio.visualizer.engine"];
+        if (engine == 1) {
+#if ENABLE_AVS_VISUALIZER
+            [self.avsView nextPreset];
+#endif
+        } else {
+#if ENABLE_MILKDROP_VISUALIZER
+            [self.visualizerView nextPreset];
+#endif
+        }
     }
     [[NSUserDefaults standardUserDefaults] setBool:self.isVisualizerActive forKey:@"openvk.audio.visualizer.enabled"];
     [[NSUserDefaults standardUserDefaults] synchronize];
-#endif
 }
 
 - (void)closeAction {
@@ -537,6 +636,9 @@
 #if ENABLE_MILKDROP_VISUALIZER
     self.visualizerView.isPlaying = isPlaying;
 #endif
+#if ENABLE_AVS_VISUALIZER
+    self.avsView.isPlaying = isPlaying;
+#endif
     
     if (track.coverURL && track.coverURL.length > 0) {
         self.coverImageView.hidden = NO;
@@ -548,12 +650,7 @@
         self.coverImageView.hidden = YES;
     }
     
-#if ENABLE_MILKDROP_VISUALIZER
-    self.visualizerView.hidden = !self.isVisualizerActive;
-    if (self.isVisualizerActive) {
-        [self.coverContainerView bringSubviewToFront:self.visualizerView];
-    }
-#endif
+    [self applyVisualizerState];
     
     [self updateButtonsStyle];
     [self updateProgress];

@@ -66,7 +66,10 @@
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return 3;
     if (section == 1) return 1;
-    if (section == 2) return 1;
+    if (section == 2) {
+        BOOL visOn = [[NSUserDefaults standardUserDefaults] objectForKey:@"openvk.audio.visualizer.enabled"] ? [[NSUserDefaults standardUserDefaults] boolForKey:@"openvk.audio.visualizer.enabled"] : YES;
+        return visOn ? 2 : 1;
+    }
     
     if ([[VKBackgroundVisualizerManager sharedManager] isEnabled]) {
         return 5;
@@ -110,22 +113,37 @@
         sw.on = [[VKSideMenuManager sharedManager] isSideMenuEnabled];
         return cell;
     } else if (indexPath.section == 2) {
-        static NSString *VisSwitchCellId = @"VKVisualizerSwitchCell";
-        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:VisSwitchCellId];
-        if (!cell) {
-            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:VisSwitchCellId];
-            cell.selectionStyle = UITableViewCellSelectionStyleNone;
-            cell.textLabel.font = [UIFont boldSystemFontOfSize:15];
+        if (indexPath.row == 0) {
+            static NSString *VisSwitchCellId = @"VKVisualizerSwitchCell";
+            UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:VisSwitchCellId];
+            if (!cell) {
+                cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:VisSwitchCellId];
+                cell.selectionStyle = UITableViewCellSelectionStyleNone;
+                cell.textLabel.font = [UIFont boldSystemFontOfSize:15];
+                
+                UISwitch *visSwitch = [[UISwitch alloc] init];
+                [visSwitch addTarget:self action:@selector(toggleVisualizerSwitch:) forControlEvents:UIControlEventValueChanged];
+                cell.accessoryView = visSwitch;
+            }
             
-            UISwitch *visSwitch = [[UISwitch alloc] init];
-            [visSwitch addTarget:self action:@selector(toggleVisualizerSwitch:) forControlEvents:UIControlEventValueChanged];
-            cell.accessoryView = visSwitch;
+            cell.textLabel.text = @"Визуализация в плеере";
+            UISwitch *sw = (UISwitch *)cell.accessoryView;
+            sw.on = [[NSUserDefaults standardUserDefaults] objectForKey:@"openvk.audio.visualizer.enabled"] ? [[NSUserDefaults standardUserDefaults] boolForKey:@"openvk.audio.visualizer.enabled"] : YES;
+            return cell;
+        } else {
+            static NSString *VisEngineCellId = @"VKVisualizerEngineCell";
+            UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:VisEngineCellId];
+            if (!cell) {
+                cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:VisEngineCellId];
+                cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+                cell.textLabel.font = [UIFont systemFontOfSize:15];
+                cell.detailTextLabel.font = [UIFont systemFontOfSize:14];
+            }
+            cell.textLabel.text = @"Движок визуализатора";
+            NSInteger engine = [[NSUserDefaults standardUserDefaults] integerForKey:@"openvk.audio.visualizer.engine"];
+            cell.detailTextLabel.text = (engine == 1) ? @"Winamp AVS (2D)" : @"Milkdrop 2 (3D)";
+            return cell;
         }
-        
-        cell.textLabel.text = @"Визуализация в плеере";
-        UISwitch *sw = (UISwitch *)cell.accessoryView;
-        sw.on = [[NSUserDefaults standardUserDefaults] objectForKey:@"openvk.audio.visualizer.enabled"] ? [[NSUserDefaults standardUserDefaults] boolForKey:@"openvk.audio.visualizer.enabled"] : YES;
-        return cell;
     } else {
         VKBackgroundVisualizerManager *bgMan = [VKBackgroundVisualizerManager sharedManager];
         
@@ -225,6 +243,14 @@
     if (indexPath.section == 0) {
         [[VKThemeManager sharedManager] applyTheme:(VKThemeType)indexPath.row];
         [self.tableView reloadData];
+    } else if (indexPath.section == 2 && indexPath.row == 1) {
+        UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:@"Движок визуализатора в плеере"
+                                                           delegate:self
+                                                  cancelButtonTitle:@"Отмена"
+                                             destructiveButtonTitle:nil
+                                                  otherButtonTitles:@"Milkdrop 2 (projectM 3D)", @"Winamp AVS (Nullsoft 2D)", nil];
+        sheet.tag = 9004;
+        [sheet showInView:self.view];
     } else if (indexPath.section == 3) {
         if (indexPath.row == 1) {
             UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:@"Стиль визуализации"
@@ -258,6 +284,15 @@
 
 - (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
     if (buttonIndex == actionSheet.cancelButtonIndex) return;
+    
+    if (actionSheet.tag == 9004) {
+        if (buttonIndex == 0 || buttonIndex == 1) {
+            [[NSUserDefaults standardUserDefaults] setInteger:buttonIndex forKey:@"openvk.audio.visualizer.engine"];
+            [[NSUserDefaults standardUserDefaults] synchronize];
+            [self.tableView reloadData];
+        }
+        return;
+    }
     
     VKBackgroundVisualizerManager *bgMan = [VKBackgroundVisualizerManager sharedManager];
     if (actionSheet.tag == 9001) {

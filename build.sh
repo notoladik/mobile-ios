@@ -4,6 +4,7 @@ export THEOS="${THEOS:-/home/oladik/theos}"
 export PATH="$THEOS/bin:$PATH"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "Source: $SRC_DIR, THEOS: $THEOS"
+rm -rf ~/OpenVK-Legacy/Vendor/avs ~/OpenVK-Legacy/Classes/AVS
 cp -r "$SRC_DIR/"* ~/OpenVK-Legacy/
 cd ~/OpenVK-Legacy
 make -j2 ipa FINALPACKAGE=1 ENABLE_VISUALIZER="${ENABLE_VISUALIZER:-1}"
