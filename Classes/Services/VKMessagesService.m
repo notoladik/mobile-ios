@@ -576,4 +576,89 @@
     }];
 }
 
+- (void)getHistoryAttachmentsForPeerId:(NSInteger)peerId
+                             mediaType:(NSString *)mediaType
+                             startFrom:(NSString *)startFrom
+                                 count:(NSInteger)count
+                            completion:(void (^)(NSArray *items, NSString *nextFrom, NSDictionary<NSNumber *, VKUser *> *profiles, NSError *error))completion {
+    NSMutableDictionary *params = [NSMutableDictionary dictionaryWithDictionary:@{
+        @"peer_id": @(peerId),
+        @"media_type": mediaType ?: @"photo",
+        @"count": @(count > 0 ? count : 30),
+        @"photo_sizes": @(1),
+        @"extended": @(1),
+        @"fields": @"photo_50,photo_100,photo_200,photo_max_orig,first_name,last_name,sex,online"
+    }];
+    if (startFrom.length > 0) {
+        params[@"start_from"] = startFrom;
+    }
+    
+    [[VKAPIClient sharedClient] callMethod:@"messages.getHistoryAttachments" parameters:params completionHandler:^(id response, NSError *error) {
+        if (error) {
+            if (completion) completion(nil, nil, nil, error);
+            return;
+        }
+        
+        NSDictionary *resp = [response isKindOfClass:[NSDictionary class]] ? (response[@"response"] ?: response) : nil;
+        NSArray *rawItems = resp[@"items"];
+        if (![rawItems isKindOfClass:[NSArray class]]) {
+            rawItems = [NSArray array];
+        }
+        
+        NSString *nextFrom = resp[@"next_from"];
+        
+        NSMutableDictionary<NSNumber *, VKUser *> *profilesMap = [NSMutableDictionary dictionary];
+        NSArray *profiles = resp[@"profiles"];
+        if ([profiles isKindOfClass:[NSArray class]]) {
+            for (NSDictionary *uDict in profiles) {
+                if ([uDict isKindOfClass:[NSDictionary class]]) {
+                    VKUser *u = [VKUser userFromDictionary:uDict];
+                    if (u && u.uid != 0) {
+                        profilesMap[@(u.uid)] = u;
+                    }
+                }
+            }
+        }
+        NSArray *groups = resp[@"groups"];
+        if ([groups isKindOfClass:[NSArray class]]) {
+            for (NSDictionary *gDict in groups) {
+                if ([gDict isKindOfClass:[NSDictionary class]]) {
+                    VKUser *g = [VKUser groupFromDictionary:gDict];
+                    if (g && g.uid != 0) {
+                        profilesMap[@(-labs(g.uid))] = g;
+                    }
+                }
+            }
+        }
+        
+        if (completion) {
+            completion(rawItems, nextFrom, profilesMap, nil);
+        }
+    }];
+}
+
+- (void)sendSticker:(NSInteger)stickerId
+             peerId:(NSInteger)peerId
+         completion:(void (^)(BOOL success, NSInteger messageId, NSError *error))completion {
+    NSInteger randomId = arc4random_uniform(1000000000);
+    NSDictionary *params = @{
+        @"peer_id": @(peerId),
+        @"sticker_id": @(stickerId),
+        @"random_id": @(randomId)
+    };
+    
+    [[VKAPIClient sharedClient] callMethod:@"messages.send" parameters:params completionHandler:^(id response, NSError *error) {
+        if (error) {
+            if (completion) completion(NO, 0, error);
+            return;
+        }
+        
+        NSInteger msgId = 0;
+        if ([response isKindOfClass:[NSDictionary class]] && response[@"response"]) {
+            msgId = [response[@"response"] integerValue];
+        }
+        if (completion) completion(YES, msgId, nil);
+    }];
+}
+
 @end

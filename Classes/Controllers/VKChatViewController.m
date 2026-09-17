@@ -1,7 +1,11 @@
 #import "VKChatViewController.h"
+#import "VKChatAttachmentsViewController.h"
 #import "VKChatMembersViewController.h"
 #import "VKChatSettingsViewController.h"
 #import "VKMessagesService.h"
+#import "VKStickersPickerView.h"
+#import "VKStickersStoreViewController.h"
+#import "VKStickersService.h"
 #import "VKProfileViewController.h"
 #import "VKPhotoViewerViewController.h"
 #import "VKImageLoader.h"
@@ -92,6 +96,8 @@
 @property (nonatomic, strong) NSMutableDictionary *pendingUserFetches;
 @property (nonatomic, strong) UIImageView *navAvatarView;
 @property (nonatomic, strong) UIView *navAvatarContainer;
+@property (nonatomic, strong) VKStickersPickerView *stickersPickerView;
+@property (nonatomic, strong) UIButton *stickersButton;
 @end
 
 @implementation VKChatViewController
@@ -208,6 +214,19 @@
         self.messageTextField.leftView = leftPad;
         self.messageTextField.leftViewMode = UITextFieldViewModeAlways;
     }
+    
+    // Кнопка смайла/стикеров
+    UIView *rightPad = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 32, 34)];
+    UIButton *stBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    stBtn.frame = CGRectMake(0, 0, 32, 34);
+    [stBtn setTitle:@"😊" forState:UIControlStateNormal];
+    stBtn.titleLabel.font = [UIFont systemFontOfSize:19];
+    [stBtn addTarget:self action:@selector(toggleStickersPicker) forControlEvents:UIControlEventTouchUpInside];
+    [rightPad addSubview:stBtn];
+    self.stickersButton = stBtn;
+    self.messageTextField.rightView = rightPad;
+    self.messageTextField.rightViewMode = UITextFieldViewModeAlways;
+    
     [self.inputContainerView addSubview:self.messageTextField];
     
     // Кнопка «Отпр.»
@@ -526,7 +545,13 @@
 
 - (void)headerTapped {
     if (self.peerId <= 2000000000) {
-        [self openPeerProfile];
+        UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil
+                                                           delegate:self
+                                                  cancelButtonTitle:@"Отмена"
+                                             destructiveButtonTitle:nil
+                                                  otherButtonTitles:@"Перейти в профиль", @"Материалы диалога", nil];
+        sheet.tag = 5099;
+        [sheet showInView:self.view];
         return;
     }
     [self openChatSettings];
@@ -1325,6 +1350,14 @@
                 }
             });
         }];
+    } else if (actionSheet.tag == 5099) {
+        if (buttonIndex == actionSheet.cancelButtonIndex) return;
+        if (buttonIndex == 0) {
+            [self openPeerProfile];
+        } else if (buttonIndex == 1) {
+            VKChatAttachmentsViewController *attVC = [[VKChatAttachmentsViewController alloc] initWithPeerId:self.peerId chatTitle:self.chatTitle];
+            [self.navigationController pushViewController:attVC animated:YES];
+        }
     }
 }
 
@@ -1362,7 +1395,68 @@
     }
 }
 
+- (void)toggleStickersPicker {
+    if (self.messageTextField.inputView != nil) {
+        // Переключаемся обратно на обычную клавиатуру
+        self.messageTextField.inputView = nil;
+        [self.stickersButton setTitle:@"😊" forState:UIControlStateNormal];
+        [self.messageTextField reloadInputViews];
+    } else {
+        // Переключаемся на пикер стикеров
+        if (!self.stickersPickerView) {
+            self.stickersPickerView = [[VKStickersPickerView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 216.0)];
+            __weak typeof(self) weakSelf = self;
+            self.stickersPickerView.onStickerSelected = ^(NSInteger stickerId) {
+                [weakSelf sendStickerWithId:stickerId];
+            };
+            self.stickersPickerView.onOpenStore = ^{
+                [weakSelf openStickersStore];
+            };
+        }
+        [self.stickersPickerView reloadPacks];
+        self.messageTextField.inputView = self.stickersPickerView;
+        [self.stickersButton setTitle:@"⌨️" forState:UIControlStateNormal];
+        [self.messageTextField becomeFirstResponder];
+        [self.messageTextField reloadInputViews];
+    }
+}
+
+- (void)openStickersStore {
+    VKStickersStoreViewController *storeVC = [[VKStickersStoreViewController alloc] init];
+    __weak typeof(self) weakSelf = self;
+    storeVC.onPacksUpdated = ^{
+        [weakSelf.stickersPickerView reloadPacks];
+    };
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:storeVC];
+    [self presentViewController:nav animated:YES completion:nil];
+}
+
+- (void)sendStickerWithId:(NSInteger)stickerId {
+    __weak typeof(self) weakSelf = self;
+    [[VKMessagesService sharedService] sendSticker:stickerId peerId:self.peerId completion:^(BOOL success, NSInteger messageId, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            if (!success && error) {
+                UIAlertView *av = [[UIAlertView alloc] initWithTitle:@"Ошибка"
+                                                             message:error.localizedDescription ?: @"Не удалось отправить стикер"
+                                                            delegate:nil
+                                                   cancelButtonTitle:@"OK"
+                                                   otherButtonTitles:nil];
+                [av show];
+            } else {
+                [strongSelf loadHistory];
+            }
+        });
+    }];
+}
+
 - (void)dismissKeyboard {
+    if (self.messageTextField.inputView != nil) {
+        self.messageTextField.inputView = nil;
+        [self.stickersButton setTitle:@"😊" forState:UIControlStateNormal];
+        [self.messageTextField reloadInputViews];
+    }
     [self.view endEditing:YES];
 }
 

@@ -85,4 +85,14 @@
                            role:(NSString *)role
                      completion:(void (^)(BOOL success, NSError *error))completion;
 
+- (void)getHistoryAttachmentsForPeerId:(NSInteger)peerId
+                             mediaType:(NSString *)mediaType
+                             startFrom:(NSString *)startFrom
+                                 count:(NSInteger)count
+                            completion:(void (^)(NSArray *items, NSString *nextFrom, NSDictionary<NSNumber *, VKUser *> *profiles, NSError *error))completion;
+
+- (void)sendSticker:(NSInteger)stickerId
+             peerId:(NSInteger)peerId
+         completion:(void (^)(BOOL success, NSInteger messageId, NSError *error))completion;
+
 @end

@@ -1,4 +1,5 @@
 #import "VKPhotoViewerViewController.h"
+#import "VKChatAttachmentsViewController.h"
 #import "VKChatSettingsViewController.h"
 #import "VKMessagesService.h"
 #import "VKProfileViewController.h"
@@ -430,6 +431,13 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    
+    // Вложения беседы
+    if (indexPath.section == 0 && indexPath.row == 1) {
+        VKChatAttachmentsViewController *attVC = [[VKChatAttachmentsViewController alloc] initWithPeerId:(2000000000 + self.chatId) chatTitle:self.chatTitle];
+        [self.navigationController pushViewController:attVC animated:YES];
+        return;
+    }
     
     // Секция участников
     if (indexPath.section == 1) {
