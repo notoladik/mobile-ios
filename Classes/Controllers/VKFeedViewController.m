@@ -25,6 +25,7 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
 
 @interface VKFeedViewController () <UIActionSheetDelegate>
 @property (nonatomic, strong) NSMutableArray *posts;
+@property (nonatomic, strong) VKPost *selectedPostForAction;
 @property (nonatomic, strong) NSMutableSet *revealedPostIds;
 @property (nonatomic, copy) NSString *nextFrom;
 @property (nonatomic, assign) BOOL isLoading;
@@ -182,11 +183,29 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
 }
 
 - (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
+    if (buttonIndex == actionSheet.cancelButtonIndex) return;
     if (actionSheet.tag == 201) {
         if (buttonIndex >= 0 && buttonIndex <= 2) {
             self.feedMode = (VKFeedTypeMode)buttonIndex;
             [self.titleButton setTitle:[self titleForFeedMode:self.feedMode] forState:UIControlStateNormal];
             [self loadFeedFromStart:YES];
+        }
+    } else if (actionSheet.tag == 701 && self.selectedPostForAction) {
+        VKPost *p = self.selectedPostForAction;
+        NSString *title = [actionSheet buttonTitleAtIndex:buttonIndex];
+        if ([title isEqualToString:@"Поделиться"]) {
+            [[VKShareManager sharedManager] presentShareSheetForPost:p fromViewController:self completion:nil];
+        } else if ([title isEqualToString:@"Скопировать ссылку"]) {
+            [UIPasteboard generalPasteboard].string = [NSString stringWithFormat:@"https://openvk.su/wall%ld_%ld", (long)p.ownerID, (long)p.vkID];
+        } else if ([title isEqualToString:@"Кто оценил"]) {
+            VKLikesListViewController *likesVC = [[VKLikesListViewController alloc] initWithType:@"post" ownerId:p.ownerID itemId:p.vkID initialFilter:0];
+            [self.navigationController pushViewController:likesVC animated:YES];
+        } else if ([title isEqualToString:@"Кто поделился"]) {
+            VKLikesListViewController *likesVC = [[VKLikesListViewController alloc] initWithType:@"post" ownerId:p.ownerID itemId:p.vkID initialFilter:1];
+            [self.navigationController pushViewController:likesVC animated:YES];
+        } else if ([title isEqualToString:@"Пожаловаться"]) {
+            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Жалоба" message:@"Спасибо, жалоба отправлена модераторам." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+            [alert show];
         }
     }
 }
@@ -476,11 +495,20 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     };
     
     cell.onOptionsTapped = ^(VKPost *p) {
-        UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil
-                                                           delegate:nil
-                                                  cancelButtonTitle:@"Отмена"
-                                             destructiveButtonTitle:nil
-                                                  otherButtonTitles:@"Пожаловаться", nil];
+        weakSelf.selectedPostForAction = p;
+        UIActionSheet *sheet = [[UIActionSheet alloc] init];
+        sheet.delegate = weakSelf;
+        sheet.tag = 701;
+        [sheet addButtonWithTitle:@"Поделиться"];
+        [sheet addButtonWithTitle:@"Скопировать ссылку"];
+        if (p.likesCount > 0) {
+            [sheet addButtonWithTitle:@"Кто оценил"];
+        }
+        if (p.repostsCount > 0) {
+            [sheet addButtonWithTitle:@"Кто поделился"];
+        }
+        [sheet addButtonWithTitle:@"Пожаловаться"];
+        sheet.cancelButtonIndex = [sheet addButtonWithTitle:@"Отмена"];
         [sheet showInView:weakSelf.view];
     };
     

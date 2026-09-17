@@ -52,6 +52,8 @@
     if ([self.likeType isEqualToString:@"post"]) {
         self.segmentedControl = [[UISegmentedControl alloc] initWithItems:@[@"Понравилось", @"Поделились"]];
         self.segmentedControl.selectedSegmentIndex = self.currentFilter;
+        [self.segmentedControl sizeToFit];
+        self.segmentedControl.frame = CGRectMake(0, 0, 210, 30);
         [self.segmentedControl addTarget:self action:@selector(segmentChanged:) forControlEvents:UIControlEventValueChanged];
         self.navigationItem.titleView = self.segmentedControl;
     } else {
@@ -64,20 +66,26 @@
         self.refreshControl = rc;
     }
     
-    self.emptyLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 100, self.view.bounds.size.width - 40, 60)];
+    UIView *bgView = [[UIView alloc] initWithFrame:self.view.bounds];
+    bgView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    bgView.backgroundColor = [UIColor clearColor];
+    
+    self.emptyLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 120, self.view.bounds.size.width - 40, 60)];
     self.emptyLabel.textAlignment = NSTextAlignmentCenter;
-    self.emptyLabel.font = [UIFont systemFontOfSize:15];
+    self.emptyLabel.font = [UIFont systemFontOfSize:14];
     self.emptyLabel.textColor = [UIColor grayColor];
     self.emptyLabel.numberOfLines = 2;
     self.emptyLabel.hidden = YES;
     self.emptyLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [self.tableView addSubview:self.emptyLabel];
+    [bgView addSubview:self.emptyLabel];
     
     self.spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
-    self.spinner.center = CGPointMake(self.view.bounds.size.width / 2.0, 120);
+    self.spinner.center = CGPointMake(self.view.bounds.size.width / 2.0, 100);
     self.spinner.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
     self.spinner.hidesWhenStopped = YES;
-    [self.tableView addSubview:self.spinner];
+    [bgView addSubview:self.spinner];
+    
+    self.tableView.backgroundView = bgView;
     
     [self loadDataReset:YES];
 }
@@ -93,6 +101,33 @@
 
 - (void)refreshAction {
     [self loadDataReset:YES];
+}
+
+- (void)finishLoadingUI {
+    self.isLoading = NO;
+    [self.spinner stopAnimating];
+    if (self.refreshControl.isRefreshing) {
+        [self.refreshControl endRefreshing];
+    }
+    
+    if (self.segmentedControl && self.currentFilter < self.segmentedControl.numberOfSegments) {
+        NSString *title = (self.currentFilter == 0) ?
+            [NSString stringWithFormat:@"Понравилось (%ld)", (long)self.totalCount] :
+            [NSString stringWithFormat:@"Поделились (%ld)", (long)self.totalCount];
+        [self.segmentedControl setTitle:title forSegmentAtIndex:self.currentFilter];
+    } else if (!self.segmentedControl) {
+        self.title = (self.totalCount > 0) ?
+            [NSString stringWithFormat:@"Оценили (%ld)", (long)self.totalCount] : @"Оценили";
+    }
+    
+    if (self.users.count == 0) {
+        self.emptyLabel.text = (self.currentFilter == 1) ? @"Пока никто не поделился записью." : @"Пока никто не оценил.";
+        self.emptyLabel.hidden = NO;
+    } else {
+        self.emptyLabel.hidden = YES;
+    }
+    
+    [self.tableView reloadData];
 }
 
 - (void)loadDataReset:(BOOL)reset {
@@ -120,70 +155,94 @@
         @"count": @"50"
     };
     
+    __weak typeof(self) weakSelf = self;
     [[VKAPIClient sharedClient] callMethod:@"likes.getList" parameters:params completionHandler:^(id response, NSError *error) {
-        self.isLoading = NO;
-        [self.spinner stopAnimating];
-        if (self.refreshControl.isRefreshing) {
-            [self.refreshControl endRefreshing];
-        }
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
         
         if (error) {
             [VKCrashLogger log:@"[VKLikesListViewController] Error: %@", error.localizedDescription];
-            if (self.users.count == 0) {
-                self.emptyLabel.text = @"Не удалось загрузить список пользователей.\nПотяните вниз для повтора.";
-                self.emptyLabel.hidden = NO;
+            strongSelf.isLoading = NO;
+            [strongSelf.spinner stopAnimating];
+            if (strongSelf.refreshControl.isRefreshing) {
+                [strongSelf.refreshControl endRefreshing];
+            }
+            if (strongSelf.users.count == 0) {
+                strongSelf.emptyLabel.text = @"Не удалось загрузить список пользователей.\nПотяните вниз для повтора.";
+                strongSelf.emptyLabel.hidden = NO;
             }
             return;
         }
         
-        NSDictionary *resp = [response isKindOfClass:[NSDictionary class]] ? (response[@"response"] ?: response) : nil;
-        if (!resp || ![resp isKindOfClass:[NSDictionary class]]) {
-            if (self.users.count == 0) {
-                self.emptyLabel.text = (self.currentFilter == 1) ? @"Пока никто не поделился записью." : @"Пока никто не оценил запись.";
-                self.emptyLabel.hidden = NO;
-            }
-            return;
-        }
+        id respObj = [response isKindOfClass:[NSDictionary class]] ? (response[@"response"] ?: response) : response;
+        NSArray *rawItems = @[];
+        NSArray *rawProfiles = @[];
         
-        self.totalCount = [resp[@"count"] integerValue];
-        if (self.segmentedControl) {
-            NSString *title = (self.currentFilter == 0) ?
-                [NSString stringWithFormat:@"Понравилось (%ld)", (long)self.totalCount] :
-                [NSString stringWithFormat:@"Поделились (%ld)", (long)self.totalCount];
-            [self.segmentedControl setTitle:title forSegmentAtIndex:self.currentFilter];
+        if ([respObj isKindOfClass:[NSDictionary class]]) {
+            NSDictionary *dict = (NSDictionary *)respObj;
+            strongSelf.totalCount = [dict[@"count"] integerValue];
+            rawItems = dict[@"items"] ?: dict[@"users"] ?: @[];
+            rawProfiles = dict[@"profiles"] ?: @[];
+        } else if ([respObj isKindOfClass:[NSArray class]]) {
+            rawItems = (NSArray *)respObj;
+            strongSelf.totalCount = rawItems.count;
         }
-        
-        NSArray *rawItems = resp[@"items"] ?: @[];
-        NSArray *rawProfiles = resp[@"profiles"] ?: @[];
         
         NSMutableDictionary *profilesMap = [NSMutableDictionary dictionary];
-        for (NSDictionary *p in rawProfiles) {
-            if ([p isKindOfClass:[NSDictionary class]] && p[@"id"]) {
-                profilesMap[p[@"id"]] = p;
+        if ([rawProfiles isKindOfClass:[NSArray class]]) {
+            for (NSDictionary *p in rawProfiles) {
+                if ([p isKindOfClass:[NSDictionary class]]) {
+                    id pid = p[@"id"] ?: p[@"uid"];
+                    if (pid) profilesMap[pid] = p;
+                }
             }
         }
         
+        NSMutableArray *idsToFetch = [NSMutableArray array];
         for (id item in rawItems) {
             VKUser *u = nil;
             if ([item isKindOfClass:[NSDictionary class]]) {
                 u = [VKUser userFromDictionary:item];
-            } else if ([item isKindOfClass:[NSNumber class]]) {
-                NSDictionary *p = profilesMap[item];
-                if (p) u = [VKUser userFromDictionary:p];
+            } else if ([item respondsToSelector:@selector(integerValue)]) {
+                NSInteger uid = [item integerValue];
+                NSDictionary *p = profilesMap[@(uid)];
+                if (p) {
+                    u = [VKUser userFromDictionary:p];
+                } else if (uid != 0) {
+                    [idsToFetch addObject:@(uid)];
+                }
             }
             if (u && u.displayName.length > 0) {
-                [self.users addObject:u];
+                [strongSelf.users addObject:u];
             }
         }
         
-        if (self.users.count == 0) {
-            self.emptyLabel.text = (self.currentFilter == 1) ? @"Пока никто не поделился записью." : @"Пока никто не оценил.";
-            self.emptyLabel.hidden = NO;
-        } else {
-            self.emptyLabel.hidden = YES;
+        // Если API вернуло только ID без profiles, запрашиваем профили через users.get
+        if (idsToFetch.count > 0) {
+            NSString *idList = [idsToFetch componentsJoinedByString:@","];
+            NSDictionary *uParams = @{
+                @"user_ids": idList,
+                @"fields": @"photo_100,photo_200,city,online,verified,screen_name,status,sex,last_seen"
+            };
+            [[VKAPIClient sharedClient] callMethod:@"users.get" parameters:uParams completionHandler:^(id uResp, NSError *uErr) {
+                id uRespObj = [uResp isKindOfClass:[NSDictionary class]] ? (uResp[@"response"] ?: uResp) : uResp;
+                NSArray *userDicts = [uRespObj isKindOfClass:[NSArray class]] ? uRespObj : nil;
+                if (userDicts) {
+                    for (NSDictionary *ud in userDicts) {
+                        if ([ud isKindOfClass:[NSDictionary class]]) {
+                            VKUser *u = [VKUser userFromDictionary:ud];
+                            if (u && u.displayName.length > 0) {
+                                [strongSelf.users addObject:u];
+                            }
+                        }
+                    }
+                }
+                [strongSelf finishLoadingUI];
+            }];
+            return;
         }
         
-        [self.tableView reloadData];
+        [strongSelf finishLoadingUI];
     }];
 }
 
@@ -197,7 +256,7 @@
     static NSString *CellId = @"VKLikesUserCell";
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:CellId];
     if (!cell) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:CellId];
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:CellId];
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         cell.selectionStyle = UITableViewCellSelectionStyleDefault;
         
@@ -224,10 +283,18 @@
         [cell.contentView addSubview:subLabel];
     }
     
+    if (indexPath.row >= (NSInteger)self.users.count) {
+        return cell;
+    }
+    
     VKUser *u = self.users[indexPath.row];
     UIImageView *avatar = (UIImageView *)[cell.contentView viewWithTag:501];
     UILabel *nameLabel = (UILabel *)[cell.contentView viewWithTag:502];
     UILabel *subLabel = (UILabel *)[cell.contentView viewWithTag:503];
+    
+    cell.backgroundColor = [UIColor whiteColor];
+    nameLabel.textColor = [UIColor colorWithRed:20.0/255.0 green:20.0/255.0 blue:24.0/255.0 alpha:1.0];
+    subLabel.textColor = [[VKThemeManager sharedManager] secondaryTextColor] ?: [UIColor colorWithRed:128.0/255.0 green:134.0/255.0 blue:142.0/255.0 alpha:1.0];
     
     avatar.image = nil;
     if (u.avatarURL.length > 0) {
@@ -238,15 +305,18 @@
     
     NSString *verifiedMark = u.isOfficial ? @" ✓" : @"";
     NSString *onlineMark = u.isOnline ? @" • онлайн" : @"";
-    nameLabel.text = [NSString stringWithFormat:@"%@%@%@", u.displayName, verifiedMark, onlineMark];
+    NSString *dName = u.displayName ?: @"Пользователь";
+    nameLabel.text = [NSString stringWithFormat:@"%@%@%@", dName, verifiedMark, onlineMark];
     
-    if (u.status.length > 0) {
-        subLabel.text = u.status;
-    } else if (u.city.length > 0) {
-        subLabel.text = u.city;
+    NSString *subText = @"";
+    if ([u.status isKindOfClass:[NSString class]] && u.status.length > 0) {
+        subText = u.status;
+    } else if ([u.city isKindOfClass:[NSString class]] && u.city.length > 0) {
+        subText = u.city;
     } else {
-        subLabel.text = u.isOnline ? @"В сети" : (u.lastSeen ?: @"");
+        subText = u.isOnline ? @"В сети" : (([u.lastSeen isKindOfClass:[NSString class]] && u.lastSeen.length > 0) ? u.lastSeen : @"");
     }
+    subLabel.text = subText;
     
     return cell;
 }
@@ -257,8 +327,10 @@
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     if (indexPath.row < (NSInteger)self.users.count) {
         VKUser *user = self.users[indexPath.row];
-        VKProfileViewController *prof = [[VKProfileViewController alloc] initWithUser:user];
-        [self.navigationController pushViewController:prof animated:YES];
+        if (user) {
+            VKProfileViewController *prof = [[VKProfileViewController alloc] initWithUser:user];
+            [self.navigationController pushViewController:prof animated:YES];
+        }
     }
 }
 

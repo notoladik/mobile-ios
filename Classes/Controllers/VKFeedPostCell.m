@@ -345,6 +345,22 @@
     }
 }
 
+- (void)likeButtonLongPressed:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        if (self.onShowLikesTapped && self.currentPost) {
+            self.onShowLikesTapped(self.currentPost, 0);
+        }
+    }
+}
+
+- (void)repostButtonLongPressed:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        if (self.onShowLikesTapped && self.currentPost) {
+            self.onShowLikesTapped(self.currentPost, 1);
+        }
+    }
+}
+
 - (void)photoCellTapped:(UITapGestureRecognizer *)gesture {
     NSInteger index = gesture.view.tag;
     if (self.currentPhotos.count > 0) {

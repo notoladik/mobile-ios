@@ -195,6 +195,14 @@
     if (self.onLikeTapped) self.onLikeTapped();
 }
 
+- (void)commentLikeLongPressed:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        if (self.onShowCommentLikesTapped && self.currentComment) {
+            self.onShowCommentLikesTapped(self.currentComment);
+        }
+    }
+}
+
 + (NSAttributedString *)attributedTextForComment:(NSString *)rawText {
     if (!rawText || rawText.length == 0) return [[NSAttributedString alloc] initWithString:@""];
     
@@ -1017,23 +1025,26 @@
     NSInteger currentUserId = [[VKAuthService sharedService] currentUserModel].uid;
     BOOL isMyPost = (self.post.ownerID == currentUserId || self.post.author.uid == currentUserId);
     
-    UIActionSheet *sheet = nil;
+    UIActionSheet *sheet = [[UIActionSheet alloc] init];
+    sheet.delegate = self;
+    sheet.tag = isMyPost ? 1003 : 1001;
+    
     if (isMyPost) {
+        sheet.destructiveButtonIndex = [sheet addButtonWithTitle:@"Удалить запись"];
         NSString *archiveTitle = self.post.isArchived ? @"Восстановить на стену" : @"Архивировать запись";
-        sheet = [[UIActionSheet alloc] initWithTitle:nil
-                                            delegate:self
-                                   cancelButtonTitle:@"Отмена"
-                              destructiveButtonTitle:@"Удалить запись"
-                                   otherButtonTitles:archiveTitle, @"Поделиться", @"Скопировать ссылку", nil];
-        sheet.tag = 1003;
-    } else {
-        sheet = [[UIActionSheet alloc] initWithTitle:nil
-                                            delegate:self
-                                   cancelButtonTitle:@"Отмена"
-                              destructiveButtonTitle:nil
-                                   otherButtonTitles:@"Поделиться", @"Скопировать ссылку", nil];
-        sheet.tag = 1001;
+        [sheet addButtonWithTitle:archiveTitle];
     }
+    
+    [sheet addButtonWithTitle:@"Поделиться"];
+    [sheet addButtonWithTitle:@"Скопировать ссылку"];
+    if (self.post.likesCount > 0) {
+        [sheet addButtonWithTitle:@"Кто оценил"];
+    }
+    if (self.post.repostsCount > 0) {
+        [sheet addButtonWithTitle:@"Кто поделился"];
+    }
+    
+    sheet.cancelButtonIndex = [sheet addButtonWithTitle:@"Отмена"];
     [sheet showInView:self.view];
 }
 
@@ -1567,11 +1578,54 @@
         } else if (buttonIndex == 1) {
             [self copySelectedComment];
         }
-    } else if (actionSheet.tag == 1001) {
-        if (buttonIndex == 0) {
-            // Поделиться
-        } else if (buttonIndex == 1) {
+    } else if (actionSheet.tag == 1001 || actionSheet.tag == 1003) {
+        if (buttonIndex == actionSheet.cancelButtonIndex) return;
+        NSString *title = [actionSheet buttonTitleAtIndex:buttonIndex];
+        
+        if ([title isEqualToString:@"Удалить запись"]) {
+            [[VKProfileService sharedService] deletePost:self.post.vkID ownerId:self.post.ownerID completion:^(BOOL success, NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (success) {
+                        [self.navigationController popViewControllerAnimated:YES];
+                    }
+                });
+            }];
+        } else if ([title isEqualToString:@"Архивировать запись"]) {
+            [[VKProfileService sharedService] archivePost:self.post.vkID ownerId:self.post.ownerID completion:^(BOOL success, NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (success) {
+                        self.post.isArchived = YES;
+                        UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"В архиве" message:@"Запись сохранена в архив." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                        [alert show];
+                    }
+                });
+            }];
+        } else if ([title isEqualToString:@"Восстановить на стену"]) {
+            [[VKProfileService sharedService] restorePost:self.post.vkID ownerId:self.post.ownerID completion:^(BOOL success, NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (success) {
+                        self.post.isArchived = NO;
+                        UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Восстановлено" message:@"Запись восстановлена на стену." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                        [alert show];
+                    }
+                });
+            }];
+        } else if ([title isEqualToString:@"Поделиться"]) {
+            [[VKShareManager sharedManager] presentShareSheetForPost:self.post fromViewController:self completion:nil];
+        } else if ([title isEqualToString:@"Скопировать ссылку"]) {
             [UIPasteboard generalPasteboard].string = [NSString stringWithFormat:@"https://openvk.su/wall%ld_%ld", (long)self.post.ownerID, (long)self.post.vkID];
+        } else if ([title isEqualToString:@"Кто оценил"]) {
+            VKLikesListViewController *likesVC = [[VKLikesListViewController alloc] initWithType:@"post"
+                                                                                         ownerId:self.post.ownerID
+                                                                                          itemId:self.post.vkID
+                                                                                   initialFilter:0];
+            [self.navigationController pushViewController:likesVC animated:YES];
+        } else if ([title isEqualToString:@"Кто поделился"]) {
+            VKLikesListViewController *likesVC = [[VKLikesListViewController alloc] initWithType:@"post"
+                                                                                         ownerId:self.post.ownerID
+                                                                                          itemId:self.post.vkID
+                                                                                   initialFilter:1];
+            [self.navigationController pushViewController:likesVC animated:YES];
         }
     } else if (actionSheet.tag == 1002) {
         if (buttonIndex == actionSheet.cancelButtonIndex) return;
@@ -1580,43 +1634,6 @@
             [self openImagePickerWithSourceType:UIImagePickerControllerSourceTypeCamera];
         } else if ([title isEqualToString:@"Выбрать из медиатеки"]) {
             [self openImagePickerWithSourceType:UIImagePickerControllerSourceTypePhotoLibrary];
-        }
-    } else if (actionSheet.tag == 1003) {
-        if (buttonIndex == actionSheet.destructiveButtonIndex) {
-            [[VKProfileService sharedService] deletePost:self.post.vkID ownerId:self.post.ownerID completion:^(BOOL success, NSError *error) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    if (success) {
-                        [self.navigationController popViewControllerAnimated:YES];
-                    }
-                });
-            }];
-        } else if (buttonIndex == 1) {
-            if (self.post.isArchived) {
-                [[VKProfileService sharedService] restorePost:self.post.vkID ownerId:self.post.ownerID completion:^(BOOL success, NSError *error) {
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        if (success) {
-                            self.post.isArchived = NO;
-                            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Восстановлено" message:@"Запись восстановлена на стену." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
-                            [alert show];
-                        }
-                    });
-                }];
-            } else {
-                [[VKProfileService sharedService] archivePost:self.post.vkID ownerId:self.post.ownerID completion:^(BOOL success, NSError *error) {
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        if (success) {
-                            self.post.isArchived = YES;
-                            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"В архиве" message:@"Запись сохранена в архив." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
-                            [alert show];
-                        }
-                    });
-                }];
-            }
-        } else if (buttonIndex == 2) {
-            // Поделиться
-            [[VKShareManager sharedManager] presentShareSheetForPost:self.post fromViewController:self completion:nil];
-        } else if (buttonIndex == 3) {
-            [UIPasteboard generalPasteboard].string = [NSString stringWithFormat:@"https://openvk.su/wall%ld_%ld", (long)self.post.ownerID, (long)self.post.vkID];
         }
     }
 }
