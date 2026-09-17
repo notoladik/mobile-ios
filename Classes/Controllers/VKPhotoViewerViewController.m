@@ -23,8 +23,7 @@
 @property (nonatomic, strong) UIView *bottomBarView;
 @property (nonatomic, strong) UIButton *saveButton;
 @property (nonatomic, strong) UIButton *shareButton;
-@property (nonatomic, strong) UIButton *hqButton;
-@property (nonatomic, strong) UIActivityIndicatorView *hqSpinner;
+@property (nonatomic, strong) UIActivityIndicatorView *hqCenterSpinner;
 
 @property (nonatomic, assign) BOOL isBarsHidden;
 @property (nonatomic, assign) CGPoint dragStartPoint;
@@ -214,24 +213,13 @@
     [self.shareButton addTarget:self action:@selector(sharePhotoAction) forControlEvents:UIControlEventTouchUpInside];
     [self.bottomBarView addSubview:self.shareButton];
     
-    // Кнопка загрузки HQ
-    CGFloat hqW = 76.0;
-    self.hqButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.hqButton.frame = CGRectMake((bounds.size.width - hqW) / 2.0, 7, hqW, 34);
-    self.hqButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
-    self.hqButton.layer.cornerRadius = 6.0;
-    self.hqButton.layer.borderWidth = 1.0;
-    self.hqButton.titleLabel.font = [UIFont boldSystemFontOfSize:13];
-    [self.hqButton addTarget:self action:@selector(loadHQPhotoAction) forControlEvents:UIControlEventTouchUpInside];
-    [self.bottomBarView addSubview:self.hqButton];
-    
-    self.hqSpinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleWhite];
-    self.hqSpinner.frame = CGRectMake((hqW - 20) / 2.0, 7, 20, 20);
-    self.hqSpinner.hidesWhenStopped = YES;
-    [self.hqButton addSubview:self.hqSpinner];
+    self.hqCenterSpinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleWhiteLarge];
+    self.hqCenterSpinner.center = CGPointMake(bounds.size.width / 2.0, bounds.size.height / 2.0);
+    self.hqCenterSpinner.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
+    self.hqCenterSpinner.hidesWhenStopped = YES;
+    [self.view addSubview:self.hqCenterSpinner];
     
     [self updateTitleForIndex:self.currentIndex];
-    [self updateHQButtonState];
 }
 
 - (void)updateTitleForIndex:(NSInteger)index {
@@ -363,18 +351,46 @@
 }
 
 - (void)moreOptionsAction {
-    UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil
-                                                       delegate:self
-                                              cancelButtonTitle:@"Отмена"
-                                         destructiveButtonTitle:nil
-                                              otherButtonTitles:@"Сохранить в фотопленку", @"Редактировать", @"Скопировать ссылку", nil];
+    NSString *currentURL = (self.currentIndex < (NSInteger)self.photoURLs.count) ? self.photoURLs[self.currentIndex] : nil;
+    NSString *fullURL = (self.currentIndex < (NSInteger)self.fullPhotoURLs.count) ? self.fullPhotoURLs[self.currentIndex] : nil;
+    
+    BOOL isAlreadyFull = (fullURL.length == 0) || [fullURL isEqualToString:currentURL];
+    BOOL isFullOnDisk = fullURL ? [[VKImageLoader sharedLoader] isImageCachedOnDiskForURL:fullURL] : NO;
+    BOOL canLoadHQ = !isAlreadyFull && !isFullOnDisk;
+    
+    UIActionSheet *sheet = [[UIActionSheet alloc] init];
+    sheet.delegate = self;
+    sheet.tag = 1000;
+    
+    if (canLoadHQ) {
+        [sheet addButtonWithTitle:@"Загрузить в высоком качестве (HQ)"];
+    } else {
+        [sheet addButtonWithTitle:@"Качество: Оригинал (HQ) ✓"];
+    }
+    [sheet addButtonWithTitle:@"Сохранить в фотопленку"];
+    [sheet addButtonWithTitle:@"Редактировать"];
+    [sheet addButtonWithTitle:@"Скопировать ссылку"];
+    
+    sheet.cancelButtonIndex = [sheet addButtonWithTitle:@"Отмена"];
     [sheet showInView:self.view];
 }
 
 - (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
-    if (buttonIndex == 0) {
+    if (buttonIndex == actionSheet.cancelButtonIndex) return;
+    
+    NSString *title = [actionSheet buttonTitleAtIndex:buttonIndex];
+    if ([title isEqualToString:@"Загрузить в высоком качестве (HQ)"]) {
+        [self loadHQPhotoAction];
+    } else if ([title isEqualToString:@"Качество: Оригинал (HQ) ✓"]) {
+        UIAlertView *a = [[UIAlertView alloc] initWithTitle:@"Качество"
+                                                    message:@"Фотография уже загружена в оригинальном высоком качестве."
+                                                   delegate:nil
+                                          cancelButtonTitle:@"OK"
+                                          otherButtonTitles:nil];
+        [a show];
+    } else if ([title isEqualToString:@"Сохранить в фотопленку"]) {
         [self savePhotoAction];
-    } else if (buttonIndex == 1) {
+    } else if ([title isEqualToString:@"Редактировать"]) {
         if (self.currentIndex < (NSInteger)self.imageViews.count) {
             UIImage *img = self.imageViews[self.currentIndex].image;
             if (img) {
@@ -388,11 +404,15 @@
                 [self presentViewController:editor animated:YES completion:nil];
             }
         }
-    } else if (buttonIndex == 2) {
+    } else if ([title isEqualToString:@"Скопировать ссылку"]) {
         if (self.currentIndex < (NSInteger)self.photoURLs.count) {
             NSString *urlStr = self.photoURLs[self.currentIndex];
             [UIPasteboard generalPasteboard].string = urlStr;
-            UIAlertView *a = [[UIAlertView alloc] initWithTitle:@"Скопировано" message:@"Ссылка на фотографию скопирована в буфер обмена" delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+            UIAlertView *a = [[UIAlertView alloc] initWithTitle:@"Скопировано"
+                                                        message:@"Ссылка на фотографию скопирована в буфер обмена"
+                                                       delegate:nil
+                                              cancelButtonTitle:@"OK"
+                                              otherButtonTitles:nil];
             [a show];
         }
     }
@@ -459,7 +479,6 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)b {
         if (page >= 0 && page < (NSInteger)self.photoURLs.count) {
             self.currentIndex = page;
             [self updateTitleForIndex:page];
-            [self updateHQButtonState];
             
             for (NSInteger i = 0; i < (NSInteger)self.zoomScrollViews.count; i++) {
                 if (i != page) {
@@ -474,45 +493,16 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)b {
     return YES;
 }
 
-- (void)updateHQButtonState {
-    if (self.currentIndex < 0 || self.currentIndex >= (NSInteger)self.photoURLs.count) {
-        self.hqButton.hidden = YES;
-        return;
-    }
-    self.hqButton.hidden = NO;
-    NSString *currentURL = self.photoURLs[self.currentIndex];
-    NSString *fullURL = (self.currentIndex < (NSInteger)self.fullPhotoURLs.count) ? self.fullPhotoURLs[self.currentIndex] : nil;
-    
-    BOOL isAlreadyFull = (fullURL.length == 0) || [fullURL isEqualToString:currentURL];
-    BOOL isFullOnDisk = fullURL ? [[VKImageLoader sharedLoader] isImageCachedOnDiskForURL:fullURL] : NO;
-    
-    if (isAlreadyFull || isFullOnDisk) {
-        [self.hqButton setTitle:@"HQ ✓" forState:UIControlStateNormal];
-        [self.hqButton setTitleColor:[UIColor colorWithWhite:1.0 alpha:0.55] forState:UIControlStateNormal];
-        self.hqButton.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.1];
-        self.hqButton.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.25].CGColor;
-        self.hqButton.enabled = NO;
-    } else {
-        [self.hqButton setTitle:@"HQ" forState:UIControlStateNormal];
-        [self.hqButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-        self.hqButton.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.25];
-        self.hqButton.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.85].CGColor;
-        self.hqButton.enabled = YES;
-    }
-}
-
 - (void)loadHQPhotoAction {
     if (self.currentIndex < 0 || self.currentIndex >= (NSInteger)self.fullPhotoURLs.count) return;
     NSString *fullURL = self.fullPhotoURLs[self.currentIndex];
     if (!fullURL || fullURL.length == 0) return;
     
-    [self.hqButton setTitle:@"" forState:UIControlStateNormal];
-    [self.hqSpinner startAnimating];
-    self.hqButton.enabled = NO;
+    [self.hqCenterSpinner startAnimating];
     
     NSInteger pageIndex = self.currentIndex;
     [[VKImageLoader sharedLoader] loadImageWithURL:fullURL completion:^(UIImage *fullImg) {
-        [self.hqSpinner stopAnimating];
+        [self.hqCenterSpinner stopAnimating];
         if (fullImg) {
             if (pageIndex < (NSInteger)self.imageViews.count) {
                 UIImageView *iv = self.imageViews[pageIndex];
@@ -531,8 +521,14 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)b {
                 mutURLs[pageIndex] = fullURL;
                 self.photoURLs = [mutURLs copy];
             }
+        } else {
+            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Ошибка"
+                                                            message:@"Не удалось загрузить фото в высоком качестве. Проверьте соединение с интернетом."
+                                                           delegate:nil
+                                                  cancelButtonTitle:@"OK"
+                                                  otherButtonTitles:nil];
+            [alert show];
         }
-        [self updateHQButtonState];
     }];
 }
 
