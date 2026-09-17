@@ -30,6 +30,7 @@
 }
 
 - (BOOL)isCurrentUserList {
+    if (self.userId < 0) return NO;
     NSInteger myId = [[VKAuthService sharedService] currentUserId];
     return (self.userId == 0 || self.userId == myId);
 }
@@ -37,7 +38,7 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     
-    self.title = @"Друзья";
+    self.title = self.userId < 0 ? @"Участники" : @"Друзья";
     self.friends = [NSMutableArray array];
     self.filteredFriends = @[];
     self.requests = [NSMutableArray array];
@@ -132,6 +133,23 @@
     if (self.isLoading) return;
     self.isLoading = YES;
     
+    if (self.userId < 0) {
+        [[VKProfileService sharedService] fetchGroupMembersForGroupId:labs(self.userId) offset:0 count:100 completion:^(NSArray *members, NSInteger totalCount, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.isLoading = NO;
+                if (NSClassFromString(@"UIRefreshControl") && self.refreshControl.isRefreshing) {
+                    [self.refreshControl endRefreshing];
+                }
+                if (!error && members) {
+                    [self.friends removeAllObjects];
+                    [self.friends addObjectsFromArray:members];
+                }
+                [self filterFriendsWithText:self.searchBar.text];
+            });
+        }];
+        return;
+    }
+    
     NSInteger uid = self.userId;
     if (uid == 0) uid = [[VKAuthService sharedService] currentUserId];
     
@@ -180,7 +198,17 @@
         self.filteredFriends = [source filteredArrayUsingPredicate:p];
     }
     
-    if (self.isShowingRequests) {
+    if (self.userId < 0) {
+        NSInteger c = self.filteredFriends.count;
+        NSInteger mod10 = c % 10;
+        NSInteger mod100 = c % 100;
+        NSString *word = @"участников";
+        if (mod100 < 11 || mod100 > 19) {
+            if (mod10 == 1) word = @"участник";
+            else if (mod10 >= 2 && mod10 <= 4) word = @"участника";
+        }
+        self.footerCountLabel.text = [NSString stringWithFormat:@"%ld %@", (long)c, word];
+    } else if (self.isShowingRequests) {
         self.footerCountLabel.text = [NSString stringWithFormat:@"%lu заявок", (unsigned long)self.filteredFriends.count];
     } else {
         self.footerCountLabel.text = [NSString stringWithFormat:@"%lu человек", (unsigned long)self.filteredFriends.count];

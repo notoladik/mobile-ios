@@ -161,16 +161,7 @@
             NSDictionary *resp = [response isKindOfClass:[NSDictionary class]] ? (response[@"response"] ?: response) : nil;
             NSArray *items = resp[@"items"] ?: ([response isKindOfClass:[NSArray class]] ? response : nil);
             
-            if (!items || items.count == 0) {
-                // Создаем демо-альбомы по умолчанию
-                items = @[
-                    @{@"title": @"Сохранённые фотографии", @"size": @(12), @"thumb": @""},
-                    @{@"title": @"Фотографии на стене", @"size": @(24), @"thumb": @""},
-                    @{@"title": @"Фотографии с моей страницы", @"size": @(5), @"thumb": @""}
-                ];
-            }
-            
-            self.albums = items;
+            self.albums = items ?: @[];
             [self renderGrid];
         });
     }];

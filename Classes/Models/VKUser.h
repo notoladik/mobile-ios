@@ -29,6 +29,8 @@ typedef NS_ENUM(NSInteger, VKProfileAccessStatus) {
 @property (nonatomic, assign) NSInteger groupsCount;
 @property (nonatomic, assign) NSInteger videoCount;
 @property (nonatomic, assign) NSInteger audioCount;
+@property (nonatomic, assign) NSInteger topicsCount;
+@property (nonatomic, copy) NSString *groupType;
 @property (nonatomic, copy) NSString *about;
 @property (nonatomic, copy) NSString *site;
 @property (nonatomic, assign) BOOL isOfficial;

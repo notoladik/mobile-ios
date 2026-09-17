@@ -112,20 +112,6 @@
                     VKAttachment *att = [VKAttachment attachmentFromDictionary:@{@"type": @"video", @"video": d}];
                     if (att) [vids addObject:att];
                 }
-            } else {
-                // Демо видео-плейсхолдеры
-                NSArray *demos = @[
-                    @{@"title": @"ВКонтакте: История создания", @"duration": @"4:15", @"thumb": @""},
-                    @{@"title": @"OpenVK Project: Демонстрация возможностей", @"duration": @"2:40", @"thumb": @""},
-                    @{@"title": @"Обзор iOS 6 на iPhone 4s", @"duration": @"8:12", @"thumb": @""}
-                ];
-                for (NSDictionary *d in demos) {
-                    VKAttachment *att = [[VKAttachment alloc] init];
-                    att.type = VKAttachmentTypeVideo;
-                    att.videoTitle = d[@"title"];
-                    att.videoDuration = d[@"duration"];
-                    [vids addObject:att];
-                }
             }
             
             self.videos = vids;

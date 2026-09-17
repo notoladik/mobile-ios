@@ -788,6 +788,9 @@
         else if ([post.platform isEqualToString:@"wphone"]) platformName = @"WP";
     }
     NSString *dateText = platformName.length > 0 ? [NSString stringWithFormat:@"%@ • %@", post.timeAgo, platformName] : post.timeAgo;
+    if (post.isPinned) {
+        dateText = [NSString stringWithFormat:@"📌 Закреплено • %@", dateText];
+    }
     if (post.isArchived) {
         dateText = [NSString stringWithFormat:@"[Архив] %@", dateText];
     }

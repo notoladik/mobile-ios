@@ -19,3 +19,7 @@ extern NSString *const VKSideMenuStateDidChangeNotification;
 - (void)navigateToIndex:(NSInteger)index;
 
 @end
+
+@interface UIViewController (VKSideMenu)
+- (void)leftMenuButtonAction;
+@end

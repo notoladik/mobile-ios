@@ -23,6 +23,13 @@
 - (void)archivePost:(NSInteger)postId ownerId:(NSInteger)ownerId completion:(void (^)(BOOL success, NSError *error))completion;
 - (void)restorePost:(NSInteger)postId ownerId:(NSInteger)ownerId completion:(void (^)(BOOL success, NSError *error))completion;
 - (void)deletePost:(NSInteger)postId ownerId:(NSInteger)ownerId completion:(void (^)(BOOL success, NSError *error))completion;
+- (void)pinPost:(NSInteger)postId ownerId:(NSInteger)ownerId completion:(void (^)(BOOL success, NSError *error))completion;
+- (void)unpinPost:(NSInteger)postId ownerId:(NSInteger)ownerId completion:(void (^)(BOOL success, NSError *error))completion;
+
+- (void)fetchGroupMembersForGroupId:(NSInteger)groupId
+                             offset:(NSInteger)offset
+                              count:(NSInteger)count
+                         completion:(void (^)(NSArray *members, NSInteger totalCount, NSError *error))completion;
 
 - (void)fetchFriendsForUserId:(NSInteger)userId
                    completion:(void (^)(NSArray *friends, NSError *error))completion;

@@ -15,22 +15,26 @@
 - (void)fetchProfileForUserId:(NSInteger)userId completion:(void (^)(VKUser *user, NSError *error))completion {
     if (userId < 0) {
         // Group profile
+        NSInteger gId = labs(userId);
         NSDictionary *params = @{
-            @"group_id": @(labs(userId)),
-            @"fields": @"description,status,verified,site,members_count,can_post,can_suggest,is_admin,is_member,photo_50,photo_100,photo_200"
+            @"group_id": @(gId),
+            @"group_ids": @(gId),
+            @"fields": @"description,status,verified,site,members_count,can_post,can_suggest,is_admin,is_member,photo_50,photo_100,photo_200,photo_max_orig,counters"
         };
         [[VKAPIClient sharedClient] callMethod:@"groups.getById" parameters:params completionHandler:^(id response, NSError *error) {
             if (error) {
                 if (completion) completion(nil, error);
                 return;
             }
-            if ([response isKindOfClass:[NSDictionary class]] && response[@"response"]) {
-                NSArray *items = response[@"response"];
-                if ([items isKindOfClass:[NSArray class]] && items.count > 0) {
-                    VKUser *group = [VKUser groupFromDictionary:items[0]];
-                    if (completion) completion(group, nil);
-                    return;
-                }
+            id resp = [response isKindOfClass:[NSDictionary class]] ? (response[@"response"] ?: response) : response;
+            if ([resp isKindOfClass:[NSArray class]] && [resp count] > 0) {
+                VKUser *group = [VKUser groupFromDictionary:resp[0]];
+                if (completion) completion(group, nil);
+                return;
+            } else if ([resp isKindOfClass:[NSDictionary class]]) {
+                VKUser *group = [VKUser groupFromDictionary:resp];
+                if (completion) completion(group, nil);
+                return;
             }
             if (completion) completion(nil, nil);
         }];
@@ -162,6 +166,69 @@
         if (completion) {
             completion(error == nil, error);
         }
+    }];
+}
+
+- (void)pinPost:(NSInteger)postId ownerId:(NSInteger)ownerId completion:(void (^)(BOOL success, NSError *error))completion {
+    NSDictionary *params = @{
+        @"owner_id": @(ownerId),
+        @"post_id": @(postId)
+    };
+    [[VKAPIClient sharedClient] callMethod:@"wall.pin" parameters:params completionHandler:^(id response, NSError *error) {
+        if (completion) {
+            completion(error == nil, error);
+        }
+    }];
+}
+
+- (void)unpinPost:(NSInteger)postId ownerId:(NSInteger)ownerId completion:(void (^)(BOOL success, NSError *error))completion {
+    NSDictionary *params = @{
+        @"owner_id": @(ownerId),
+        @"post_id": @(postId)
+    };
+    [[VKAPIClient sharedClient] callMethod:@"wall.unpin" parameters:params completionHandler:^(id response, NSError *error) {
+        if (completion) {
+            completion(error == nil, error);
+        }
+    }];
+}
+
+- (void)fetchGroupMembersForGroupId:(NSInteger)groupId
+                             offset:(NSInteger)offset
+                              count:(NSInteger)count
+                         completion:(void (^)(NSArray *members, NSInteger totalCount, NSError *error))completion {
+    NSMutableDictionary *params = [NSMutableDictionary dictionaryWithDictionary:@{
+        @"group_id": @(labs(groupId)),
+        @"offset": @(offset),
+        @"count": @(count),
+        @"fields": @"photo_100,photo_200,online,verified,screen_name"
+    }];
+    
+    [[VKAPIClient sharedClient] callMethod:@"groups.getMembers" parameters:params completionHandler:^(id response, NSError *error) {
+        if (error) {
+            if (completion) completion(nil, 0, error);
+            return;
+        }
+        
+        NSDictionary *resp = [response isKindOfClass:[NSDictionary class]] ? (response[@"response"] ?: response) : nil;
+        NSInteger total = [resp[@"count"] integerValue];
+        NSArray *items = resp[@"items"] ?: ([response isKindOfClass:[NSArray class]] ? response : nil);
+        
+        NSMutableArray *members = [NSMutableArray array];
+        if ([items isKindOfClass:[NSArray class]]) {
+            for (id item in items) {
+                if ([item isKindOfClass:[NSDictionary class]]) {
+                    VKUser *u = [VKUser userFromDictionary:item];
+                    if (u) [members addObject:u];
+                } else if ([item isKindOfClass:[NSNumber class]]) {
+                    VKUser *u = [[VKUser alloc] init];
+                    u.uid = [item integerValue];
+                    u.displayName = [NSString stringWithFormat:@"id%ld", (long)u.uid];
+                    [members addObject:u];
+                }
+            }
+        }
+        if (completion) completion(members, total > 0 ? total : members.count, nil);
     }];
 }
 

@@ -31,6 +31,16 @@
 @property (nonatomic, strong) VKPost *selectedPostForAction;
 @end
 
+static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString *many) {
+    NSInteger count = labs(n);
+    NSInteger mod10 = count % 10;
+    NSInteger mod100 = count % 100;
+    if (mod100 >= 11 && mod100 <= 19) return many;
+    if (mod10 == 1) return one;
+    if (mod10 >= 2 && mod10 <= 4) return few;
+    return many;
+}
+
 @implementation VKProfileViewController
 
 - (void)dealloc {
@@ -150,14 +160,26 @@
 - (void)showPostOptions:(VKPost *)post {
     self.selectedPostForAction = post;
     NSInteger myUid = [[VKAuthService sharedService] currentUserModel].uid;
-    BOOL isMyPost = (post.ownerID == myUid || post.author.uid == myUid);
+    BOOL isMyProfile = [self.user isCurrentUser] || (self.user.uid == myUid);
+    BOOL isGroupAdmin = self.user.isGroup && self.user.isAdmin;
+    BOOL canManageWall = isMyProfile || isGroupAdmin;
+    BOOL isMyPost = (post.author.uid == myUid || (self.user.isGroup && post.author.uid == self.user.uid));
+    BOOL canDelete = canManageWall || isMyPost || (post.ownerID == myUid);
     
     UIActionSheet *sheet = [[UIActionSheet alloc] init];
     sheet.delegate = self;
-    sheet.tag = isMyPost ? 601 : 602;
+    sheet.tag = 601;
     
-    if (isMyPost) {
+    if (canDelete) {
         sheet.destructiveButtonIndex = [sheet addButtonWithTitle:@"Удалить запись"];
+    }
+    
+    if (canManageWall) {
+        NSString *pinTitle = post.isPinned ? @"Открепить запись" : @"Закрепить запись";
+        [sheet addButtonWithTitle:pinTitle];
+    }
+    
+    if (isMyProfile && (isMyPost || post.ownerID == myUid)) {
         NSString *archiveTitle = post.isArchived ? @"Восстановить на стену" : @"Архивировать запись";
         [sheet addButtonWithTitle:archiveTitle];
     }
@@ -205,10 +227,11 @@
         if (!self.selectedPostForAction) return;
         VKPost *post = self.selectedPostForAction;
         NSString *title = [actionSheet buttonTitleAtIndex:buttonIndex];
+        NSInteger owner = post.ownerID != 0 ? post.ownerID : self.user.uid;
         
         if ([title isEqualToString:@"Удалить запись"]) {
             NSInteger idx = [self.wallPosts indexOfObject:post];
-            [[VKProfileService sharedService] deletePost:post.vkID ownerId:post.ownerID completion:^(BOOL success, NSError *error) {
+            [[VKProfileService sharedService] deletePost:post.vkID ownerId:owner completion:^(BOOL success, NSError *error) {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     if (success && idx != NSNotFound && idx < (NSInteger)self.wallPosts.count) {
                         [self.wallPosts removeObjectAtIndex:idx];
@@ -216,9 +239,31 @@
                     }
                 });
             }];
+        } else if ([title isEqualToString:@"Закрепить запись"]) {
+            [[VKProfileService sharedService] pinPost:post.vkID ownerId:owner completion:^(BOOL success, NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (success) {
+                        post.isPinned = YES;
+                        [self.tableView reloadData];
+                        UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Закреплено" message:@"Запись закреплена в начале стены." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                        [alert show];
+                    }
+                });
+            }];
+        } else if ([title isEqualToString:@"Открепить запись"]) {
+            [[VKProfileService sharedService] unpinPost:post.vkID ownerId:owner completion:^(BOOL success, NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (success) {
+                        post.isPinned = NO;
+                        [self.tableView reloadData];
+                        UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Откреплено" message:@"Запись откреплена." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                        [alert show];
+                    }
+                });
+            }];
         } else if ([title isEqualToString:@"Архивировать запись"]) {
             NSInteger idx = [self.wallPosts indexOfObject:post];
-            [[VKProfileService sharedService] archivePost:post.vkID ownerId:post.ownerID completion:^(BOOL success, NSError *error) {
+            [[VKProfileService sharedService] archivePost:post.vkID ownerId:owner completion:^(BOOL success, NSError *error) {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     if (success) {
                         if (idx != NSNotFound && idx < (NSInteger)self.wallPosts.count) {
@@ -232,7 +277,7 @@
             }];
         } else if ([title isEqualToString:@"Восстановить на стену"]) {
             NSInteger idx = [self.wallPosts indexOfObject:post];
-            [[VKProfileService sharedService] restorePost:post.vkID ownerId:post.ownerID completion:^(BOOL success, NSError *error) {
+            [[VKProfileService sharedService] restorePost:post.vkID ownerId:owner completion:^(BOOL success, NSError *error) {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     if (success) {
                         if (idx != NSNotFound && idx < (NSInteger)self.wallPosts.count) {
@@ -247,12 +292,12 @@
         } else if ([title isEqualToString:@"Поделиться"]) {
             [[VKShareManager sharedManager] presentShareSheetForPost:post fromViewController:self completion:nil];
         } else if ([title isEqualToString:@"Скопировать ссылку"]) {
-            [UIPasteboard generalPasteboard].string = [NSString stringWithFormat:@"https://openvk.su/wall%ld_%ld", (long)post.ownerID, (long)post.vkID];
+            [UIPasteboard generalPasteboard].string = [NSString stringWithFormat:@"https://openvk.su/wall%ld_%ld", (long)owner, (long)post.vkID];
         } else if ([title isEqualToString:@"Кто оценил"]) {
-            VKLikesListViewController *likesVC = [[VKLikesListViewController alloc] initWithType:@"post" ownerId:post.ownerID itemId:post.vkID initialFilter:0];
+            VKLikesListViewController *likesVC = [[VKLikesListViewController alloc] initWithType:@"post" ownerId:owner itemId:post.vkID initialFilter:0];
             [self.navigationController pushViewController:likesVC animated:YES];
         } else if ([title isEqualToString:@"Кто поделился"]) {
-            VKLikesListViewController *likesVC = [[VKLikesListViewController alloc] initWithType:@"post" ownerId:post.ownerID itemId:post.vkID initialFilter:1];
+            VKLikesListViewController *likesVC = [[VKLikesListViewController alloc] initWithType:@"post" ownerId:owner itemId:post.vkID initialFilter:1];
             [self.navigationController pushViewController:likesVC animated:YES];
         } else if ([title isEqualToString:@"Пожаловаться"]) {
             UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Жалоба" message:@"Спасибо, жалоба отправлена модераторам." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
@@ -607,7 +652,13 @@
         
         nameLabel.text = self.user.displayName;
         if (self.user.isGroup) {
-            statusLabel.text = @"открытая группа";
+            if ([self.user.groupType isEqualToString:@"page"]) {
+                statusLabel.text = @"публичная страница";
+            } else if ([self.user.groupType isEqualToString:@"event"]) {
+                statusLabel.text = @"мероприятие";
+            } else {
+                statusLabel.text = self.user.isClosed ? @"закрытая группа" : @"открытая группа";
+            }
             cityLabel.text = self.user.status.length > 0 ? self.user.status : @"";
         } else {
             NSString *onlText = self.user.isOnline ? @"online" : (self.user.lastSeen ?: @"был(а) недавно");
@@ -619,25 +670,45 @@
             cityLabel.text = self.user.city.length > 0 ? self.user.city : (self.user.status ?: @"");
         }
         
-        // Заполняем счетчики (Скриншоты 2 и 5)
+        // Заполняем счетчики
         for (UIView *v in countersScroll.subviews) [v removeFromSuperview];
         
         NSMutableArray *counters = [NSMutableArray array];
         if (self.user.isGroup) {
-            [counters addObject:@{@"count": @(self.user.followersCount > 0 ? self.user.followersCount : 1900), @"title": @"участников", @"action": @"followers"}];
-            [counters addObject:@{@"count": @(self.user.photoCount > 0 ? self.user.photoCount : 12), @"title": @"фото", @"action": @"photos"}];
-            [counters addObject:@{@"count": @(self.user.videoCount > 0 ? self.user.videoCount : 2), @"title": @"видео", @"action": @"videos"}];
-            [counters addObject:@{@"count": @(self.user.audioCount > 0 ? self.user.audioCount : 1), @"title": @"аудио", @"action": @"audios"}];
+            NSString *membersTitle = [self.user.groupType isEqualToString:@"page"] ?
+                pluralForm(self.user.followersCount, @"подписчик", @"подписчика", @"подписчиков") :
+                pluralForm(self.user.followersCount, @"участник", @"участника", @"участников");
+            [counters addObject:@{@"count": @(self.user.followersCount), @"title": membersTitle, @"action": @"followers"}];
+            if (self.user.photoCount > 0) {
+                [counters addObject:@{@"count": @(self.user.photoCount), @"title": pluralForm(self.user.photoCount, @"фото", @"фото", @"фото"), @"action": @"photos"}];
+            }
+            if (self.user.videoCount > 0) {
+                [counters addObject:@{@"count": @(self.user.videoCount), @"title": pluralForm(self.user.videoCount, @"видео", @"видео", @"видео"), @"action": @"videos"}];
+            }
+            if (self.user.audioCount > 0) {
+                [counters addObject:@{@"count": @(self.user.audioCount), @"title": pluralForm(self.user.audioCount, @"аудио", @"аудио", @"аудио"), @"action": @"audios"}];
+            }
         } else {
-            [counters addObject:@{@"count": @(self.user.friendsCount > 0 ? self.user.friendsCount : 93), @"title": @"друга", @"action": @"friends"}];
-            [counters addObject:@{@"count": @(self.user.followersCount > 0 ? self.user.followersCount : 17), @"title": @"подписчиков", @"action": @"followers"}];
-            [counters addObject:@{@"count": @(self.user.groupsCount > 0 ? self.user.groupsCount : 26), @"title": @"групп", @"action": @"groups"}];
-            [counters addObject:@{@"count": @(self.user.photoCount > 0 ? self.user.photoCount : 405), @"title": @"фото", @"action": @"photos"}];
-            [counters addObject:@{@"count": @(self.user.videoCount > 0 ? self.user.videoCount : 17), @"title": @"видео", @"action": @"videos"}];
-            [counters addObject:@{@"count": @(self.user.audioCount > 0 ? self.user.audioCount : 48), @"title": @"аудио", @"action": @"audios"}];
+            [counters addObject:@{@"count": @(self.user.friendsCount), @"title": pluralForm(self.user.friendsCount, @"друг", @"друга", @"друзей"), @"action": @"friends"}];
+            if (self.user.followersCount > 0) {
+                [counters addObject:@{@"count": @(self.user.followersCount), @"title": pluralForm(self.user.followersCount, @"подписчик", @"подписчика", @"подписчиков"), @"action": @"followers"}];
+            }
+            if (self.user.groupsCount > 0) {
+                [counters addObject:@{@"count": @(self.user.groupsCount), @"title": pluralForm(self.user.groupsCount, @"группа", @"группы", @"групп"), @"action": @"groups"}];
+            }
+            if (self.user.photoCount > 0) {
+                [counters addObject:@{@"count": @(self.user.photoCount), @"title": pluralForm(self.user.photoCount, @"фото", @"фото", @"фото"), @"action": @"photos"}];
+            }
+            if (self.user.videoCount > 0) {
+                [counters addObject:@{@"count": @(self.user.videoCount), @"title": pluralForm(self.user.videoCount, @"видео", @"видео", @"видео"), @"action": @"videos"}];
+            }
+            if (self.user.audioCount > 0) {
+                [counters addObject:@{@"count": @(self.user.audioCount), @"title": pluralForm(self.user.audioCount, @"аудио", @"аудио", @"аудио"), @"action": @"audios"}];
+            }
         }
         
-        CGFloat itemW = 76.0;
+        CGFloat availW = cell.contentView.bounds.size.width;
+        CGFloat itemW = counters.count > 0 ? MAX(76.0, availW / (CGFloat)counters.count) : 76.0;
         for (NSInteger i = 0; i < counters.count; i++) {
             NSDictionary *c = counters[i];
             UIButton *cBtn = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -670,7 +741,7 @@
             }
             [countersScroll addSubview:cBtn];
         }
-        countersScroll.contentSize = CGSizeMake(counters.count * itemW, 54);
+        countersScroll.contentSize = CGSizeMake(MAX(availW, counters.count * itemW), 54);
         
         // Заполняем панель быстрых действий (Скриншот 2)
         for (UIView *v in actionsBar.subviews) [v removeFromSuperview];

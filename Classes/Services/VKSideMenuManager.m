@@ -321,3 +321,13 @@ static NSString *const kSideMenuEnabledKey = @"openvk.side_menu_enabled";
 }
 
 @end
+ 
+@implementation UIViewController (VKSideMenu)
+
+- (void)leftMenuButtonAction {
+    if ([[VKSideMenuManager sharedManager] isSideMenuEnabled]) {
+        [[VKSideMenuManager sharedManager] toggleMenu];
+    }
+}
+
+@end

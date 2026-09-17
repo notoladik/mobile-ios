@@ -61,6 +61,7 @@
     }
     post.isExplicit = [dict[@"is_explicit"] boolValue] || [dict[@"nsfw"] boolValue];
     post.isArchived = [dict[@"is_archived"] boolValue];
+    post.isPinned = [dict[@"is_pinned"] integerValue] == 1;
     
     // Счетчики
     if ([dict[@"likes"] isKindOfClass:[NSDictionary class]]) {

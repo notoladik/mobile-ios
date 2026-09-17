@@ -65,17 +65,40 @@
     if (!dict || ![dict isKindOfClass:[NSDictionary class]]) return nil;
     
     VKUser *group = [[VKUser alloc] init];
-    NSInteger rawId = [dict[@"id"] integerValue];
+    NSInteger rawId = [dict[@"id"] integerValue] ?: [dict[@"group_id"] integerValue];
     group.uid = -labs(rawId);
     group.username = dict[@"screen_name"] ?: [NSString stringWithFormat:@"club%ld", (long)labs(rawId)];
     group.displayName = dict[@"name"] ?: group.username;
-    group.avatarURL = dict[@"photo_100"] ?: dict[@"photo_200"] ?: dict[@"photo_50"];
+    group.avatarURL = dict[@"photo_100"] ?: dict[@"photo_200"] ?: dict[@"photo_50"] ?: dict[@"photo_max"];
+    group.avatarURLFull = dict[@"photo_max_orig"] ?: dict[@"photo_400_orig"] ?: dict[@"photo_200_orig"] ?: dict[@"photo_200"] ?: dict[@"photo_max"] ?: group.avatarURL;
     group.isGroup = YES;
     group.isOfficial = [dict[@"verified"] integerValue] == 1;
     group.status = dict[@"status"] ?: dict[@"description"];
+    group.about = dict[@"description"];
+    group.site = dict[@"site"];
     group.isAdmin = [dict[@"is_admin"] integerValue] == 1;
     group.canPost = [dict[@"can_post"] integerValue] == 1;
     group.canSuggest = [dict[@"can_suggest"] integerValue] == 1;
+    group.isFriend = [dict[@"is_member"] integerValue] == 1;
+    group.isClosed = [dict[@"is_closed"] integerValue] != 0;
+    group.groupType = dict[@"type"] ?: @"group";
+    
+    // Количество участников / подписчиков
+    if (dict[@"members_count"]) {
+        group.followersCount = [dict[@"members_count"] integerValue];
+    }
+    
+    // Счетчики группы
+    if ([dict[@"counters"] isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *c = dict[@"counters"];
+        group.photoCount = [c[@"photos"] integerValue] ?: [c[@"albums"] integerValue];
+        group.videoCount = [c[@"videos"] integerValue];
+        group.audioCount = [c[@"audios"] integerValue];
+        group.topicsCount = [c[@"topics"] integerValue];
+        if (group.followersCount == 0 && c[@"members"]) {
+            group.followersCount = [c[@"members"] integerValue];
+        }
+    }
     
     return group;
 }
