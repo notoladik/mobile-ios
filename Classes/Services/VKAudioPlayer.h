@@ -31,4 +31,8 @@ extern NSString *const VKAudioPlayerProgressNotification;
 // Извлечение PCM аудиоданных в реальном времени для визуализатора
 - (void)getLatestPCMData:(float *)outBuffer count:(NSUInteger)count;
 
+// Дистанционное управление и системный экран блокировки (Now Playing)
+- (void)handleRemoteControlEvent:(UIEvent *)event;
+- (void)updateNowPlayingInfo;
+
 @end

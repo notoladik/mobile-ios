@@ -1,18 +1,18 @@
 #import <UIKit/UIKit.h>
 
 typedef NS_ENUM(NSInteger, VKBackgroundVisualizerStyle) {
-    VKBackgroundVisualizerStyleWaves = 0,       // Неоновые звуковые волны
-    VKBackgroundVisualizerStyleEqualizer = 1,   // Ретро-эквалайзер Winamp
-    VKBackgroundVisualizerStyleAurora = 2,      // Северное сияние (Аура)
-    VKBackgroundVisualizerStyleParticles = 3    // Звёздная пыль (Космос)
+    VKBackgroundVisualizerStyleAVS = 0,         // Winamp AVS (Nullsoft 2D)
+    VKBackgroundVisualizerStyleMilkdrop = 1,    // Milkdrop 2 (projectM 3D)
+    VKBackgroundVisualizerStyleWaves = 2,       // Неоновые звуковые волны (2D)
+    VKBackgroundVisualizerStyleEqualizer = 3,   // Ретро-эквалайзер Winamp (2D)
+    VKBackgroundVisualizerStyleAurora = 4,      // Северное сияние (2D)
+    VKBackgroundVisualizerStyleParticles = 5    // Звёздная пыль (2D)
 };
 
 typedef NS_ENUM(NSInteger, VKBackgroundVisualizerLayerMode) {
     VKBackgroundVisualizerLayerModeOverlay = 0,     // Атмосферное наложение (поверх)
     VKBackgroundVisualizerLayerModeUnderlay = 1     // Подложка под контент (на заднем плане)
 };
-
-@class VKBackgroundVisualizerView;
 
 @interface VKBackgroundVisualizerManager : NSObject
 
@@ -22,7 +22,7 @@ typedef NS_ENUM(NSInteger, VKBackgroundVisualizerLayerMode) {
 @property (nonatomic, assign) CGFloat opacity; // 0.10 ... 1.0
 @property (nonatomic, assign) BOOL onlyWhenPlaying;
 
-@property (nonatomic, strong, readonly) VKBackgroundVisualizerView *visualizerView;
+@property (nonatomic, strong, readonly) UIView *activeVisualizerView;
 
 + (instancetype)sharedManager;
 

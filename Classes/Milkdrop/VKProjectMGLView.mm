@@ -1,5 +1,6 @@
 #import "VKProjectMGLView.h"
 #import "VKAudioPlayer.h"
+#import "VKPresetManager.h"
 #import <QuartzCore/QuartzCore.h>
 #include "projectM-4/projectM.h"
 #include "projectM-4/render_opengl.h"
@@ -132,6 +133,19 @@ static void projectMPresetFailedCallback(const char* preset_filename, const char
         
         [self loadPresetsList];
         [self startAnimation];
+        
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(loadPresetsList)
+                                                     name:VKPresetsDidUpdateNotification
+                                                   object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(appDidEnterBackground)
+                                                     name:UIApplicationDidEnterBackgroundNotification
+                                                   object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(appWillEnterForeground)
+                                                     name:UIApplicationWillEnterForegroundNotification
+                                                   object:nil];
     }
     return self;
 }
@@ -283,34 +297,12 @@ static const char* kDefaultMilkdropPreset =
 "per_pixel_2=zoom = zoom + 0.03*sin(rad_custom*6.28 + time*2.0);\n";
 
 - (void)loadPresetsList {
-    if (self.presetPaths.count > 0) return;
-    
-    NSString *bundleRes = [[NSBundle mainBundle] resourcePath];
-    NSArray *searchDirs = @[
-        [bundleRes stringByAppendingPathComponent:@"Presets"],
-        bundleRes,
-        [[NSBundle mainBundle] bundlePath],
-        [[[NSBundle mainBundle] bundlePath] stringByAppendingPathComponent:@"Presets"]
-    ];
-    for (NSString *dir in searchDirs) {
-        BOOL isDir = NO;
-        if ([[NSFileManager defaultManager] fileExistsAtPath:dir isDirectory:&isDir] && isDir) {
-            NSArray *files = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil];
-            for (NSString *file in files) {
-                if ([[[file pathExtension] lowercaseString] isEqualToString:@"milk"]) {
-                    NSString *full = [dir stringByAppendingPathComponent:file];
-                    if (![self.presetPaths containsObject:full]) {
-                        [self.presetPaths addObject:full];
-                    }
-                }
-            }
-        }
-    }
+    [self.presetPaths removeAllObjects];
+    NSArray<NSString *> *all = [VKPresetManager allMilkdropPresetPaths];
+    [self.presetPaths addObjectsFromArray:all];
     NSLog(@"[VKProjectMGLView] Loaded %lu milkdrop presets", (unsigned long)self.presetPaths.count);
     if (self.presetPaths.count > 0) {
-        if (self.shuffleMode) {
-            self.currentPresetIndex = arc4random_uniform((uint32_t)self.presetPaths.count);
-        } else {
+        if (self.currentPresetIndex >= (NSInteger)self.presetPaths.count) {
             self.currentPresetIndex = 0;
         }
         [self loadPresetFromFile:self.presetPaths[self.currentPresetIndex]];
@@ -406,6 +398,7 @@ static const char* kDefaultMilkdropPreset =
 }
 
 - (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self stopAnimation];
     if ([EAGLContext currentContext] == _context) {
         [EAGLContext setCurrentContext:nil];
@@ -485,6 +478,26 @@ static const char* kDefaultMilkdropPreset =
     @catch (NSException *exception) {
         NSLog(@"[VKProjectMGLView] Exception in renderFrame: %@", exception);
     }
+}
+
+- (void)appDidEnterBackground {
+    [self stopAnimation];
+    if (_context && [EAGLContext currentContext] == _context) {
+        glFinish();
+    }
+}
+
+- (void)appWillEnterForeground {
+    if (self.window && !self.hidden && self.isPlaying) {
+        [self startAnimation];
+    }
+}
+
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    if (!self.userInteractionEnabled) {
+        return nil;
+    }
+    return [super hitTest:point withEvent:event];
 }
 
 @end

@@ -108,6 +108,9 @@ typedef struct {
 
 - (void)setupStyleLayers {
     switch (_style) {
+        case VKBackgroundVisualizerStyleAVS:
+        case VKBackgroundVisualizerStyleMilkdrop:
+            break;
         case VKBackgroundVisualizerStyleWaves:
             [self setupWavesLayers];
             break;
@@ -271,6 +274,9 @@ typedef struct {
     if (sz.width < 10 || sz.height < 10) return;
     
     switch (_style) {
+        case VKBackgroundVisualizerStyleAVS:
+        case VKBackgroundVisualizerStyleMilkdrop:
+            break;
         case VKBackgroundVisualizerStyleWaves:
             [self renderWavesWithSize:sz pcm:pcm isPlaying:isPlaying];
             break;

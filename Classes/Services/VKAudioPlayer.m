@@ -2,6 +2,7 @@
 #import "VKAudioCacheManager.h"
 #import <MediaToolbox/MediaToolbox.h>
 #import <AudioToolbox/AudioToolbox.h>
+#import <MediaPlayer/MediaPlayer.h>
 #import <stdint.h>
 
 NSString *const VKAudioPlayerStateDidChangeNotification = @"VKAudioPlayerStateDidChangeNotification";
@@ -93,6 +94,11 @@ static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount numberFrames, M
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(itemDidFinishPlaying:)
                                                      name:AVPlayerItemDidPlayToEndTimeNotification
+                                                   object:nil];
+        
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(handleAudioSessionInterruption:)
+                                                     name:AVAudioSessionInterruptionNotification
                                                    object:nil];
     }
     return self;
@@ -327,6 +333,7 @@ static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount numberFrames, M
         self.isPlaying = YES;
     }
     
+    [self updateNowPlayingInfo];
     [[NSNotificationCenter defaultCenter] postNotificationName:VKAudioPlayerStateDidChangeNotification object:nil];
 }
 
@@ -343,6 +350,7 @@ static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount numberFrames, M
         [self.player play];
     }
     self.isPlaying = YES;
+    [self updateNowPlayingInfo];
     [[NSNotificationCenter defaultCenter] postNotificationName:VKAudioPlayerStateDidChangeNotification object:nil];
 }
 
@@ -351,6 +359,7 @@ static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount numberFrames, M
         [self.player pause];
     }
     self.isPlaying = NO;
+    [self updateNowPlayingInfo];
     [[NSNotificationCenter defaultCenter] postNotificationName:VKAudioPlayerStateDidChangeNotification object:nil];
 }
 
@@ -360,6 +369,7 @@ static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount numberFrames, M
     }
     self.isPlaying = NO;
     self.currentTrack = nil;
+    [self updateNowPlayingInfo];
     [[NSNotificationCenter defaultCenter] postNotificationName:VKAudioPlayerStateDidChangeNotification object:nil];
 }
 
@@ -386,6 +396,7 @@ static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount numberFrames, M
     if (self.player) {
         [self.player seekToTime:CMTimeMakeWithSeconds(time, NSEC_PER_SEC)];
     }
+    [self updateNowPlayingInfo];
     [[NSNotificationCenter defaultCenter] postNotificationName:VKAudioPlayerProgressNotification object:nil];
 }
 
@@ -399,6 +410,79 @@ static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount numberFrames, M
     } else {
         [self pause];
     }
+}
+
+- (void)handleAudioSessionInterruption:(NSNotification *)notification {
+    NSDictionary *userInfo = notification.userInfo;
+    AVAudioSessionInterruptionType type = [userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue];
+    
+    if (type == AVAudioSessionInterruptionTypeBegan) {
+        if (self.isPlaying) {
+            [self pause];
+        }
+    } else if (type == AVAudioSessionInterruptionTypeEnded) {
+        AVAudioSessionInterruptionOptions options = [userInfo[AVAudioSessionInterruptionOptionKey] unsignedIntegerValue];
+        if (options & AVAudioSessionInterruptionOptionShouldResume) {
+            [self play];
+        }
+    }
+}
+
+- (void)handleRemoteControlEvent:(UIEvent *)event {
+    if (event.type != UIEventTypeRemoteControl) return;
+    
+    switch (event.subtype) {
+        case UIEventSubtypeRemoteControlPlay:
+            [self play];
+            break;
+        case UIEventSubtypeRemoteControlPause:
+            [self pause];
+            break;
+        case UIEventSubtypeRemoteControlTogglePlayPause:
+            [self togglePlayPause];
+            break;
+        case UIEventSubtypeRemoteControlNextTrack:
+            [self nextTrack];
+            break;
+        case UIEventSubtypeRemoteControlPreviousTrack:
+            [self previousTrack];
+            break;
+        case UIEventSubtypeRemoteControlBeginSeekingBackward:
+        case UIEventSubtypeRemoteControlBeginSeekingForward:
+        case UIEventSubtypeRemoteControlEndSeekingBackward:
+        case UIEventSubtypeRemoteControlEndSeekingForward:
+            break;
+        default:
+            break;
+    }
+}
+
+- (void)updateNowPlayingInfo {
+    if (!self.currentTrack) {
+        [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = nil;
+        return;
+    }
+    
+    NSMutableDictionary *info = [NSMutableDictionary dictionary];
+    if (self.currentTrack.title.length > 0) {
+        info[MPMediaItemPropertyTitle] = self.currentTrack.title;
+    } else {
+        info[MPMediaItemPropertyTitle] = @"Аудиозапись";
+    }
+    
+    if (self.currentTrack.artist.length > 0) {
+        info[MPMediaItemPropertyArtist] = self.currentTrack.artist;
+    } else {
+        info[MPMediaItemPropertyArtist] = @"OpenVK";
+    }
+    
+    if (self.duration > 0) {
+        info[MPMediaItemPropertyPlaybackDuration] = @(self.duration);
+    }
+    info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @(self.currentTime);
+    info[MPNowPlayingInfoPropertyPlaybackRate] = @(self.isPlaying ? 1.0 : 0.0);
+    
+    [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = info;
 }
 
 @end

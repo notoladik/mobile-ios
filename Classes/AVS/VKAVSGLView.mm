@@ -1,5 +1,6 @@
 #import "VKAVSGLView.h"
 #import "VKAudioPlayer.h"
+#import "VKPresetManager.h"
 
 #include "Vendor/avs/vis_avs/avs.h"
 
@@ -78,6 +79,7 @@ static const char* kFragmentShaderSource =
 }
 
 - (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self stopAnimation];
     [self teardownGL];
     if (_avsFramebuffer) {
@@ -121,6 +123,19 @@ static const char* kFragmentShaderSource =
     [self initAVS];
     [self loadPresetsList];
     [self setupBadge];
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(loadPresetsList)
+                                                 name:VKPresetsDidUpdateNotification
+                                               object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(appDidEnterBackground)
+                                                 name:UIApplicationDidEnterBackgroundNotification
+                                               object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(appWillEnterForeground)
+                                                 name:UIApplicationWillEnterForegroundNotification
+                                               object:nil];
 }
 
 - (void)setupGL {
@@ -255,36 +270,14 @@ static const char* kFragmentShaderSource =
 
 - (void)loadPresetsList {
     [self.presetPaths removeAllObjects];
-    
-    // 1. Поиск в Resources/AVSPresets
-    NSString *bundlePath = [[NSBundle mainBundle] resourcePath];
-    NSString *presetsDir = [bundlePath stringByAppendingPathComponent:@"AVSPresets"];
-    
-    NSFileManager *fm = [NSFileManager defaultManager];
-    if ([fm fileExistsAtPath:presetsDir]) {
-        NSArray *files = [fm contentsOfDirectoryAtPath:presetsDir error:nil];
-        for (NSString *file in files) {
-            if ([[file lowercaseString] hasSuffix:@".avs"]) {
-                [self.presetPaths addObject:[presetsDir stringByAppendingPathComponent:file]];
-            }
-        }
-    }
-    
-    // 2. Поиск в главном бандле
-    NSArray *rootFiles = [fm contentsOfDirectoryAtPath:bundlePath error:nil];
-    for (NSString *file in rootFiles) {
-        if ([[file lowercaseString] hasSuffix:@".avs"]) {
-            NSString *full = [bundlePath stringByAppendingPathComponent:file];
-            if (![self.presetPaths containsObject:full]) {
-                [self.presetPaths addObject:full];
-            }
-        }
-    }
-    
-    NSLog(@"[VKAVSGLView] Found %lu AVS presets", (unsigned long)self.presetPaths.count);
-    
+    NSArray<NSString *> *all = [VKPresetManager allAVSPresetPaths];
+    [self.presetPaths addObjectsFromArray:all];
+    NSLog(@"[VKAVSGLView] Loaded %lu AVS presets", (unsigned long)self.presetPaths.count);
     if (self.presetPaths.count > 0) {
-        [self loadPresetAtIndex:0];
+        if (self.currentPresetIndex >= (NSInteger)self.presetPaths.count) {
+            self.currentPresetIndex = 0;
+        }
+        [self loadPresetAtIndex:self.currentPresetIndex];
     }
 }
 
@@ -473,6 +466,26 @@ static const char* kFragmentShaderSource =
     [UIView animateWithDuration:0.5 animations:^{
         self.badgeLabel.alpha = 0.0;
     }];
+}
+
+- (void)appDidEnterBackground {
+    [self stopAnimation];
+    if (_context && [EAGLContext currentContext] == _context) {
+        glFinish();
+    }
+}
+
+- (void)appWillEnterForeground {
+    if (self.window && !self.hidden && self.isPlaying) {
+        [self startAnimation];
+    }
+}
+
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    if (!self.userInteractionEnabled) {
+        return nil;
+    }
+    return [super hitTest:point withEvent:event];
 }
 
 @end

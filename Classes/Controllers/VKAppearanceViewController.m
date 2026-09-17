@@ -2,6 +2,7 @@
 #import "VKThemeManager.h"
 #import "VKSideMenuManager.h"
 #import "VKBackgroundVisualizerManager.h"
+#import "VKPresetsListViewController.h"
 
 @interface VKAppearanceViewController () <UIActionSheetDelegate>
 @end
@@ -68,7 +69,7 @@
     if (section == 1) return 1;
     if (section == 2) {
         BOOL visOn = [[NSUserDefaults standardUserDefaults] objectForKey:@"openvk.audio.visualizer.enabled"] ? [[NSUserDefaults standardUserDefaults] boolForKey:@"openvk.audio.visualizer.enabled"] : YES;
-        return visOn ? 2 : 1;
+        return visOn ? 3 : 1;
     }
     
     if ([[VKBackgroundVisualizerManager sharedManager] isEnabled]) {
@@ -130,7 +131,7 @@
             UISwitch *sw = (UISwitch *)cell.accessoryView;
             sw.on = [[NSUserDefaults standardUserDefaults] objectForKey:@"openvk.audio.visualizer.enabled"] ? [[NSUserDefaults standardUserDefaults] boolForKey:@"openvk.audio.visualizer.enabled"] : YES;
             return cell;
-        } else {
+        } else if (indexPath.row == 1) {
             static NSString *VisEngineCellId = @"VKVisualizerEngineCell";
             UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:VisEngineCellId];
             if (!cell) {
@@ -142,6 +143,18 @@
             cell.textLabel.text = @"Движок визуализатора";
             NSInteger engine = [[NSUserDefaults standardUserDefaults] integerForKey:@"openvk.audio.visualizer.engine"];
             cell.detailTextLabel.text = (engine == 1) ? @"Winamp AVS (2D)" : @"Milkdrop 2 (3D)";
+            return cell;
+        } else {
+            static NSString *VisPresetsCellId = @"VKVisualizerPresetsCell";
+            UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:VisPresetsCellId];
+            if (!cell) {
+                cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:VisPresetsCellId];
+                cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+                cell.textLabel.font = [UIFont systemFontOfSize:15];
+                cell.detailTextLabel.font = [UIFont systemFontOfSize:14];
+            }
+            cell.textLabel.text = @"Управление пресетами";
+            cell.detailTextLabel.text = @"Файлы .milk / .avs";
             return cell;
         }
     } else {
@@ -243,21 +256,28 @@
     if (indexPath.section == 0) {
         [[VKThemeManager sharedManager] applyTheme:(VKThemeType)indexPath.row];
         [self.tableView reloadData];
-    } else if (indexPath.section == 2 && indexPath.row == 1) {
-        UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:@"Движок визуализатора в плеере"
-                                                           delegate:self
-                                                  cancelButtonTitle:@"Отмена"
-                                             destructiveButtonTitle:nil
-                                                  otherButtonTitles:@"Milkdrop 2 (projectM 3D)", @"Winamp AVS (Nullsoft 2D)", nil];
-        sheet.tag = 9004;
-        [sheet showInView:self.view];
+    } else if (indexPath.section == 2) {
+        if (indexPath.row == 1) {
+            UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:@"Движок визуализатора в плеере"
+                                                               delegate:self
+                                                      cancelButtonTitle:@"Отмена"
+                                                 destructiveButtonTitle:nil
+                                                      otherButtonTitles:@"Milkdrop 2 (projectM 3D)", @"Winamp AVS (Nullsoft 2D)", nil];
+            sheet.tag = 9004;
+            [sheet showInView:self.view];
+        } else if (indexPath.row == 2) {
+            VKPresetsListViewController *presetsVC = [[VKPresetsListViewController alloc] initWithStyle:UITableViewStyleGrouped];
+            NSInteger engine = [[NSUserDefaults standardUserDefaults] integerForKey:@"openvk.audio.visualizer.engine"];
+            presetsVC.selectedEngine = engine;
+            [self.navigationController pushViewController:presetsVC animated:YES];
+        }
     } else if (indexPath.section == 3) {
         if (indexPath.row == 1) {
             UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:@"Стиль визуализации"
                                                                delegate:self
                                                       cancelButtonTitle:@"Отмена"
                                                  destructiveButtonTitle:nil
-                                                      otherButtonTitles:@"🌊  Неоновые волны", @"📊  Ретро-эквалайзер", @"✨  Северное сияние", @"🌌  Звёздная пыль", nil];
+                                                      otherButtonTitles:@"⚡  Winamp AVS (2D)", @"🌌  Milkdrop 2 (3D)", @"🌊  Неоновые волны (2D)", @"📊  Ретро-эквалайзер (2D)", @"✨  Северное сияние (2D)", @"🪐  Звёздная пыль (2D)", nil];
             sheet.tag = 9001;
             [sheet showInView:self.view];
         } else if (indexPath.row == 2) {
@@ -296,7 +316,7 @@
     
     VKBackgroundVisualizerManager *bgMan = [VKBackgroundVisualizerManager sharedManager];
     if (actionSheet.tag == 9001) {
-        if (buttonIndex >= 0 && buttonIndex <= 3) {
+        if (buttonIndex >= 0 && buttonIndex <= 5) {
             bgMan.style = (VKBackgroundVisualizerStyle)buttonIndex;
             [self.tableView reloadData];
         }

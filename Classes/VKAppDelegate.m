@@ -14,6 +14,7 @@
 #import "VKNetworkBannerView.h"
 #import "VKLongPollService.h"
 #import "VKBackgroundVisualizerManager.h"
+#import "VKPresetManager.h"
 
 @interface VKNavigationController : UINavigationController <UIGestureRecognizerDelegate>
 - (void)updateNavBarTheme;
@@ -135,6 +136,8 @@
     }
     
     [self.window makeKeyAndVisible];
+    [[UIApplication sharedApplication] beginReceivingRemoteControlEvents];
+    [self becomeFirstResponder];
     return YES;
 }
 
@@ -258,8 +261,55 @@
     [[VKBackgroundVisualizerManager sharedManager] updateVisualizerState];
 }
 
+- (BOOL)canBecomeFirstResponder {
+    return YES;
+}
+
+- (void)remoteControlReceivedWithEvent:(UIEvent *)event {
+    if (event.type == UIEventTypeRemoteControl) {
+        [[VKAudioPlayer sharedPlayer] handleRemoteControlEvent:event];
+    }
+}
+
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+#pragma mark - Open URL (Document Import)
+
+- (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation {
+    if (!url) return NO;
+    
+    NSString *ext = [[url pathExtension] lowercaseString];
+    if ([ext isEqualToString:@"milk"] || [ext isEqualToString:@"avs"]) {
+        NSError *error = nil;
+        BOOL ok = [VKPresetManager importPresetFromURL:url error:&error];
+        if (ok) {
+            NSString *name = [url lastPathComponent];
+            NSString *msg = [NSString stringWithFormat:@"Пресет «%@» успешно импортирован!", name];
+            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Импорт пресета"
+                                                            message:msg
+                                                           delegate:nil
+                                                  cancelButtonTitle:@"OK"
+                                                  otherButtonTitles:nil];
+            [alert show];
+            return YES;
+        } else {
+            NSString *errDesc = error.localizedDescription ?: @"Не удалось импортировать файл пресета.";
+            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Ошибка импорта"
+                                                            message:errDesc
+                                                           delegate:nil
+                                                  cancelButtonTitle:@"OK"
+                                                  otherButtonTitles:nil];
+            [alert show];
+            return NO;
+        }
+    }
+    return NO;
+}
+
+- (BOOL)application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey,id> *)options {
+    return [self application:app openURL:url sourceApplication:nil annotation:nil];
 }
 
 @end
