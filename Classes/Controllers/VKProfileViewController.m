@@ -377,6 +377,18 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
     }
 }
 
+- (void)profileAvatarTapped:(UITapGestureRecognizer *)gesture {
+    NSString *previewURL = self.user.avatarURL;
+    NSString *fullURL = self.user.avatarURLFull ?: previewURL;
+    if (previewURL.length == 0 && fullURL.length == 0) return;
+    
+    UIImageView *iv = (UIImageView *)gesture.view;
+    UIImage *initialImg = [iv isKindOfClass:[UIImageView class]] ? iv.image : nil;
+    
+    VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithImageURL:previewURL fullImageURL:fullURL initialImage:initialImg];
+    [self presentViewController:viewer animated:YES completion:nil];
+}
+
 - (void)showDetailsAction {
     VKDetailedProfileInfoViewController *detailsVC = [[VKDetailedProfileInfoViewController alloc] initWithUser:self.user];
     [self.navigationController pushViewController:detailsVC animated:YES];
@@ -644,6 +656,11 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
         avatar.layer.borderWidth = [[VKThemeManager sharedManager] avatarBorderWidth];
         avatar.layer.borderColor = [[VKThemeManager sharedManager] avatarBorderColor].CGColor;
         avatar.image = nil;
+        avatar.userInteractionEnabled = YES;
+        for (UIGestureRecognizer *gr in avatar.gestureRecognizers) {
+            [avatar removeGestureRecognizer:gr];
+        }
+        [avatar addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(profileAvatarTapped:)]];
         if (self.user.avatarURL) {
             [[VKImageLoader sharedLoader] loadImageWithURL:self.user.avatarURL completion:^(UIImage *img) {
                 if (img) avatar.image = img;

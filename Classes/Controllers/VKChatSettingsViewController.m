@@ -106,6 +106,12 @@
     self.tableView.tableHeaderView = header;
 }
 
+- (void)chatAvatarTapped {
+    if (self.chatPhotoURL.length == 0) return;
+    VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithImageURL:self.chatPhotoURL initialImage:self.headerAvatarView.image];
+    [self presentViewController:viewer animated:YES completion:nil];
+}
+
 - (NSString *)membersCountString:(NSInteger)count {
     if (count <= 0) return @"нет участников";
     NSInteger rem100 = count % 100;

@@ -278,7 +278,7 @@
     } else if (self.peerId > 0 && (!self.peerUser || self.peerUser.avatarURL.length == 0)) {
         NSDictionary *params = @{
             @"user_ids": @(self.peerId),
-            @"fields": @"photo_50,photo_100,photo_200,online,last_seen,sex,verified"
+            @"fields": @"photo_50,photo_100,photo_200,photo_max_orig,photo_400_orig,online,last_seen,sex,verified"
         };
         [[VKAPIClient sharedClient] callMethod:@"users.get" parameters:params completionHandler:^(id response, NSError *error) {
             if (!error && [response isKindOfClass:[NSDictionary class]]) {
@@ -392,7 +392,7 @@
         [navAvatar.heightAnchor constraintEqualToConstant:32.0].active = YES;
     }
     
-    UITapGestureRecognizer *avTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(headerTapped)];
+    UITapGestureRecognizer *avTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(avatarTapped)];
     [container addGestureRecognizer:avTap];
     
     self.navAvatarView = navAvatar;
@@ -502,6 +502,26 @@
             [self updateInputBarVisibility];
         });
     }];
+}
+
+- (void)avatarTapped {
+    NSString *avatarURL = nil;
+    NSString *avatarURLFull = nil;
+    if (self.peerId > 2000000000) {
+        avatarURL = self.chatPhotoURL;
+        avatarURLFull = self.chatPhotoURL;
+    } else {
+        avatarURL = self.peerUser.avatarURL;
+        avatarURLFull = self.peerUser.avatarURLFull ?: avatarURL;
+    }
+    
+    if (avatarURL.length == 0 && avatarURLFull.length == 0) {
+        [self headerTapped];
+        return;
+    }
+    
+    VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithImageURL:avatarURL fullImageURL:avatarURLFull initialImage:self.navAvatarView.image];
+    [self presentViewController:viewer animated:YES completion:nil];
 }
 
 - (void)headerTapped {
