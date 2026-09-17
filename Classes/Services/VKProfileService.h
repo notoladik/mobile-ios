@@ -14,6 +14,16 @@
                       count:(NSInteger)count
                  completion:(void (^)(NSArray *posts, NSInteger totalCount, NSError *error))completion;
 
+- (void)fetchWallForOwnerId:(NSInteger)ownerId
+                     offset:(NSInteger)offset
+                      count:(NSInteger)count
+                     filter:(NSString *)filter
+                 completion:(void (^)(NSArray *posts, NSInteger totalCount, NSError *error))completion;
+
+- (void)archivePost:(NSInteger)postId ownerId:(NSInteger)ownerId completion:(void (^)(BOOL success, NSError *error))completion;
+- (void)restorePost:(NSInteger)postId ownerId:(NSInteger)ownerId completion:(void (^)(BOOL success, NSError *error))completion;
+- (void)deletePost:(NSInteger)postId ownerId:(NSInteger)ownerId completion:(void (^)(BOOL success, NSError *error))completion;
+
 - (void)fetchFriendsForUserId:(NSInteger)userId
                    completion:(void (^)(NSArray *friends, NSError *error))completion;
 

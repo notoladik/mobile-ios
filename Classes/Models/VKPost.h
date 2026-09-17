@@ -19,6 +19,7 @@
 @property (nonatomic, assign) BOOL isLiked;
 @property (nonatomic, strong) NSArray *repostHistory;
 @property (nonatomic, assign) BOOL isExplicit;
+@property (nonatomic, assign) BOOL isArchived;
 @property (nonatomic, assign) BOOL isTextExpanded;
 @property (nonatomic, assign) BOOL isRepostTextExpanded;
 @property (nonatomic, copy) NSString *copyrightName;

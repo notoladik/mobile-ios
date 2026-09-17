@@ -20,6 +20,19 @@
     
     c.text = dict[@"text"] ?: @"";
     
+    c.replyToComment = [dict[@"reply_to_comment"] integerValue] ?: [dict[@"reply_to_cid"] integerValue];
+    c.replyToUser = [dict[@"reply_to_user"] integerValue] ?: [dict[@"reply_to_uid"] integerValue];
+    if (c.replyToUser > 0) {
+        NSDictionary *rp = profiles[@(c.replyToUser)];
+        if (rp) c.replyToAuthor = [VKUser userFromDictionary:rp];
+    } else if (c.replyToUser < 0) {
+        NSDictionary *rg = groups[@(-c.replyToUser)];
+        if (rg) c.replyToAuthor = [VKUser groupFromDictionary:rg];
+    }
+    if (c.replyToComment > 0) {
+        c.threadLevel = 1;
+    }
+    
     double timestamp = [dict[@"date"] doubleValue];
     if (timestamp > 0) {
         c.date = [NSDate dateWithTimeIntervalSince1970:timestamp];

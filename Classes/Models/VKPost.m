@@ -60,6 +60,7 @@
         post.text = @"";
     }
     post.isExplicit = [dict[@"is_explicit"] boolValue] || [dict[@"nsfw"] boolValue];
+    post.isArchived = [dict[@"is_archived"] boolValue];
     
     // Счетчики
     if ([dict[@"likes"] isKindOfClass:[NSDictionary class]]) {

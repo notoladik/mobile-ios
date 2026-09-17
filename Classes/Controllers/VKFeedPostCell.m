@@ -771,7 +771,11 @@
         else if ([post.platform isEqualToString:@"android"]) platformName = @"Android";
         else if ([post.platform isEqualToString:@"wphone"]) platformName = @"WP";
     }
-    self.dateAndPlatformLabel.text = platformName.length > 0 ? [NSString stringWithFormat:@"%@ • %@", post.timeAgo, platformName] : post.timeAgo;
+    NSString *dateText = platformName.length > 0 ? [NSString stringWithFormat:@"%@ • %@", post.timeAgo, platformName] : post.timeAgo;
+    if (post.isArchived) {
+        dateText = [NSString stringWithFormat:@"[Архив] %@", dateText];
+    }
+    self.dateAndPlatformLabel.text = dateText;
     
     // Позиционирование карточки
     CGFloat margin = [[VKThemeManager sharedManager] cardHorizontalMargin];

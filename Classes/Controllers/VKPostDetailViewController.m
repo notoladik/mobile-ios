@@ -5,6 +5,7 @@
 #import "VKAuthService.h"
 #import "VKFeedPostCell.h"
 #import "VKProfileViewController.h"
+#import "VKProfileService.h"
 #import "VKPhotoViewerViewController.h"
 #import "VKGifViewerViewController.h"
 #import "VKVideoPlayerViewController.h"
@@ -20,6 +21,7 @@
 @interface VKCommentCell : UITableViewCell
 @property (nonatomic, strong) UIImageView *avatarImageView;
 @property (nonatomic, strong) UILabel *nameLabel;
+@property (nonatomic, strong) UILabel *replyToLabel;
 @property (nonatomic, strong) UILabel *dateLabel;
 @property (nonatomic, strong) UILabel *commentTextLabel;
 @property (nonatomic, strong) UIView *attachmentsContainerView;
@@ -27,7 +29,11 @@
 @property (nonatomic, strong) UIButton *moreButton;
 @property (nonatomic, strong) UIButton *likeButton;
 
+@property (nonatomic, strong) UIView *threadGuideLineView;
+@property (nonatomic, strong) UIView *threadElbowLineView;
+
 @property (nonatomic, copy) void (^onAvatarTapped)(void);
+@property (nonatomic, copy) void (^onReplyAuthorTapped)(VKUser *user);
 @property (nonatomic, copy) void (^onReplyTapped)(void);
 @property (nonatomic, copy) void (^onMoreTapped)(void);
 @property (nonatomic, copy) void (^onShowCommentLikesTapped)(VKComment *comment);
@@ -61,10 +67,33 @@
         [_avatarImageView addGestureRecognizer:tap];
         [self.contentView addSubview:_avatarImageView];
         
+        _threadGuideLineView = [[UIView alloc] initWithFrame:CGRectZero];
+        _threadGuideLineView.backgroundColor = [UIColor colorWithRed:215.0/255.0 green:220.0/255.0 blue:228.0/255.0 alpha:1.0];
+        _threadGuideLineView.hidden = YES;
+        [self.contentView addSubview:_threadGuideLineView];
+        
+        _threadElbowLineView = [[UIView alloc] initWithFrame:CGRectZero];
+        _threadElbowLineView.backgroundColor = [UIColor colorWithRed:215.0/255.0 green:220.0/255.0 blue:228.0/255.0 alpha:1.0];
+        _threadElbowLineView.hidden = YES;
+        [self.contentView addSubview:_threadElbowLineView];
+        
         _nameLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         _nameLabel.font = [UIFont boldSystemFontOfSize:14];
         _nameLabel.textColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
         [self.contentView addSubview:_nameLabel];
+        
+        _replyToLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        _replyToLabel.font = [UIFont systemFontOfSize:12];
+        _replyToLabel.textColor = [UIColor colorWithRed:125.0/255.0 green:138.0/255.0 blue:155.0/255.0 alpha:1.0];
+        _replyToLabel.userInteractionEnabled = YES;
+        UITapGestureRecognizer *rTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(replyAuthorClicked)];
+        [_replyToLabel addGestureRecognizer:rTap];
+        _replyToLabel.hidden = YES;
+        [self.contentView addSubview:_replyToLabel];
+        
+        UISwipeGestureRecognizer *swipeRight = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(replyClicked)];
+        swipeRight.direction = UISwipeGestureRecognizerDirectionRight;
+        [self.contentView addGestureRecognizer:swipeRight];
         
         _commentTextLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         _commentTextLabel.font = [UIFont systemFontOfSize:14];
@@ -126,12 +155,23 @@
     self.onDocTapped = nil;
     self.onLinkTapped = nil;
     self.avatarImageView.image = nil;
+    self.threadGuideLineView.hidden = YES;
+    self.threadElbowLineView.hidden = YES;
+    self.replyToLabel.hidden = YES;
+    self.replyToLabel.text = nil;
+    self.onReplyAuthorTapped = nil;
     [[self.attachmentsContainerView subviews] makeObjectsPerformSelector:@selector(removeFromSuperview)];
     self.attachmentsContainerView.frame = CGRectZero;
 }
 
 - (void)avatarClicked {
     if (self.onAvatarTapped) self.onAvatarTapped();
+}
+
+- (void)replyAuthorClicked {
+    if (self.onReplyAuthorTapped && self.currentComment.replyToAuthor) {
+        self.onReplyAuthorTapped(self.currentComment.replyToAuthor);
+    }
 }
 
 - (void)replyClicked {
@@ -184,7 +224,8 @@
 
 + (CGFloat)heightForComment:(VKComment *)comment width:(CGFloat)width {
     if (!comment) return 44.0;
-    CGFloat textWidth = MAX(50.0, width - 68.0);
+    CGFloat contentX = (comment.threadLevel > 0) ? 76.0 : 58.0;
+    CGFloat textWidth = MAX(50.0, width - contentX - 10.0);
     
     CGFloat textH = 0;
     if (comment.text.length > 0) {
@@ -231,8 +272,24 @@
     NSUInteger generation = self.configurationGeneration;
     self.currentComment = comment;
     BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
-    self.avatarImageView.layer.cornerRadius = isSkeuomorph ? 3.0 : 18.0;
+    
+    BOOL isReply = (comment.threadLevel > 0);
+    CGFloat leftIndent = isReply ? 28.0 : 0.0;
+    CGFloat avatarX = 12.0 + leftIndent;
+    CGFloat avatarSize = isReply ? 28.0 : 36.0;
+    self.avatarImageView.frame = CGRectMake(avatarX, isReply ? 8 : 10, avatarSize, avatarSize);
+    self.avatarImageView.layer.cornerRadius = isSkeuomorph ? 3.0 : (avatarSize / 2.0);
     self.avatarImageView.image = nil;
+    
+    if (isReply) {
+        self.threadGuideLineView.hidden = NO;
+        self.threadGuideLineView.frame = CGRectMake(20.0, 0, 1.5, 22.0);
+        self.threadElbowLineView.hidden = NO;
+        self.threadElbowLineView.frame = CGRectMake(20.0, 22.0, avatarX - 20.0, 1.5);
+    } else {
+        self.threadGuideLineView.hidden = YES;
+        self.threadElbowLineView.hidden = YES;
+    }
     
     if (comment.author.avatarURL) {
         [[VKImageLoader sharedLoader] loadImageWithURL:comment.author.avatarURL completion:^(UIImage *img) {
@@ -242,6 +299,9 @@
         }];
     }
     
+    CGFloat contentX = avatarX + avatarSize + 8.0;
+    CGFloat availableHeaderW = width - contentX - 64.0;
+    
     self.nameLabel.text = comment.author.displayName ?: @"Пользователь";
     if (isSkeuomorph) {
         self.nameLabel.textColor = [UIColor colorWithRed:43.0/255.0 green:88.0/255.0 blue:122.0/255.0 alpha:1.0];
@@ -250,9 +310,26 @@
     }
     
     CGSize nameSize = [self.nameLabel.text sizeWithFont:[UIFont boldSystemFontOfSize:14]];
-    self.nameLabel.frame = CGRectMake(58, 8, MIN(nameSize.width, width - 130), 18);
+    CGFloat maxNameW = (comment.replyToAuthor || comment.replyToUser != 0) ? (availableHeaderW * 0.55) : availableHeaderW;
+    CGFloat actualNameW = MIN(nameSize.width, maxNameW);
+    self.nameLabel.frame = CGRectMake(contentX, 8, actualNameW, 18);
     
-    CGFloat textWidth = MAX(50.0, width - 68.0);
+    if (comment.replyToAuthor || comment.replyToUser != 0) {
+        NSString *rName = comment.replyToAuthor.displayName ?: (comment.replyToUser > 0 ? [NSString stringWithFormat:@"id%ld", (long)comment.replyToUser] : @"");
+        if (rName.length > 0) {
+            self.replyToLabel.hidden = NO;
+            self.replyToLabel.text = [NSString stringWithFormat:@"↳ %@", rName];
+            CGSize rSize = [self.replyToLabel.text sizeWithFont:[UIFont systemFontOfSize:12]];
+            CGFloat rW = MIN(rSize.width, availableHeaderW - actualNameW - 4.0);
+            self.replyToLabel.frame = CGRectMake(contentX + actualNameW + 4.0, 8, rW, 18);
+        } else {
+            self.replyToLabel.hidden = YES;
+        }
+    } else {
+        self.replyToLabel.hidden = YES;
+    }
+    
+    CGFloat textWidth = MAX(50.0, width - contentX - 10.0);
     CGFloat textH = 0;
     if (comment.text.length > 0) {
         NSAttributedString *attr = [VKCommentCell attributedTextForComment:comment.text];
@@ -264,7 +341,7 @@
             CGSize sz = [comment.text sizeWithFont:[UIFont systemFontOfSize:14] constrainedToSize:CGSizeMake(textWidth, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
             textH = ceilf(sz.height);
         }
-        self.commentTextLabel.frame = CGRectMake(58, 28, textWidth, textH);
+        self.commentTextLabel.frame = CGRectMake(contentX, 28, textWidth, textH);
         self.commentTextLabel.hidden = NO;
     } else {
         self.commentTextLabel.text = nil;
@@ -481,15 +558,15 @@
         }
     }
     
-    self.attachmentsContainerView.frame = CGRectMake(58, startAttY, textWidth, currentY);
+    self.attachmentsContainerView.frame = CGRectMake(contentX, startAttY, textWidth, currentY);
     
     CGFloat bottomY = startAttY + currentY + 4.0;
     NSString *dateStr = comment.timeAgo ?: @"сегодня";
     CGSize dateSize = [dateStr sizeWithFont:[UIFont systemFontOfSize:11.5]];
     self.dateLabel.text = dateStr;
-    self.dateLabel.frame = CGRectMake(58, bottomY - 5.0, dateSize.width + 4, 26);
-    self.replyButton.frame = CGRectMake(58 + dateSize.width + 7.0, bottomY - 5.0, 64, 26);
-    self.moreButton.frame = CGRectMake(58 + dateSize.width + 135.0, bottomY - 5.0, 34, 26);
+    self.dateLabel.frame = CGRectMake(contentX, bottomY - 5.0, dateSize.width + 4, 26);
+    self.replyButton.frame = CGRectMake(contentX + dateSize.width + 7.0, bottomY - 5.0, 64, 26);
+    self.moreButton.frame = CGRectMake(contentX + dateSize.width + 76.0, bottomY - 5.0, 34, 26);
     self.replyButton.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
     self.moreButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
     
@@ -568,6 +645,11 @@
 @property (nonatomic, assign) BOOL isLoading;
 @property (nonatomic, strong) VKComment *selectedCommentForAction;
 @property (nonatomic, assign) NSInteger replyingToCommentId;
+@property (nonatomic, strong) VKComment *replyingToComment;
+@property (nonatomic, strong) UIView *replyBarView;
+@property (nonatomic, strong) UILabel *replyBarTitleLabel;
+@property (nonatomic, strong) UILabel *replyBarSnippetLabel;
+@property (nonatomic, strong) UIButton *cancelReplyButton;
 
 @property (nonatomic, strong) UIImage *attachedImage;
 @property (nonatomic, strong) UIView *attachmentPreviewBar;
@@ -676,6 +758,51 @@
     self.inputContainerView = [[UIView alloc] initWithFrame:CGRectMake(0, y, self.view.bounds.size.width, inputH)];
     self.inputContainerView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
     self.inputContainerView.backgroundColor = [UIColor colorWithRed:246.0/255.0 green:247.0/255.0 blue:249.0/255.0 alpha:1.0];
+    
+    // Панель ответа на комментарий
+    self.replyBarView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 38.0)];
+    self.replyBarView.backgroundColor = [UIColor colorWithRed:240.0/255.0 green:243.0/255.0 blue:247.0/255.0 alpha:1.0];
+    self.replyBarView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    self.replyBarView.hidden = YES;
+    
+    UIView *rTopLine = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 0.5)];
+    rTopLine.backgroundColor = [UIColor colorWithRed:215.0/255.0 green:218.0/255.0 blue:224.0/255.0 alpha:1.0];
+    rTopLine.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [self.replyBarView addSubview:rTopLine];
+    
+    UIView *blueStripe = [[UIView alloc] initWithFrame:CGRectMake(10, 6, 3, 26)];
+    blueStripe.backgroundColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
+    blueStripe.layer.cornerRadius = 1.5;
+    [self.replyBarView addSubview:blueStripe];
+    
+    UILabel *arrowIco = [[UILabel alloc] initWithFrame:CGRectMake(18, 6, 14, 14)];
+    arrowIco.text = @"↩";
+    arrowIco.font = [UIFont systemFontOfSize:11];
+    arrowIco.textColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
+    [self.replyBarView addSubview:arrowIco];
+    
+    self.replyBarTitleLabel = [[UILabel alloc] initWithFrame:CGRectMake(36, 4, self.view.bounds.size.width - 76, 15)];
+    self.replyBarTitleLabel.font = [UIFont boldSystemFontOfSize:11.5];
+    self.replyBarTitleLabel.textColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
+    self.replyBarTitleLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [self.replyBarView addSubview:self.replyBarTitleLabel];
+    
+    self.replyBarSnippetLabel = [[UILabel alloc] initWithFrame:CGRectMake(36, 19, self.view.bounds.size.width - 76, 14)];
+    self.replyBarSnippetLabel.font = [UIFont systemFontOfSize:11];
+    self.replyBarSnippetLabel.textColor = [UIColor colorWithRed:120.0/255.0 green:125.0/255.0 blue:135.0/255.0 alpha:1.0];
+    self.replyBarSnippetLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [self.replyBarView addSubview:self.replyBarSnippetLabel];
+    
+    self.cancelReplyButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.cancelReplyButton.frame = CGRectMake(self.view.bounds.size.width - 38, 4, 30, 30);
+    self.cancelReplyButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    [self.cancelReplyButton setTitle:@"✕" forState:UIControlStateNormal];
+    [self.cancelReplyButton setTitleColor:[UIColor colorWithRed:140.0/255.0 green:150.0/255.0 blue:160.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+    self.cancelReplyButton.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    [self.cancelReplyButton addTarget:self action:@selector(cancelReplyAction) forControlEvents:UIControlEventTouchUpInside];
+    [self.replyBarView addSubview:self.cancelReplyButton];
+    
+    [self.inputContainerView addSubview:self.replyBarView];
     
     // Панель предпросмотра прикрепленного фото
     self.attachmentPreviewBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 54)];
@@ -786,7 +913,10 @@
 }
 
 - (CGFloat)currentInputBarHeight {
-    return self.attachedImage ? (46.0 + 54.0) : 46.0;
+    CGFloat h = 46.0;
+    if (self.replyingToComment != nil) h += 38.0;
+    if (self.attachedImage != nil) h += 54.0;
+    return h;
 }
 
 - (void)relayoutInputBarAnimated:(BOOL)animated {
@@ -795,21 +925,28 @@
     
     void (^layoutBlock)(void) = ^{
         self.inputContainerView.frame = CGRectMake(0, y, self.view.bounds.size.width, h);
-        self.attachmentPreviewBar.frame = CGRectMake(0, 0, self.view.bounds.size.width, 54);
         
-        CGFloat baseFieldY = self.attachedImage ? 54.0 : 0.0;
+        CGFloat curY = 0.0;
+        if (self.replyingToComment != nil) {
+            self.replyBarView.frame = CGRectMake(0, curY, self.view.bounds.size.width, 38.0);
+            curY += 38.0;
+        }
+        if (self.attachedImage != nil) {
+            self.attachmentPreviewBar.frame = CGRectMake(0, curY, self.view.bounds.size.width, 54.0);
+            curY += 54.0;
+        }
         
         UIView *topLine = [self.inputContainerView viewWithTag:888];
-        topLine.frame = CGRectMake(0, baseFieldY, self.view.bounds.size.width, 0.5);
+        topLine.frame = CGRectMake(0, curY, self.view.bounds.size.width, 0.5);
         
-        self.attachButton.frame = CGRectMake(6, baseFieldY + 6, 34, 34);
+        self.attachButton.frame = CGRectMake(6, curY + 6, 34, 34);
         
         UIView *fieldBg = [self.inputContainerView viewWithTag:777];
         CGFloat tfX = 46.0;
         CGFloat tfW = self.view.bounds.size.width - tfX - 58.0;
-        fieldBg.frame = CGRectMake(tfX, baseFieldY + 7, tfW, 32);
+        fieldBg.frame = CGRectMake(tfX, curY + 7, tfW, 32);
         
-        self.sendButton.frame = CGRectMake(self.view.bounds.size.width - 54, baseFieldY + 7, 48, 32);
+        self.sendButton.frame = CGRectMake(self.view.bounds.size.width - 54, curY + 7, 48, 32);
         
         self.tableView.frame = CGRectMake(0, 0, self.view.bounds.size.width, y);
     };
@@ -821,13 +958,34 @@
     }
 }
 
+- (void)startReplyingToComment:(VKComment *)comment {
+    if (!comment) return;
+    self.replyingToComment = comment;
+    self.replyingToCommentId = comment.commentId;
+    self.replyBarTitleLabel.text = [NSString stringWithFormat:@"В ответ %@", comment.author.displayName ?: @"пользователю"];
+    NSString *snip = comment.text ?: @"";
+    if (snip.length == 0 && comment.attachments.count > 0) snip = @"[Вложение]";
+    self.replyBarSnippetLabel.text = snip;
+    self.replyBarView.hidden = NO;
+    [self.sendButton setTitleColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+    [self relayoutInputBarAnimated:YES];
+    [self.commentTextField becomeFirstResponder];
+}
+
+- (void)cancelReplyAction {
+    self.replyingToComment = nil;
+    self.replyingToCommentId = 0;
+    self.replyBarView.hidden = YES;
+    [self textFieldChanged];
+    [self relayoutInputBarAnimated:YES];
+}
+
 - (void)textFieldChanged {
     NSString *trimmed = [self.commentTextField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (trimmed.length > 0 || self.attachedImage != nil) {
+    if (trimmed.length > 0 || self.attachedImage != nil || self.replyingToComment != nil) {
         [self.sendButton setTitleColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] forState:UIControlStateNormal];
     } else {
         [self.sendButton setTitleColor:[UIColor colorWithRed:160.0/255.0 green:170.0/255.0 blue:180.0/255.0 alpha:1.0] forState:UIControlStateNormal];
-        self.replyingToCommentId = 0;
     }
 }
 
@@ -856,12 +1014,26 @@
 }
 
 - (void)postOptionsAction {
-    UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil
-                                                       delegate:self
-                                              cancelButtonTitle:@"Отмена"
-                                         destructiveButtonTitle:nil
-                                              otherButtonTitles:@"Поделиться", @"Скопировать ссылку", nil];
-    sheet.tag = 1001;
+    NSInteger currentUserId = [[VKAuthService sharedService] currentUserModel].uid;
+    BOOL isMyPost = (self.post.ownerID == currentUserId || self.post.author.uid == currentUserId);
+    
+    UIActionSheet *sheet = nil;
+    if (isMyPost) {
+        NSString *archiveTitle = self.post.isArchived ? @"Восстановить на стену" : @"Архивировать запись";
+        sheet = [[UIActionSheet alloc] initWithTitle:nil
+                                            delegate:self
+                                   cancelButtonTitle:@"Отмена"
+                              destructiveButtonTitle:@"Удалить запись"
+                                   otherButtonTitles:archiveTitle, @"Поделиться", @"Скопировать ссылку", nil];
+        sheet.tag = 1003;
+    } else {
+        sheet = [[UIActionSheet alloc] initWithTitle:nil
+                                            delegate:self
+                                   cancelButtonTitle:@"Отмена"
+                              destructiveButtonTitle:nil
+                                   otherButtonTitles:@"Поделиться", @"Скопировать ссылку", nil];
+        sheet.tag = 1001;
+    }
     [sheet showInView:self.view];
 }
 
@@ -902,6 +1074,50 @@
     [picker dismissViewControllerAnimated:YES completion:nil];
 }
 
+- (NSArray *)organizeCommentsIntoThreads:(NSArray *)flatComments {
+    if (flatComments.count == 0) return @[];
+    
+    NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+    for (VKComment *c in flatComments) {
+        if (c.commentId > 0) {
+            dict[@(c.commentId)] = c;
+        }
+    }
+    
+    NSMutableDictionary *repliesMap = [NSMutableDictionary dictionary];
+    NSMutableArray *rootComments = [NSMutableArray array];
+    
+    for (VKComment *c in flatComments) {
+        if (c.replyToComment > 0 && dict[@(c.replyToComment)] != nil) {
+            VKComment *parent = dict[@(c.replyToComment)];
+            c.parentComment = parent;
+            if (!c.replyToAuthor && parent.author) {
+                c.replyToAuthor = parent.author;
+            }
+            c.threadLevel = 1;
+            NSMutableArray *replies = repliesMap[@(c.replyToComment)];
+            if (!replies) {
+                replies = [NSMutableArray array];
+                repliesMap[@(c.replyToComment)] = replies;
+            }
+            [replies addObject:c];
+        } else {
+            c.threadLevel = (c.replyToComment > 0 || c.replyToUser > 0) ? 1 : 0;
+            [rootComments addObject:c];
+        }
+    }
+    
+    NSMutableArray *ordered = [NSMutableArray array];
+    for (VKComment *root in rootComments) {
+        [ordered addObject:root];
+        NSArray *replies = repliesMap[@(root.commentId)];
+        if (replies.count > 0) {
+            [ordered addObjectsFromArray:replies];
+        }
+    }
+    return ordered;
+}
+
 - (void)loadComments {
     if (self.isLoading) return;
     self.isLoading = YES;
@@ -911,8 +1127,9 @@
             [self.refreshControl endRefreshing];
             self.isLoading = NO;
             if (!error && comments) {
+                NSArray *threaded = [self organizeCommentsIntoThreads:comments];
                 [self.comments removeAllObjects];
-                [self.comments addObjectsFromArray:comments];
+                [self.comments addObjectsFromArray:threaded];
                 [self.tableView reloadData];
             }
         });
@@ -956,8 +1173,7 @@
                         if (success) {
                             [self removeAttachmentAction];
                             self.commentTextField.text = @"";
-                            self.replyingToCommentId = 0;
-                            [self textFieldChanged];
+                            [self cancelReplyAction];
                             [self.commentTextField resignFirstResponder];
                             [self loadComments];
                         } else {
@@ -984,8 +1200,7 @@
                 self.sendButton.userInteractionEnabled = YES;
                 if (success) {
                     self.commentTextField.text = @"";
-                    self.replyingToCommentId = 0;
-                    [self textFieldChanged];
+                    [self cancelReplyAction];
                     [self.commentTextField resignFirstResponder];
                     [self loadComments];
                 } else {
@@ -1066,6 +1281,9 @@
         }
         [cell configureWithPost:self.post isRevealed:YES width:tableView.bounds.size.width];
         __weak typeof(self) weakSelf = self;
+        cell.onOptionsTapped = ^(VKPost *p) {
+            [weakSelf postOptionsAction];
+        };
         cell.onLikeTapped = ^(VKPost *p) {
             [[VKFeedService sharedService] likePost:p completion:nil];
         };
@@ -1197,12 +1415,14 @@
             };
             
             cell.onReplyTapped = ^{
-                weakSelf.replyingToCommentId = comment.commentId;
-                NSString *name = comment.author.displayName ?: @"";
-                NSString *mention = [NSString stringWithFormat:@"[id%ld|%@], ", (long)comment.fromId, name];
-                weakSelf.commentTextField.text = mention;
-                [weakSelf textFieldChanged];
-                [weakSelf.commentTextField becomeFirstResponder];
+                [weakSelf startReplyingToComment:comment];
+            };
+            
+            cell.onReplyAuthorTapped = ^(VKUser *authorUser) {
+                if (authorUser) {
+                    VKProfileViewController *profVC = [[VKProfileViewController alloc] initWithUser:authorUser];
+                    [weakSelf.navigationController pushViewController:profVC animated:YES];
+                }
             };
             
             cell.onLikeTapped = ^{
@@ -1361,17 +1581,49 @@
         } else if ([title isEqualToString:@"Выбрать из медиатеки"]) {
             [self openImagePickerWithSourceType:UIImagePickerControllerSourceTypePhotoLibrary];
         }
+    } else if (actionSheet.tag == 1003) {
+        if (buttonIndex == actionSheet.destructiveButtonIndex) {
+            [[VKProfileService sharedService] deletePost:self.post.vkID ownerId:self.post.ownerID completion:^(BOOL success, NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (success) {
+                        [self.navigationController popViewControllerAnimated:YES];
+                    }
+                });
+            }];
+        } else if (buttonIndex == 1) {
+            if (self.post.isArchived) {
+                [[VKProfileService sharedService] restorePost:self.post.vkID ownerId:self.post.ownerID completion:^(BOOL success, NSError *error) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if (success) {
+                            self.post.isArchived = NO;
+                            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Восстановлено" message:@"Запись восстановлена на стену." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                            [alert show];
+                        }
+                    });
+                }];
+            } else {
+                [[VKProfileService sharedService] archivePost:self.post.vkID ownerId:self.post.ownerID completion:^(BOOL success, NSError *error) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if (success) {
+                            self.post.isArchived = YES;
+                            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"В архиве" message:@"Запись сохранена в архив." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                            [alert show];
+                        }
+                    });
+                }];
+            }
+        } else if (buttonIndex == 2) {
+            // Поделиться
+            [[VKShareManager sharedManager] presentShareSheetForPost:self.post fromViewController:self completion:nil];
+        } else if (buttonIndex == 3) {
+            [UIPasteboard generalPasteboard].string = [NSString stringWithFormat:@"https://openvk.su/wall%ld_%ld", (long)self.post.ownerID, (long)self.post.vkID];
+        }
     }
 }
 
 - (void)replyToSelectedComment {
     if (!self.selectedCommentForAction) return;
-    self.replyingToCommentId = self.selectedCommentForAction.commentId;
-    NSString *name = self.selectedCommentForAction.author.displayName ?: @"";
-    NSString *mention = [NSString stringWithFormat:@"[id%ld|%@], ", (long)self.selectedCommentForAction.fromId, name];
-    self.commentTextField.text = mention;
-    [self textFieldChanged];
-    [self.commentTextField becomeFirstResponder];
+    [self startReplyingToComment:self.selectedCommentForAction];
 }
 
 - (void)copySelectedComment {

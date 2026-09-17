@@ -67,13 +67,24 @@
                      offset:(NSInteger)offset
                       count:(NSInteger)count
                  completion:(void (^)(NSArray *posts, NSInteger totalCount, NSError *error))completion {
+    [self fetchWallForOwnerId:ownerId offset:offset count:count filter:nil completion:completion];
+}
+
+- (void)fetchWallForOwnerId:(NSInteger)ownerId
+                     offset:(NSInteger)offset
+                      count:(NSInteger)count
+                     filter:(NSString *)filter
+                 completion:(void (^)(NSArray *posts, NSInteger totalCount, NSError *error))completion {
     
-    NSDictionary *params = @{
+    NSMutableDictionary *params = [NSMutableDictionary dictionaryWithDictionary:@{
         @"owner_id": @(ownerId),
         @"offset": @(offset),
         @"count": @(count),
         @"extended": @"1"
-    };
+    }];
+    if (filter.length > 0) {
+        params[@"filter"] = filter;
+    }
     
     [[VKAPIClient sharedClient] callMethod:@"wall.get" parameters:params completionHandler:^(id response, NSError *error) {
         if (error) {
@@ -98,10 +109,16 @@
                 if (g[@"id"]) groups[g[@"id"]] = g;
             }
             
+            BOOL isArchivedFilter = [filter isEqualToString:@"archived"];
             NSMutableArray *posts = [NSMutableArray array];
             for (NSDictionary *item in rawItems) {
                 VKPost *post = [VKPost postFromDictionary:item profiles:profiles groups:groups];
-                if (post) [posts addObject:post];
+                if (post) {
+                    if (isArchivedFilter) {
+                        post.isArchived = YES;
+                    }
+                    [posts addObject:post];
+                }
             }
             
             if (completion) completion(posts, total, nil);
@@ -109,6 +126,42 @@
         }
         
         if (completion) completion(@[], 0, nil);
+    }];
+}
+
+- (void)archivePost:(NSInteger)postId ownerId:(NSInteger)ownerId completion:(void (^)(BOOL success, NSError *error))completion {
+    NSDictionary *params = @{
+        @"owner_id": @(ownerId),
+        @"post_id": @(postId)
+    };
+    [[VKAPIClient sharedClient] callMethod:@"wall.archivePost" parameters:params completionHandler:^(id response, NSError *error) {
+        if (completion) {
+            completion(error == nil, error);
+        }
+    }];
+}
+
+- (void)restorePost:(NSInteger)postId ownerId:(NSInteger)ownerId completion:(void (^)(BOOL success, NSError *error))completion {
+    NSDictionary *params = @{
+        @"owner_id": @(ownerId),
+        @"post_id": @(postId)
+    };
+    [[VKAPIClient sharedClient] callMethod:@"wall.restorePost" parameters:params completionHandler:^(id response, NSError *error) {
+        if (completion) {
+            completion(error == nil, error);
+        }
+    }];
+}
+
+- (void)deletePost:(NSInteger)postId ownerId:(NSInteger)ownerId completion:(void (^)(BOOL success, NSError *error))completion {
+    NSDictionary *params = @{
+        @"owner_id": @(ownerId),
+        @"post_id": @(postId)
+    };
+    [[VKAPIClient sharedClient] callMethod:@"wall.delete" parameters:params completionHandler:^(id response, NSError *error) {
+        if (completion) {
+            completion(error == nil, error);
+        }
     }];
 }
 

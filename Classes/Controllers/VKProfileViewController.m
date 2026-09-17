@@ -26,6 +26,8 @@
 @interface VKProfileViewController () <UIActionSheetDelegate>
 @property (nonatomic, strong) NSMutableArray *wallPosts;
 @property (nonatomic, assign) BOOL isLoading;
+@property (nonatomic, assign) BOOL isShowingArchive;
+@property (nonatomic, strong) VKPost *selectedPostForAction;
 @end
 
 @implementation VKProfileViewController
@@ -121,13 +123,132 @@
 }
 
 - (void)optionsAction {
-    UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil delegate:self cancelButtonTitle:@"Отмена" destructiveButtonTitle:nil otherButtonTitles:@"Новая запись", @"Скопировать ссылку", nil];
+    NSInteger myUid = [[VKAuthService sharedService] currentUserModel].uid;
+    BOOL isMyProfile = [self.user isCurrentUser] || (self.user.uid == myUid);
+    
+    if (isMyProfile) {
+        NSString *archiveTitle = self.isShowingArchive ? @"Вернуться к стене" : @"Архив записей";
+        UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil
+                                                           delegate:self
+                                                  cancelButtonTitle:@"Отмена"
+                                             destructiveButtonTitle:nil
+                                                  otherButtonTitles:@"Новая запись", archiveTitle, @"Скопировать ссылку", nil];
+        sheet.tag = 501;
+        [sheet showInView:self.view];
+    } else {
+        UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil
+                                                           delegate:self
+                                                  cancelButtonTitle:@"Отмена"
+                                             destructiveButtonTitle:nil
+                                                  otherButtonTitles:@"Новая запись", @"Скопировать ссылку", nil];
+        sheet.tag = 502;
+        [sheet showInView:self.view];
+    }
+}
+
+- (void)showPostOptions:(VKPost *)post {
+    self.selectedPostForAction = post;
+    NSInteger myUid = [[VKAuthService sharedService] currentUserModel].uid;
+    BOOL isMyPost = (post.ownerID == myUid || post.author.uid == myUid);
+    
+    UIActionSheet *sheet = nil;
+    if (isMyPost) {
+        NSString *archiveTitle = post.isArchived ? @"Восстановить на стену" : @"Архивировать запись";
+        sheet = [[UIActionSheet alloc] initWithTitle:nil
+                                            delegate:self
+                                   cancelButtonTitle:@"Отмена"
+                              destructiveButtonTitle:@"Удалить запись"
+                                   otherButtonTitles:archiveTitle, @"Скопировать ссылку", nil];
+        sheet.tag = 601;
+    } else {
+        sheet = [[UIActionSheet alloc] initWithTitle:nil
+                                            delegate:self
+                                   cancelButtonTitle:@"Отмена"
+                              destructiveButtonTitle:nil
+                                   otherButtonTitles:@"Пожаловаться", @"Скопировать ссылку", nil];
+        sheet.tag = 602;
+    }
     [sheet showInView:self.view];
 }
 
+- (void)toggleArchiveMode {
+    self.isShowingArchive = !self.isShowingArchive;
+    [self.wallPosts removeAllObjects];
+    [self.tableView reloadData];
+    [self loadProfileData];
+}
+
 - (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
-    if (buttonIndex == 0) {
-        [self newPostAction];
+    if (buttonIndex == actionSheet.cancelButtonIndex) return;
+    
+    if (actionSheet.tag == 501) {
+        if (buttonIndex == 0) {
+            [self newPostAction];
+        } else if (buttonIndex == 1) {
+            [self toggleArchiveMode];
+        } else if (buttonIndex == 2) {
+            [UIPasteboard generalPasteboard].string = [NSString stringWithFormat:@"https://openvk.su/id%ld", (long)self.user.uid];
+        }
+    } else if (actionSheet.tag == 502) {
+        if (buttonIndex == 0) {
+            [self newPostAction];
+        } else if (buttonIndex == 1) {
+            [UIPasteboard generalPasteboard].string = [NSString stringWithFormat:@"https://openvk.su/id%ld", (long)self.user.uid];
+        }
+    } else if (actionSheet.tag == 601) {
+        if (!self.selectedPostForAction) return;
+        VKPost *post = self.selectedPostForAction;
+        if (buttonIndex == actionSheet.destructiveButtonIndex) {
+            NSInteger idx = [self.wallPosts indexOfObject:post];
+            [[VKProfileService sharedService] deletePost:post.vkID ownerId:post.ownerID completion:^(BOOL success, NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (success && idx != NSNotFound && idx < (NSInteger)self.wallPosts.count) {
+                        [self.wallPosts removeObjectAtIndex:idx];
+                        [self.tableView deleteRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:idx inSection:1]] withRowAnimation:UITableViewRowAnimationAutomatic];
+                    }
+                });
+            }];
+        } else if (buttonIndex == 1) {
+            NSInteger idx = [self.wallPosts indexOfObject:post];
+            if (post.isArchived) {
+                [[VKProfileService sharedService] restorePost:post.vkID ownerId:post.ownerID completion:^(BOOL success, NSError *error) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if (success) {
+                            if (idx != NSNotFound && idx < (NSInteger)self.wallPosts.count) {
+                                [self.wallPosts removeObjectAtIndex:idx];
+                                [self.tableView deleteRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:idx inSection:1]] withRowAnimation:UITableViewRowAnimationAutomatic];
+                            }
+                            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Восстановлено" message:@"Запись восстановлена на стену." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                            [alert show];
+                        }
+                    });
+                }];
+            } else {
+                [[VKProfileService sharedService] archivePost:post.vkID ownerId:post.ownerID completion:^(BOOL success, NSError *error) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if (success) {
+                            if (idx != NSNotFound && idx < (NSInteger)self.wallPosts.count) {
+                                [self.wallPosts removeObjectAtIndex:idx];
+                                [self.tableView deleteRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:idx inSection:1]] withRowAnimation:UITableViewRowAnimationAutomatic];
+                            }
+                            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"В архиве" message:@"Запись сохранена в архив." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                            [alert show];
+                        }
+                    });
+                }];
+            }
+        } else if (buttonIndex == 2) {
+            [UIPasteboard generalPasteboard].string = [NSString stringWithFormat:@"https://openvk.su/wall%ld_%ld", (long)post.ownerID, (long)post.vkID];
+        }
+    } else if (actionSheet.tag == 602) {
+        if (!self.selectedPostForAction) return;
+        VKPost *post = self.selectedPostForAction;
+        if (buttonIndex == 0) {
+            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Жалоба" message:@"Спасибо, жалоба отправлена модераторам." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+            [alert show];
+        } else if (buttonIndex == 1) {
+            [UIPasteboard generalPasteboard].string = [NSString stringWithFormat:@"https://openvk.su/wall%ld_%ld", (long)post.ownerID, (long)post.vkID];
+        }
     }
 }
 
@@ -152,13 +273,14 @@
         uid = [[VKAuthService sharedService] currentUserModel].uid;
     }
     
+    NSString *filter = self.isShowingArchive ? @"archived" : nil;
     [[VKProfileService sharedService] fetchProfileForUserId:uid completion:^(VKUser *updatedUser, NSError *error) {
         if (!error && updatedUser) {
             self.user = updatedUser;
-            self.title = self.user.displayName;
+            self.title = self.isShowingArchive ? @"Архив записей" : self.user.displayName;
         }
         
-        [[VKProfileService sharedService] fetchWallForOwnerId:uid offset:0 count:30 completion:^(NSArray *posts, NSInteger totalCount, NSError *wallErr) {
+        [[VKProfileService sharedService] fetchWallForOwnerId:uid offset:0 count:30 filter:filter completion:^(NSArray *posts, NSInteger totalCount, NSError *wallErr) {
             self.isLoading = NO;
             if (NSClassFromString(@"UIRefreshControl") && self.refreshControl.isRefreshing) {
                 [self.refreshControl endRefreshing];
@@ -207,6 +329,42 @@
 }
 
 #pragma mark - Table view data source
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    if (section == 1 && self.isShowingArchive) {
+        return 40.0;
+    }
+    return 0.0;
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    if (section == 1 && self.isShowingArchive) {
+        UIView *banner = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 40.0)];
+        banner.backgroundColor = [UIColor colorWithRed:236.0/255.0 green:242.0/255.0 blue:252.0/255.0 alpha:0.98];
+        
+        UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(12, 10, tableView.bounds.size.width - 110, 20)];
+        lbl.font = [UIFont boldSystemFontOfSize:13];
+        lbl.textColor = [UIColor colorWithRed:60.0/255.0 green:90.0/255.0 blue:130.0/255.0 alpha:1.0];
+        lbl.text = @"📦 Архив записей (скрыты)";
+        [banner addSubview:lbl];
+        
+        UIButton *exitBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        exitBtn.frame = CGRectMake(tableView.bounds.size.width - 95, 6, 85, 28);
+        exitBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+        exitBtn.titleLabel.font = [UIFont boldSystemFontOfSize:12];
+        [exitBtn setTitle:@"К стене ✕" forState:UIControlStateNormal];
+        [exitBtn setTitleColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+        [exitBtn addTarget:self action:@selector(toggleArchiveMode) forControlEvents:UIControlEventTouchUpInside];
+        [banner addSubview:exitBtn];
+        
+        UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, 39.5, tableView.bounds.size.width, 0.5)];
+        sep.backgroundColor = [UIColor colorWithRed:210.0/255.0 green:220.0/255.0 blue:235.0/255.0 alpha:1.0];
+        sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [banner addSubview:sep];
+        return banner;
+    }
+    return nil;
+}
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
     return 2; // Секция 0: Шапка профиля и счетчики, Секция 1: Стена постов
@@ -571,6 +729,9 @@
             [cell configureWithPost:post isRevealed:YES width:tableView.bounds.size.width];
             
             __weak typeof(self) weakSelf = self;
+            cell.onOptionsTapped = ^(VKPost *p) {
+                [weakSelf showPostOptions:p];
+            };
             cell.onLikeTapped = ^(VKPost *p) {
                 [[VKFeedService sharedService] likePost:p completion:nil];
             };

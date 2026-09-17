@@ -15,6 +15,13 @@
 @property (nonatomic, assign) NSInteger likesCount;
 @property (nonatomic, assign) BOOL isLiked;
 
+// Ветки и ответы
+@property (nonatomic, assign) NSInteger replyToComment;
+@property (nonatomic, assign) NSInteger replyToUser;
+@property (nonatomic, strong) VKUser *replyToAuthor;
+@property (nonatomic, assign) NSInteger threadLevel;
+@property (nonatomic, weak) VKComment *parentComment;
+
 + (instancetype)commentFromDictionary:(NSDictionary *)dict profiles:(NSDictionary *)profiles groups:(NSDictionary *)groups;
 
 @end
