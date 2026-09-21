@@ -83,12 +83,53 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
     return path;
 }
 
+static UIImage *VKCheckboxImage(BOOL checked) {
+    CGFloat s = 22.0;
+    UIGraphicsBeginImageContextWithOptions(CGSizeMake(s, s), NO, 0.0);
+    CGContextRef ctx = UIGraphicsGetCurrentContext();
+    
+    CGRect rect = CGRectMake(1.0, 1.0, s - 2.0, s - 2.0);
+    if (checked) {
+        UIColor *blueColor = [UIColor colorWithRed:43.0/255.0 green:115.0/255.0 blue:195.0/255.0 alpha:1.0];
+        [blueColor setFill];
+        CGContextFillEllipseInRect(ctx, rect);
+        
+        UIBezierPath *path = [UIBezierPath bezierPath];
+        [path moveToPoint:CGPointMake(6.0, 11.5)];
+        [path addLineToPoint:CGPointMake(9.5, 15.0)];
+        [path addLineToPoint:CGPointMake(16.0, 7.5)];
+        path.lineWidth = 2.2;
+        path.lineCapStyle = kCGLineCapRound;
+        path.lineJoinStyle = kCGLineJoinRound;
+        [[UIColor whiteColor] setStroke];
+        [path stroke];
+    } else {
+        UIColor *borderColor = [UIColor colorWithWhite:0.75 alpha:1.0];
+        [borderColor setStroke];
+        CGContextSetLineWidth(ctx, 1.8);
+        CGContextStrokeEllipseInRect(ctx, CGRectMake(2.0, 2.0, s - 4.0, s - 4.0));
+    }
+    
+    UIImage *img = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return img;
+}
+
 @interface VKChatViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIActionSheetDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIAlertViewDelegate>
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UIView *inputContainerView;
 @property (nonatomic, strong) UIButton *attachButton;
 @property (nonatomic, strong) UITextField *messageTextField;
 @property (nonatomic, strong) UIButton *sendButton;
+
+// Режим выбора нескольких сообщений (Selection Mode)
+@property (nonatomic, assign) BOOL isSelectionMode;
+@property (nonatomic, strong) NSMutableSet<NSNumber *> *selectedMessageIds;
+@property (nonatomic, strong) UIView *selectionTopBar;
+@property (nonatomic, strong) UILabel *selectionCountLabel;
+@property (nonatomic, strong) UIButton *selectionDeleteButton;
+@property (nonatomic, strong) UIButton *selectionForwardButton;
+@property (nonatomic, strong) UIButton *selectionCancelButton;
 
 // Панель возвращения в беседу
 @property (nonatomic, strong) UIView *leaveReturnBannerView;
@@ -154,6 +195,7 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
         _peerUser = peerUser;
         _chatTitle = title ?: peerUser.displayName ?: @"Чат";
         _messages = [NSMutableArray array];
+        _selectedMessageIds = [NSMutableSet set];
         _usersCache = [NSMutableDictionary dictionary];
         _pendingUserFetches = [NSMutableDictionary dictionary];
         if (peerUser && peerUser.uid != 0) {
@@ -346,6 +388,7 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
     
     [self.view addSubview:self.leaveReturnBannerView];
     
+    [self setupSelectionTopBar];
     [self setupPinnedBannerView];
     [self setupReplyForwardBarView];
     [self setupAttachedPhotoBarView];
@@ -391,6 +434,13 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self setupNavigationHeader];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    if (self.isSelectionMode) {
+        [self exitSelectionMode];
+    }
 }
 
 #pragma mark - Navigation Header & Banner
@@ -760,6 +810,140 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
     }
 }
 
+#pragma mark - Message Selection Mode
+
+- (void)setupSelectionTopBar {
+    CGFloat width = self.view.bounds.size.width;
+    BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
+    
+    self.selectionTopBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 40.0)];
+    self.selectionTopBar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    if (isSkeuomorph) {
+        self.selectionTopBar.backgroundColor = [UIColor colorWithRed:235.0/255.0 green:238.0/255.0 blue:242.0/255.0 alpha:0.98];
+    } else {
+        self.selectionTopBar.backgroundColor = [UIColor colorWithRed:246.0/255.0 green:247.0/255.0 blue:250.0/255.0 alpha:0.98];
+    }
+    self.selectionTopBar.hidden = YES;
+    self.selectionTopBar.userInteractionEnabled = YES;
+    
+    // Кнопка выхода из режима выбора "✕"
+    self.selectionCancelButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.selectionCancelButton.frame = CGRectMake(4, 5, 30, 30);
+    [self.selectionCancelButton setTitle:@"✕" forState:UIControlStateNormal];
+    [self.selectionCancelButton setTitleColor:isSkeuomorph ? [UIColor colorWithWhite:0.3 alpha:1.0] : [UIColor colorWithWhite:0.4 alpha:1.0] forState:UIControlStateNormal];
+    self.selectionCancelButton.titleLabel.font = [UIFont boldSystemFontOfSize:16];
+    [self.selectionCancelButton addTarget:self action:@selector(exitSelectionMode) forControlEvents:UIControlEventTouchUpInside];
+    [self.selectionTopBar addSubview:self.selectionCancelButton];
+    
+    // Лейбл счетчика: "Выбрано: 2"
+    self.selectionCountLabel = [[UILabel alloc] initWithFrame:CGRectMake(36, 5, width - 180, 30)];
+    self.selectionCountLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    self.selectionCountLabel.font = [UIFont boldSystemFontOfSize:12.5];
+    self.selectionCountLabel.textColor = isSkeuomorph ? [UIColor colorWithRed:43.0/255.0 green:88.0/255.0 blue:122.0/255.0 alpha:1.0] : [UIColor colorWithRed:25.0/255.0 green:25.0/255.0 blue:30.0/255.0 alpha:1.0];
+    self.selectionCountLabel.backgroundColor = [UIColor clearColor];
+    self.selectionCountLabel.text = @"Выбрано 0 сообщений";
+    [self.selectionTopBar addSubview:self.selectionCountLabel];
+    
+    // Кнопка "Переслать"
+    self.selectionForwardButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.selectionForwardButton.frame = CGRectMake(width - 76 - 8, 6, 76, 28);
+    self.selectionForwardButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    self.selectionForwardButton.backgroundColor = [[VKThemeManager sharedManager] accentColor];
+    self.selectionForwardButton.layer.cornerRadius = 4.0;
+    self.selectionForwardButton.clipsToBounds = YES;
+    [self.selectionForwardButton setTitle:@"Переслать" forState:UIControlStateNormal];
+    [self.selectionForwardButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    self.selectionForwardButton.titleLabel.font = [UIFont boldSystemFontOfSize:12.0];
+    [self.selectionForwardButton addTarget:self action:@selector(selectionForwardButtonTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.selectionTopBar addSubview:self.selectionForwardButton];
+    
+    // Кнопка "Удалить"
+    self.selectionDeleteButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.selectionDeleteButton.frame = CGRectMake(width - 76 - 8 - 66 - 6, 6, 66, 28);
+    self.selectionDeleteButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    self.selectionDeleteButton.backgroundColor = [UIColor colorWithRed:255.0/255.0 green:238.0/255.0 blue:238.0/255.0 alpha:1.0];
+    self.selectionDeleteButton.layer.cornerRadius = 4.0;
+    self.selectionDeleteButton.clipsToBounds = YES;
+    [self.selectionDeleteButton setTitle:@"Удалить" forState:UIControlStateNormal];
+    [self.selectionDeleteButton setTitleColor:[UIColor colorWithRed:210.0/255.0 green:45.0/255.0 blue:45.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+    self.selectionDeleteButton.titleLabel.font = [UIFont systemFontOfSize:12.0];
+    [self.selectionDeleteButton addTarget:self action:@selector(selectionDeleteButtonTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.selectionTopBar addSubview:self.selectionDeleteButton];
+    
+    UIView *botSep = [[UIView alloc] initWithFrame:CGRectMake(0, 39.5, width, 0.5)];
+    botSep.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+    botSep.backgroundColor = isSkeuomorph ? [UIColor colorWithWhite:0.75 alpha:1.0] : [UIColor colorWithRed:220.0/255.0 green:222.0/255.0 blue:226.0/255.0 alpha:1.0];
+    [self.selectionTopBar addSubview:botSep];
+    
+    [self.view addSubview:self.selectionTopBar];
+}
+
+- (void)enterSelectionModeWithMessage:(VKMessage *)msg {
+    self.isSelectionMode = YES;
+    [self.selectedMessageIds removeAllObjects];
+    if (msg) {
+        NSInteger mid = msg.messageId ?: msg.vkID;
+        if (mid > 0) {
+            [self.selectedMessageIds addObject:@(mid)];
+        }
+    }
+    [self.view endEditing:YES];
+    [self updateSelectionUI];
+    [self updateLayoutAnimated:YES];
+    [self.tableView reloadData];
+}
+
+- (void)exitSelectionMode {
+    self.isSelectionMode = NO;
+    [self.selectedMessageIds removeAllObjects];
+    [self updateLayoutAnimated:YES];
+    [self.tableView reloadData];
+}
+
+- (void)updateSelectionUI {
+    NSUInteger count = self.selectedMessageIds.count;
+    NSString *word = @"сообщений";
+    NSUInteger rem100 = count % 100;
+    NSUInteger rem10 = count % 10;
+    if (rem100 < 11 || rem100 > 19) {
+        if (rem10 == 1) word = @"сообщение";
+        else if (rem10 >= 2 && rem10 <= 4) word = @"сообщения";
+    }
+    self.selectionCountLabel.text = [NSString stringWithFormat:@"Выбрано %lu %@", (unsigned long)count, word];
+    
+    BOOL hasSelected = (count > 0);
+    self.selectionDeleteButton.enabled = hasSelected;
+    self.selectionForwardButton.enabled = hasSelected;
+    self.selectionDeleteButton.alpha = hasSelected ? 1.0 : 0.4;
+    self.selectionForwardButton.alpha = hasSelected ? 1.0 : 0.4;
+}
+
+- (void)selectionDeleteButtonTapped {
+    if (self.selectedMessageIds.count == 0) return;
+    
+    NSString *title = [NSString stringWithFormat:@"Удалить выбранные сообщения (%lu)?", (unsigned long)self.selectedMessageIds.count];
+    UIActionSheet *delSheet = [[UIActionSheet alloc] initWithTitle:title
+                                                          delegate:self
+                                                 cancelButtonTitle:@"Отмена"
+                                            destructiveButtonTitle:@"Удалить для всех"
+                                                 otherButtonTitles:@"Удалить только у меня", nil];
+    delSheet.tag = 5007;
+    [delSheet showInView:self.view];
+}
+
+- (void)selectionForwardButtonTapped {
+    if (self.selectedMessageIds.count == 0) return;
+    
+    NSString *title = [NSString stringWithFormat:@"Переслать сообщения (%lu)", (unsigned long)self.selectedMessageIds.count];
+    UIActionSheet *fwdSheet = [[UIActionSheet alloc] initWithTitle:title
+                                                          delegate:self
+                                                 cancelButtonTitle:@"Отмена"
+                                            destructiveButtonTitle:nil
+                                                 otherButtonTitles:@"В этот диалог", @"В другой диалог...", nil];
+    fwdSheet.tag = 5008;
+    [fwdSheet showInView:self.view];
+}
+
 #pragma mark - Pinned Message & Attachment Bars
 
 - (void)setupPinnedBannerView {
@@ -1016,6 +1200,7 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
 
 - (void)handleMessageLongPress:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state != UIGestureRecognizerStateBegan) return;
+    if (self.isSelectionMode) return;
     CGPoint pt = [gesture locationInView:self.tableView];
     NSIndexPath *indexPath = [self.tableView indexPathForRowAtPoint:pt];
     if (!indexPath || indexPath.row >= (NSInteger)self.messages.count) return;
@@ -1036,6 +1221,7 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
     
     [sheet addButtonWithTitle:@"Ответить"];
     [sheet addButtonWithTitle:@"Переслать"];
+    [sheet addButtonWithTitle:@"Выбрать"];
     if (msg.isOutgoing && ![self isStickerMessage:msg]) {
         [sheet addButtonWithTitle:@"Редактировать"];
     }
@@ -1060,6 +1246,9 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
     CGFloat width = self.view.bounds.size.width;
     CGFloat height = self.view.bounds.size.height;
     
+    BOOL hasSelection = self.isSelectionMode;
+    CGFloat selectH = hasSelection ? 40.0 : 0.0;
+    
     BOOL hasPin = (self.pinnedMessage != nil);
     CGFloat pinH = hasPin ? 40.0 : 0.0;
     
@@ -1075,10 +1264,16 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
     CGFloat inputBaseH = 48.0;
     CGFloat totalInputH = inputBaseH + replyH + photoH + editH;
     
+    CGFloat topOffset = selectH + pinH;
+    
     void (^layoutBlock)(void) = ^{
+        // 0. Selection top bar
+        self.selectionTopBar.hidden = !hasSelection;
+        self.selectionTopBar.frame = CGRectMake(0, 0, width, selectH);
+        
         // 1. Pinned banner
         self.pinnedBannerView.hidden = !hasPin;
-        self.pinnedBannerView.frame = CGRectMake(0, 0, width, pinH);
+        self.pinnedBannerView.frame = CGRectMake(0, selectH, width, pinH);
         if (hasPin) {
             VKUser *u = [self senderUserForMessage:self.pinnedMessage];
             NSString *authorStr = u ? u.displayName : (self.pinnedMessage.fromId > 0 ? [NSString stringWithFormat:@"id%ld", (long)self.pinnedMessage.fromId] : @"Сообщение");
@@ -1091,12 +1286,12 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
             self.inputContainerView.hidden = YES;
             self.leaveReturnBannerView.hidden = NO;
             self.leaveReturnBannerView.frame = CGRectMake(0, height - 48.0, width, 48.0);
-            self.tableView.frame = CGRectMake(0, pinH, width, height - 48.0 - pinH);
+            self.tableView.frame = CGRectMake(0, topOffset, width, height - 48.0 - topOffset);
         } else {
             self.inputContainerView.hidden = NO;
             self.leaveReturnBannerView.hidden = YES;
             self.inputContainerView.frame = CGRectMake(0, height - kbHeight - totalInputH, width, totalInputH);
-            self.tableView.frame = CGRectMake(0, pinH, width, height - kbHeight - totalInputH - pinH);
+            self.tableView.frame = CGRectMake(0, topOffset, width, height - kbHeight - totalInputH - topOffset);
             
             // Subsections of inputContainerView
             CGFloat currentY = 0.0;
@@ -1358,11 +1553,16 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
             [self updateLayoutAnimated:YES];
             [self.messageTextField becomeFirstResponder];
         } else if ([title isEqualToString:@"Переслать"]) {
-            self.replyingMessage = nil;
-            self.forwardingMessages = [NSMutableArray arrayWithObject:msg];
-            self.editingMessage = nil;
-            [self updateLayoutAnimated:YES];
-            [self.messageTextField becomeFirstResponder];
+            self.selectedMessageForAction = msg;
+            UIActionSheet *fwdSheet = [[UIActionSheet alloc] initWithTitle:@"Переслать сообщение"
+                                                                  delegate:self
+                                                         cancelButtonTitle:@"Отмена"
+                                                    destructiveButtonTitle:nil
+                                                         otherButtonTitles:@"В этот диалог", @"В другой диалог...", nil];
+            fwdSheet.tag = 5009;
+            [fwdSheet showInView:self.view];
+        } else if ([title isEqualToString:@"Выбрать"]) {
+            [self enterSelectionModeWithMessage:msg];
         } else if ([title isEqualToString:@"Редактировать"]) {
             self.editingMessage = msg;
             self.replyingMessage = nil;
@@ -1444,6 +1644,86 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
                 }
             });
         }];
+    } else if (actionSheet.tag == 5007) {
+        if (buttonIndex == actionSheet.cancelButtonIndex) return;
+        BOOL deleteForAll = (buttonIndex == actionSheet.destructiveButtonIndex);
+        NSArray<NSNumber *> *mids = [self.selectedMessageIds allObjects];
+        if (mids.count == 0) return;
+        
+        __weak typeof(self) weakSelf = self;
+        [[VKMessagesService sharedService] deleteMessagesWithIds:mids
+                                                    deleteForAll:deleteForAll
+                                                          peerId:self.peerId
+                                                      completion:^(BOOL success, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (success) {
+                    NSMutableSet *deletedSet = [NSMutableSet setWithArray:mids];
+                    NSMutableArray *toKeep = [NSMutableArray array];
+                    for (VKMessage *m in weakSelf.messages) {
+                        NSNumber *midNum = @(m.messageId ?: m.vkID);
+                        if (![deletedSet containsObject:midNum]) {
+                            [toKeep addObject:m];
+                        }
+                    }
+                    weakSelf.messages = toKeep;
+                    if (weakSelf.pinnedMessage && [deletedSet containsObject:@(weakSelf.pinnedMessage.messageId)]) {
+                        weakSelf.pinnedMessage = nil;
+                    }
+                    [weakSelf exitSelectionMode];
+                } else {
+                    UIAlertView *err = [[UIAlertView alloc] initWithTitle:@"Ошибка удаления"
+                                                                  message:error.localizedDescription ?: @"Не удалось удалить сообщения"
+                                                                 delegate:nil
+                                                        cancelButtonTitle:@"OK"
+                                                        otherButtonTitles:nil];
+                    [err show];
+                }
+            });
+        }];
+    } else if (actionSheet.tag == 5008) {
+        if (buttonIndex == actionSheet.cancelButtonIndex) return;
+        NSMutableArray<VKMessage *> *fwdList = [NSMutableArray array];
+        for (VKMessage *m in self.messages) {
+            NSNumber *midNum = @(m.messageId ?: m.vkID);
+            if ([self.selectedMessageIds containsObject:midNum]) {
+                [fwdList addObject:m];
+            }
+        }
+        if (fwdList.count == 0) return;
+        
+        if (buttonIndex == 0) {
+            // В этот диалог
+            self.forwardingMessages = fwdList;
+            self.replyingMessage = nil;
+            self.editingMessage = nil;
+            [self exitSelectionMode];
+            [self updateLayoutAnimated:YES];
+            [self.messageTextField becomeFirstResponder];
+        } else if (buttonIndex == 1) {
+            // В другой диалог...
+            [self exitSelectionMode];
+            VKShareDialogPickerViewController *picker = [[VKShareDialogPickerViewController alloc] initWithForwardMessages:fwdList];
+            UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:picker];
+            [self presentViewController:nav animated:YES completion:nil];
+        }
+    } else if (actionSheet.tag == 5009) {
+        if (buttonIndex == actionSheet.cancelButtonIndex) return;
+        VKMessage *msg = self.selectedMessageForAction;
+        if (!msg) return;
+        
+        if (buttonIndex == 0) {
+            // В этот диалог
+            self.replyingMessage = nil;
+            self.forwardingMessages = [NSMutableArray arrayWithObject:msg];
+            self.editingMessage = nil;
+            [self updateLayoutAnimated:YES];
+            [self.messageTextField becomeFirstResponder];
+        } else if (buttonIndex == 1) {
+            // В другой диалог...
+            VKShareDialogPickerViewController *picker = [[VKShareDialogPickerViewController alloc] initWithForwardMessages:@[msg]];
+            UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:picker];
+            [self presentViewController:nav animated:YES completion:nil];
+        }
     } else if (actionSheet.tag == 5099) {
         if (buttonIndex == actionSheet.cancelButtonIndex) return;
         if (buttonIndex == 0) {
@@ -1763,7 +2043,10 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
     if (self.forwardingMessages.count > 0) {
         NSMutableArray *ids = [NSMutableArray array];
         for (VKMessage *m in self.forwardingMessages) {
-            [ids addObject:@(m.messageId)];
+            NSInteger mid = m.messageId ?: m.vkID;
+            if (mid > 0) {
+                [ids addObject:@(mid)];
+            }
         }
         fwdStr = [ids componentsJoinedByString:@","];
     }
@@ -1945,7 +2228,8 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
     CGFloat replyExtraH = hasReply ? 34.0 : 0.0;
     CGFloat extraH = (hasPhoto ? 138.0 : 0.0) + authorHeaderH + replyExtraH;
     
-    CGFloat maxTextW = width - (isGroupChat && !msg.isOutgoing ? 46.0 : 10.0) - 50.0;
+    CGFloat selOffset = self.isSelectionMode ? 32.0 : 0.0;
+    CGFloat maxTextW = width - (isGroupChat && !msg.isOutgoing ? 46.0 : 10.0) - 50.0 - selOffset;
     NSString *displayText = [self textForMessage:msg];
     CGSize size = [displayText sizeWithFont:[UIFont systemFontOfSize:15] constrainedToSize:CGSizeMake(maxTextW, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
     
@@ -1961,6 +2245,13 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:CellId];
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
         cell.backgroundColor = [UIColor clearColor];
+        
+        // Чекбокс режима выбора (мультивыбор)
+        UIButton *checkbox = [UIButton buttonWithType:UIButtonTypeCustom];
+        checkbox.tag = 1020;
+        checkbox.userInteractionEnabled = NO;
+        checkbox.hidden = YES;
+        [cell.contentView addSubview:checkbox];
         
         // Сервисное действие (плашка по центру)
         UIView *servicePill = [[UIView alloc] initWithFrame:CGRectZero];
@@ -2095,6 +2386,15 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
     UILabel *textLabel = (UILabel *)[bubble viewWithTag:1002];
     UILabel *timeLabel = (UILabel *)[bubble viewWithTag:1003];
     
+    UIButton *checkbox = (UIButton *)[cell.contentView viewWithTag:1020];
+    if (!checkbox) {
+        checkbox = [UIButton buttonWithType:UIButtonTypeCustom];
+        checkbox.tag = 1020;
+        checkbox.userInteractionEnabled = NO;
+        checkbox.hidden = YES;
+        [cell.contentView addSubview:checkbox];
+    }
+    
     CGFloat width = tableView.bounds.size.width;
     BOOL isModern = [[VKThemeManager sharedManager] isModern];
     BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
@@ -2105,6 +2405,7 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
     
     // 1. Сервисное сообщение
     if ([msg isServiceAction]) {
+        checkbox.hidden = YES;
         bubble.hidden = YES;
         authorAvatar.hidden = YES;
         stickerIV.hidden = YES;
@@ -2137,6 +2438,25 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
         return cell;
     }
     
+    CGFloat selOffset = self.isSelectionMode ? 32.0 : 0.0;
+    BOOL isRowSelected = [self.selectedMessageIds containsObject:@(msg.messageId ?: msg.vkID)];
+    if (self.isSelectionMode) {
+        checkbox.hidden = NO;
+        [checkbox setImage:VKCheckboxImage(isRowSelected) forState:UIControlStateNormal];
+        bubble.userInteractionEnabled = NO;
+        photoIV.userInteractionEnabled = NO;
+        stickerIV.userInteractionEnabled = NO;
+        authorNameLabel.userInteractionEnabled = NO;
+        authorAvatar.userInteractionEnabled = NO;
+    } else {
+        checkbox.hidden = YES;
+        bubble.userInteractionEnabled = YES;
+        photoIV.userInteractionEnabled = YES;
+        stickerIV.userInteractionEnabled = YES;
+        authorNameLabel.userInteractionEnabled = YES;
+        authorAvatar.userInteractionEnabled = YES;
+    }
+    
     // 2. Стикер
     if ([self isStickerMessage:msg]) {
         servicePill.hidden = YES;
@@ -2161,18 +2481,21 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
         } else {
             if (isGroupChat) {
                 authorAvatar.hidden = NO;
-                authorAvatar.frame = CGRectMake(8, 138.0 - 36.0, 32, 32);
+                authorAvatar.frame = CGRectMake(8.0 + selOffset, 138.0 - 36.0, 32, 32);
                 authorAvatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:32.0];
                 VKUser *author = [self senderUserForMessage:msg];
                 authorAvatar.user = author;
                 [self loadAvatarForButton:authorAvatar url:author.avatarURL];
-                stX = 46.0;
+                stX = 46.0 + selOffset;
             } else {
                 authorAvatar.hidden = YES;
-                stX = 12.0;
+                stX = 12.0 + selOffset;
             }
         }
         stickerIV.frame = CGRectMake(stX, 4.0, stSize, stSize);
+        if (self.isSelectionMode) {
+            checkbox.frame = CGRectMake(8.0, 4.0 + (stSize - 22.0) / 2.0, 22.0, 22.0);
+        }
         
         NSString *statusText = msg.isOutgoing ? [NSString stringWithFormat:@"%@%@", msg.timeString ?: @"", (msg.isRead ? @" ✓✓" : @" ✓")] : (msg.timeString ?: @"");
         stickerTimeLabel.text = statusText;
@@ -2216,7 +2539,7 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
     NSString *displayText = [self textForMessage:msg];
     textLabel.text = displayText;
     
-    CGFloat maxTextW = width - (isGroupChat && !msg.isOutgoing ? 46.0 : 10.0) - 50.0;
+    CGFloat maxTextW = width - (isGroupChat && !msg.isOutgoing ? 46.0 : 10.0) - 50.0 - selOffset;
     CGSize size = [displayText sizeWithFont:[UIFont systemFontOfSize:15] constrainedToSize:CGSizeMake(maxTextW, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
     
     CGFloat photoH = hasPhoto ? 130.0 : 0.0;
@@ -2238,6 +2561,7 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
         bubbleWidth = MAX(bubbleWidth, ceilf(authorNameSz.width) + 38.0);
     }
     bubbleWidth = MIN(bubbleWidth, maxTextW + 36.0);
+    bubbleWidth = MIN(bubbleWidth, width - 20.0 - (self.isSelectionMode ? 36.0 : 0.0));
     
     CGFloat authorHeaderH = showAuthor ? 18.0 : 0.0;
     CGFloat replyExtraH = hasReply ? 34.0 : 0.0;
@@ -2260,6 +2584,9 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
         authorAvatar.hidden = YES;
         authorNameLabel.hidden = YES;
         bubble.frame = CGRectMake(width - bubbleWidth - 10.0, 2.0, bubbleWidth, bubbleHeight);
+        if (self.isSelectionMode) {
+            checkbox.frame = CGRectMake(8.0, 2.0 + (bubbleHeight - 22.0) / 2.0, 22.0, 22.0);
+        }
         
         if (isModern) {
             bubble.image = nil;
@@ -2340,24 +2667,28 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
         
     } else {
         // Входящие сообщения
-        CGFloat bubbleX = 10.0;
+        CGFloat bubbleX = 10.0 + selOffset;
         if (isGroupChat) {
             if (!joinsNext) {
                 authorAvatar.hidden = NO;
                 CGFloat avatarY = bubbleHeight + 2.0 - 32.0;
-                authorAvatar.frame = CGRectMake(8.0, avatarY, 32.0, 32.0);
+                authorAvatar.frame = CGRectMake(8.0 + selOffset, avatarY, 32.0, 32.0);
                 authorAvatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:32.0];
+                VKUser *author = [self senderUserForMessage:msg];
                 authorAvatar.user = author;
                 [self loadAvatarForButton:authorAvatar url:author.avatarURL];
             } else {
                 authorAvatar.hidden = YES;
             }
-            bubbleX = 46.0;
+            bubbleX = 46.0 + selOffset;
         } else {
             authorAvatar.hidden = YES;
         }
         
         bubble.frame = CGRectMake(bubbleX, 2.0, bubbleWidth, bubbleHeight);
+        if (self.isSelectionMode) {
+            checkbox.frame = CGRectMake(8.0, 2.0 + (bubbleHeight - 22.0) / 2.0, 22.0, 22.0);
+        }
         
         if (isModern) {
             bubble.image = nil;
@@ -2451,6 +2782,19 @@ static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFlo
     if (indexPath.row >= (NSInteger)self.messages.count) return;
     
     VKMessage *msg = self.messages[indexPath.row];
+    
+    if (self.isSelectionMode) {
+        if ([msg isServiceAction]) return;
+        NSNumber *mid = @(msg.messageId ?: msg.vkID);
+        if ([self.selectedMessageIds containsObject:mid]) {
+            [self.selectedMessageIds removeObject:mid];
+        } else {
+            [self.selectedMessageIds addObject:mid];
+        }
+        [self updateSelectionUI];
+        [self.tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];
+        return;
+    }
     
     // 1. Если сообщение содержит ответ — скроллим к исходному сообщению при наличии в истории
     if (msg.replyMessage) {

@@ -30,10 +30,24 @@
     return self;
 }
 
+- (instancetype)initWithForwardMessages:(NSArray<VKMessage *> *)forwardMessages {
+    self = [super init];
+    if (self) {
+        _forwardMessages = forwardMessages;
+        _conversations = [NSMutableArray array];
+        _filteredConversations = [NSMutableArray array];
+    }
+    return self;
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     
-    self.title = @"Отправить в диалог";
+    if (self.forwardMessages.count > 0) {
+        self.title = [NSString stringWithFormat:@"Переслать (%lu)", (unsigned long)self.forwardMessages.count];
+    } else {
+        self.title = @"Отправить в диалог";
+    }
     self.view.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
     
     self.navigationItem.leftBarButtonItem = [[VKThemeManager sharedManager] barButtonItemWithTitle:@"Отмена"
@@ -222,37 +236,78 @@
         UITextField *tf = [alertView textFieldAtIndex:0];
         NSString *comment = [tf.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         
-        NSString *attachment = [NSString stringWithFormat:@"wall%ld_%ld", (long)self.post.ownerID, (long)self.post.vkID];
-        
-        [VKCrashLogger log:@"[VKShareDialogPicker] Sending post %@ to peerId=%ld", attachment, (long)self.selectedConversation.peerId];
-        
-        __weak typeof(self) weakSelf = self;
-        [[VKMessagesService sharedService] sendMessageToPeerId:self.selectedConversation.peerId
-                                                          text:comment
-                                                    attachment:attachment
-                                                    completion:^(BOOL success, NSInteger messageId, NSError *error) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                if (success) {
-                    weakSelf.post.repostsCount += 1;
-                    if (weakSelf.onPostShared) weakSelf.onPostShared();
-                    
-                    UIAlertView *okAlert = [[UIAlertView alloc] initWithTitle:@"Запись отправлена"
-                                                                      message:[NSString stringWithFormat:@"Запись отправлена в диалог «%@»", [weakSelf.selectedConversation displayTitle]]
-                                                                     delegate:nil
-                                                            cancelButtonTitle:@"OK"
-                                                            otherButtonTitles:nil];
-                    [okAlert show];
-                    [weakSelf dismissViewControllerAnimated:YES completion:nil];
-                } else {
-                    UIAlertView *errAlert = [[UIAlertView alloc] initWithTitle:@"Ошибка отправки"
-                                                                       message:error.localizedDescription ?: @"Не удалось отправить запись"
-                                                                      delegate:nil
-                                                             cancelButtonTitle:@"OK"
-                                                             otherButtonTitles:nil];
-                    [errAlert show];
+        if (self.forwardMessages.count > 0) {
+            NSMutableArray *idStrs = [NSMutableArray array];
+            for (VKMessage *m in self.forwardMessages) {
+                NSInteger mid = m.messageId ?: m.vkID;
+                if (mid > 0) {
+                    [idStrs addObject:@(mid).stringValue];
                 }
-            });
-        }];
+            }
+            NSString *fwdStr = [idStrs componentsJoinedByString:@","];
+            
+            [VKCrashLogger log:@"[VKShareDialogPicker] Forwarding messages [%@] to peerId=%ld", fwdStr, (long)self.selectedConversation.peerId];
+            
+            __weak typeof(self) weakSelf = self;
+            [[VKMessagesService sharedService] sendMessageToPeerId:self.selectedConversation.peerId
+                                                              text:comment
+                                                        attachment:nil
+                                                           replyTo:0
+                                                       forwardMsgs:fwdStr
+                                                        completion:^(BOOL success, NSInteger messageId, NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (success) {
+                        if (weakSelf.onPostShared) weakSelf.onPostShared();
+                        UIAlertView *okAlert = [[UIAlertView alloc] initWithTitle:@"Переслано"
+                                                                          message:[NSString stringWithFormat:@"Сообщения пересланы в диалог «%@»", [weakSelf.selectedConversation displayTitle]]
+                                                                         delegate:nil
+                                                                cancelButtonTitle:@"OK"
+                                                                otherButtonTitles:nil];
+                        [okAlert show];
+                        [weakSelf dismissViewControllerAnimated:YES completion:nil];
+                    } else {
+                        UIAlertView *errAlert = [[UIAlertView alloc] initWithTitle:@"Ошибка пересылки"
+                                                                           message:error.localizedDescription ?: @"Не удалось переслать сообщения"
+                                                                          delegate:nil
+                                                                 cancelButtonTitle:@"OK"
+                                                                 otherButtonTitles:nil];
+                        [errAlert show];
+                    }
+                });
+            }];
+        } else if (self.post) {
+            NSString *attachment = [NSString stringWithFormat:@"wall%ld_%ld", (long)self.post.ownerID, (long)self.post.vkID];
+            
+            [VKCrashLogger log:@"[VKShareDialogPicker] Sending post %@ to peerId=%ld", attachment, (long)self.selectedConversation.peerId];
+            
+            __weak typeof(self) weakSelf = self;
+            [[VKMessagesService sharedService] sendMessageToPeerId:self.selectedConversation.peerId
+                                                              text:comment
+                                                        attachment:attachment
+                                                        completion:^(BOOL success, NSInteger messageId, NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (success) {
+                        weakSelf.post.repostsCount += 1;
+                        if (weakSelf.onPostShared) weakSelf.onPostShared();
+                        
+                        UIAlertView *okAlert = [[UIAlertView alloc] initWithTitle:@"Запись отправлена"
+                                                                          message:[NSString stringWithFormat:@"Запись отправлена в диалог «%@»", [weakSelf.selectedConversation displayTitle]]
+                                                                         delegate:nil
+                                                                cancelButtonTitle:@"OK"
+                                                                otherButtonTitles:nil];
+                        [okAlert show];
+                        [weakSelf dismissViewControllerAnimated:YES completion:nil];
+                    } else {
+                        UIAlertView *errAlert = [[UIAlertView alloc] initWithTitle:@"Ошибка отправки"
+                                                                           message:error.localizedDescription ?: @"Не удалось отправить запись"
+                                                                          delegate:nil
+                                                                 cancelButtonTitle:@"OK"
+                                                                 otherButtonTitles:nil];
+                        [errAlert show];
+                    }
+                });
+            }];
+        }
     }
 }
 
