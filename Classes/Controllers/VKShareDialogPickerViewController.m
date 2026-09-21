@@ -239,7 +239,7 @@
         if (self.forwardMessages.count > 0) {
             NSMutableArray *idStrs = [NSMutableArray array];
             for (VKMessage *m in self.forwardMessages) {
-                NSInteger mid = m.messageId ?: m.vkID;
+                NSInteger mid = m.messageId ?: m.conversationMessageId;
                 if (mid > 0) {
                     [idStrs addObject:@(mid).stringValue];
                 }

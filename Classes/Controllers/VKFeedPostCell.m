@@ -1373,6 +1373,7 @@
                 [barBg addGestureRecognizer:optTap];
                 
                 BOOL isMyVote = (att.myAnswerId > 0 && att.myAnswerId == opt.optionId);
+                BOOL isModern = !isSkeuomorph && !isFlat;
                 CGFloat percent = (att.pollTotalVotes > 0) ? ((CGFloat)opt.votes / (CGFloat)att.pollTotalVotes) : 0.0;
                 UIView *barFill = [[UIView alloc] initWithFrame:CGRectMake(0, 0, (contentW - 20) * percent, 26)];
                 

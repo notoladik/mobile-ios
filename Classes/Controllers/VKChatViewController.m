@@ -24,6 +24,7 @@
 #import "VKMessageViewersViewController.h"
 #import "VKVideoPlayerViewController.h"
 #import "VKGifViewerViewController.h"
+#import "VKShareDialogPickerViewController.h"
 #import <QuartzCore/QuartzCore.h>
 
 @interface VKChatUserButton : UIButton
@@ -933,7 +934,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     self.isSelectionMode = YES;
     [self.selectedMessageIds removeAllObjects];
     if (msg) {
-        NSInteger mid = msg.messageId ?: msg.vkID;
+        NSInteger mid = msg.messageId ?: msg.conversationMessageId;
         if (mid > 0) {
             [self.selectedMessageIds addObject:@(mid)];
         }
@@ -1713,7 +1714,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
                     NSMutableSet *deletedSet = [NSMutableSet setWithArray:mids];
                     NSMutableArray *toKeep = [NSMutableArray array];
                     for (VKMessage *m in weakSelf.messages) {
-                        NSNumber *midNum = @(m.messageId ?: m.vkID);
+                        NSNumber *midNum = @(m.messageId ?: m.conversationMessageId);
                         if (![deletedSet containsObject:midNum]) {
                             [toKeep addObject:m];
                         }
@@ -1737,7 +1738,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         if (buttonIndex == actionSheet.cancelButtonIndex) return;
         NSMutableArray<VKMessage *> *fwdList = [NSMutableArray array];
         for (VKMessage *m in self.messages) {
-            NSNumber *midNum = @(m.messageId ?: m.vkID);
+            NSNumber *midNum = @(m.messageId ?: m.conversationMessageId);
             if ([self.selectedMessageIds containsObject:midNum]) {
                 [fwdList addObject:m];
             }
@@ -2096,7 +2097,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     if (self.forwardingMessages.count > 0) {
         NSMutableArray *ids = [NSMutableArray array];
         for (VKMessage *m in self.forwardingMessages) {
-            NSInteger mid = m.messageId ?: m.vkID;
+            NSInteger mid = m.messageId ?: m.conversationMessageId;
             if (mid > 0) {
                 [ids addObject:@(mid)];
             }
@@ -2548,7 +2549,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     }
     
     CGFloat selOffset = self.isSelectionMode ? 32.0 : 0.0;
-    BOOL isRowSelected = [self.selectedMessageIds containsObject:@(msg.messageId ?: msg.vkID)];
+    BOOL isRowSelected = [self.selectedMessageIds containsObject:@(msg.messageId ?: msg.conversationMessageId)];
     if (self.isSelectionMode) {
         checkbox.hidden = NO;
         [checkbox setImage:VKCheckboxImage(isRowSelected) forState:UIControlStateNormal];
@@ -2936,7 +2937,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     
     if (self.isSelectionMode) {
         if ([msg isServiceAction]) return;
-        NSNumber *mid = @(msg.messageId ?: msg.vkID);
+        NSNumber *mid = @(msg.messageId ?: msg.conversationMessageId);
         if ([self.selectedMessageIds containsObject:mid]) {
             [self.selectedMessageIds removeObject:mid];
         } else {
