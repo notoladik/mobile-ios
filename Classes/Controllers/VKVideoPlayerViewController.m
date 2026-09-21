@@ -2,6 +2,7 @@
 #import "VKAPIClient.h"
 #import "VKAudioPlayer.h"
 #import "VKCrashLogger.h"
+#import "VKStickersService.h"
 #import <AVFoundation/AVFoundation.h>
 
 @interface VKVideoPlayerViewController ()
@@ -161,6 +162,9 @@
                 }
                 
                 NSString *embedPlayerURL = item[@"player"];
+                
+                directURL = [[VKStickersService sharedService] normalizeURL:directURL];
+                embedPlayerURL = [[VKStickersService sharedService] normalizeURL:embedPlayerURL];
                 
                 if (directURL.length > 0) {
                     [VKCrashLogger log:[NSString stringWithFormat:@"[VKVideoPlayer] Playing direct MP4 URL: %@", directURL]];

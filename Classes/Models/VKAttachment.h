@@ -37,6 +37,7 @@ typedef NS_ENUM(NSInteger, VKAttachmentType) {
 
 // Video
 @property (nonatomic, assign) NSInteger videoId;
+@property (nonatomic, assign) NSInteger videoOwnerId;
 @property (nonatomic, copy) NSString *videoTitle;
 @property (nonatomic, copy) NSString *videoDuration;
 @property (nonatomic, copy) NSString *videoImageURL;
@@ -71,6 +72,7 @@ typedef NS_ENUM(NSInteger, VKAttachmentType) {
 @property (nonatomic, copy) NSString *pollQuestion;
 @property (nonatomic, strong) NSArray *pollOptions;
 @property (nonatomic, assign) NSInteger pollTotalVotes;
+@property (nonatomic, assign) NSInteger myAnswerId;
 
 // Sticker
 @property (nonatomic, assign) NSInteger stickerId;

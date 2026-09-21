@@ -461,23 +461,56 @@
         if (optIdx >= 0 && optIdx < (NSInteger)pollAtt.pollOptions.count) {
             VKPollOption *opt = pollAtt.pollOptions[optIdx];
             
-            // Оптимистичный отклик
-            opt.votes += 1;
-            pollAtt.pollTotalVotes += 1;
-            [self configureWithPost:self.currentPost isRevealed:self.isExplicitRevealed];
-            
-            // Отправка голоса через API
-            NSDictionary *params = @{
-                @"poll_id": @(pollAtt.pollId),
-                @"owner_id": @(pollAtt.pollOwnerId),
-                @"answer_ids": [NSString stringWithFormat:@"%ld", (long)opt.optionId]
-            };
-            [[VKAPIClient sharedClient] callMethod:@"polls.addVote" parameters:params completionHandler:^(id response, NSError *error) {
-                // Голос учтен на сервере OpenVK
-            }];
-            
-            if (self.onPollVoted) {
-                self.onPollVoted(pollAtt, opt.optionId);
+            if (pollAtt.myAnswerId == opt.optionId) {
+                // Повторный тап — снятие голоса
+                opt.votes = MAX(0, opt.votes - 1);
+                pollAtt.pollTotalVotes = MAX(0, pollAtt.pollTotalVotes - 1);
+                pollAtt.myAnswerId = 0;
+                [self configureWithPost:self.currentPost isRevealed:self.isExplicitRevealed];
+                
+                NSDictionary *params = @{
+                    @"poll_id": @(pollAtt.pollId),
+                    @"owner_id": @(pollAtt.pollOwnerId),
+                    @"answer_id": @(opt.optionId),
+                    @"answer_ids": [NSString stringWithFormat:@"%ld", (long)opt.optionId]
+                };
+                [[VKAPIClient sharedClient] callMethod:@"polls.deleteVote" parameters:params completionHandler:^(id response, NSError *error) {
+                    // Голос снят
+                }];
+                if (self.onPollVoted) {
+                    self.onPollVoted(pollAtt, 0);
+                }
+            } else {
+                // Если ранее был выбран другой вариант — отнимаем у него голос
+                if (pollAtt.myAnswerId > 0) {
+                    for (VKPollOption *oldOpt in pollAtt.pollOptions) {
+                        if (oldOpt.optionId == pollAtt.myAnswerId) {
+                            oldOpt.votes = MAX(0, oldOpt.votes - 1);
+                            pollAtt.pollTotalVotes = MAX(0, pollAtt.pollTotalVotes - 1);
+                            break;
+                        }
+                    }
+                }
+                
+                opt.votes += 1;
+                pollAtt.pollTotalVotes += 1;
+                pollAtt.myAnswerId = opt.optionId;
+                [self configureWithPost:self.currentPost isRevealed:self.isExplicitRevealed];
+                
+                // Отправка голоса через API (OpenVK поддерживает answer_id и answer_ids)
+                NSDictionary *params = @{
+                    @"poll_id": @(pollAtt.pollId),
+                    @"owner_id": @(pollAtt.pollOwnerId),
+                    @"answer_id": @(opt.optionId),
+                    @"answer_ids": [NSString stringWithFormat:@"%ld", (long)opt.optionId]
+                };
+                [[VKAPIClient sharedClient] callMethod:@"polls.addVote" parameters:params completionHandler:^(id response, NSError *error) {
+                    // Голос учтен на сервере OpenVK
+                }];
+                
+                if (self.onPollVoted) {
+                    self.onPollVoted(pollAtt, opt.optionId);
+                }
             }
         }
     }
@@ -1339,10 +1372,13 @@
                 UITapGestureRecognizer *optTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(pollOptionTapped:)];
                 [barBg addGestureRecognizer:optTap];
                 
+                BOOL isMyVote = (att.myAnswerId > 0 && att.myAnswerId == opt.optionId);
                 CGFloat percent = (att.pollTotalVotes > 0) ? ((CGFloat)opt.votes / (CGFloat)att.pollTotalVotes) : 0.0;
                 UIView *barFill = [[UIView alloc] initWithFrame:CGRectMake(0, 0, (contentW - 20) * percent, 26)];
                 
-                if (isSkeuomorph) {
+                if (isMyVote) {
+                    barFill.backgroundColor = [UIColor colorWithRed:45.0/255.0 green:129.0/255.0 blue:224.0/255.0 alpha:0.65];
+                } else if (isSkeuomorph) {
                     barFill.backgroundColor = [UIColor colorWithRed:83.0/255.0 green:124.0/255.0 blue:164.0/255.0 alpha:0.55];
                 } else if (isFlat) {
                     barFill.backgroundColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:0.35];
@@ -1352,9 +1388,9 @@
                 [barBg addSubview:barFill];
                 
                 UILabel *tLbl = [[UILabel alloc] initWithFrame:CGRectMake(8, 3, contentW - 75, 20)];
-                tLbl.text = opt.text;
-                tLbl.font = [UIFont systemFontOfSize:12.5];
-                tLbl.textColor = [UIColor colorWithRed:25.0/255.0 green:25.0/255.0 blue:25.0/255.0 alpha:1.0];
+                tLbl.text = isMyVote ? [NSString stringWithFormat:@"✓  %@", opt.text] : opt.text;
+                tLbl.font = isMyVote ? [UIFont boldSystemFontOfSize:12.5] : [UIFont systemFontOfSize:12.5];
+                tLbl.textColor = isMyVote ? (isModern ? [UIColor colorWithRed:25.0/255.0 green:100.0/255.0 blue:210.0/255.0 alpha:1.0] : [UIColor colorWithRed:20.0/255.0 green:70.0/255.0 blue:140.0/255.0 alpha:1.0]) : [UIColor colorWithRed:25.0/255.0 green:25.0/255.0 blue:26.0/255.0 alpha:1.0];
                 [barBg addSubview:tLbl];
                 
                 UILabel *pLbl = [[UILabel alloc] initWithFrame:CGRectMake(contentW - 70, 3, 44, 20)];

@@ -22,6 +22,8 @@
 #import "VKAudioPlayerViewController.h"
 #import "VKAudioTrack.h"
 #import "VKMessageViewersViewController.h"
+#import "VKVideoPlayerViewController.h"
+#import "VKGifViewerViewController.h"
 #import <QuartzCore/QuartzCore.h>
 
 @interface VKChatUserButton : UIButton
@@ -36,6 +38,24 @@
 @end
 
 @implementation VKChatAuthorTapGesture
+@end
+
+@interface VKChatAttachmentTapGesture : UITapGestureRecognizer
+@property (nonatomic, strong) VKAttachment *attachment;
+@property (nonatomic, strong) NSArray<VKAttachment *> *attachments;
+@property (nonatomic, assign) NSInteger initialIndex;
+@end
+
+@implementation VKChatAttachmentTapGesture
+@end
+
+@interface VKChatSwipeReplyGesture : UIPanGestureRecognizer
+@property (nonatomic, strong) VKMessage *message;
+@property (nonatomic, weak) UIView *bubbleView;
+@property (nonatomic, weak) UIView *replyIndicator;
+@end
+
+@implementation VKChatSwipeReplyGesture
 @end
 
 static UIBezierPath *VKMakeBubblePath(CGRect rect, CGFloat tl, CGFloat tr, CGFloat bl, CGFloat br) {
@@ -115,12 +135,22 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     return img;
 }
 
-@interface VKChatViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIActionSheetDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIAlertViewDelegate>
+@interface VKChatViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIActionSheetDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIAlertViewDelegate, UIGestureRecognizerDelegate, UISearchBarDelegate>
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UIView *inputContainerView;
 @property (nonatomic, strong) UIButton *attachButton;
 @property (nonatomic, strong) UITextField *messageTextField;
 @property (nonatomic, strong) UIButton *sendButton;
+
+// Поиск сообщений в диалоге
+@property (nonatomic, assign) BOOL isSearchingMessages;
+@property (nonatomic, strong) UIView *searchBarContainer;
+@property (nonatomic, strong) UISearchBar *messageSearchBar;
+@property (nonatomic, strong) UILabel *searchMatchesLabel;
+@property (nonatomic, strong) UIButton *searchPrevButton;
+@property (nonatomic, strong) UIButton *searchNextButton;
+@property (nonatomic, strong) NSMutableArray<NSNumber *> *searchMatchingIndices;
+@property (nonatomic, assign) NSInteger currentSearchMatchIndex;
 
 // Режим выбора нескольких сообщений (Selection Mode)
 @property (nonatomic, assign) BOOL isSelectionMode;
@@ -496,12 +526,30 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     self.navigationItem.titleView = headerView;
     self.navigationItem.leftBarButtonItem = [[VKThemeManager sharedManager] barButtonItemWithTitle:@"Назад" target:self action:@selector(goBackAction) isBack:YES];
     
-    // В официальном VK 2.x/3.x: для бесед всегда отображается иконка chat_settings справа!
+    [self updateRightBarButtonItems];
+    if (self.peerUser && self.peerUser.avatarURL.length > 0 && self.peerId <= 2000000000) {
+        [self updateHeaderAvatarWithURL:self.peerUser.avatarURL];
+    }
+}
+
+- (void)updateRightBarButtonItems {
+    if (self.isSelectionMode) {
+        self.navigationItem.rightBarButtonItems = nil;
+        self.navigationItem.rightBarButtonItem = nil;
+        return;
+    }
+    
+    UIBarButtonItem *searchItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSearch target:self action:@selector(toggleSearchMode)];
+    
     if (self.peerId > 2000000000) {
         UIImage *settingsImg = [UIImage imageNamed:@"chat_settings"];
-        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithImage:settingsImg style:UIBarButtonItemStylePlain target:self action:@selector(openChatSettings)];
-    } else if (self.peerUser && self.peerUser.avatarURL.length > 0) {
-        [self updateHeaderAvatarWithURL:self.peerUser.avatarURL];
+        UIBarButtonItem *settingsItem = [[UIBarButtonItem alloc] initWithImage:settingsImg style:UIBarButtonItemStylePlain target:self action:@selector(openChatSettings)];
+        self.navigationItem.rightBarButtonItems = @[settingsItem, searchItem];
+    } else if (self.navAvatarContainer) {
+        UIBarButtonItem *avatarItem = [[UIBarButtonItem alloc] initWithCustomView:self.navAvatarContainer];
+        self.navigationItem.rightBarButtonItems = @[avatarItem, searchItem];
+    } else {
+        self.navigationItem.rightBarButtonItems = @[searchItem];
     }
 }
 
@@ -544,7 +592,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         if (img) navAvatar.image = img;
     }];
     
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:container];
+    [self updateRightBarButtonItems];
 }
 
 - (void)updateInputBarVisibility {
@@ -879,6 +927,9 @@ static UIImage *VKCheckboxImage(BOOL checked) {
 }
 
 - (void)enterSelectionModeWithMessage:(VKMessage *)msg {
+    if (self.isSearchingMessages) {
+        [self closeSearchMode];
+    }
     self.isSelectionMode = YES;
     [self.selectedMessageIds removeAllObjects];
     if (msg) {
@@ -888,6 +939,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         }
     }
     [self.view endEditing:YES];
+    [self updateRightBarButtonItems];
     [self updateSelectionUI];
     [self updateLayoutAnimated:YES];
     [self.tableView reloadData];
@@ -896,6 +948,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
 - (void)exitSelectionMode {
     self.isSelectionMode = NO;
     [self.selectedMessageIds removeAllObjects];
+    [self updateRightBarButtonItems];
     [self updateLayoutAnimated:YES];
     [self.tableView reloadData];
 }
@@ -1163,7 +1216,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         }
     }
     // Если сообщение еще не подгружено в текущих сообщениях
-    NSString *preview = [self textForMessage:self.pinnedMessage];
+    NSString *preview = [self previewTextForMessage:self.pinnedMessage];
     VKUser *author = [self senderUserForMessage:self.pinnedMessage];
     NSString *authorName = author ? author.displayName : @"Закрепленное сообщение";
     UIAlertView *av = [[UIAlertView alloc] initWithTitle:authorName message:preview delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
@@ -1278,7 +1331,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
             VKUser *u = [self senderUserForMessage:self.pinnedMessage];
             NSString *authorStr = u ? u.displayName : (self.pinnedMessage.fromId > 0 ? [NSString stringWithFormat:@"id%ld", (long)self.pinnedMessage.fromId] : @"Сообщение");
             self.pinnedSenderLabel.text = [NSString stringWithFormat:@"Закрепленное сообщение · %@", authorStr];
-            self.pinnedTextLabel.text = [self textForMessage:self.pinnedMessage];
+            self.pinnedTextLabel.text = [self previewTextForMessage:self.pinnedMessage];
         }
         
         // 2. Input container & its subviews
@@ -1298,7 +1351,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
             if (hasEdit) {
                 self.editingBarView.hidden = NO;
                 self.editingBarView.frame = CGRectMake(0, currentY, width, editH);
-                self.editingTextLabel.text = [self textForMessage:self.editingMessage];
+                self.editingTextLabel.text = [self previewTextForMessage:self.editingMessage];
                 currentY += editH;
                 [self.sendButton setTitle:@"Сохр." forState:UIControlStateNormal];
             } else {
@@ -1313,10 +1366,10 @@ static UIImage *VKCheckboxImage(BOOL checked) {
                     VKUser *ru = [self senderUserForMessage:self.replyingMessage];
                     NSString *name = ru ? ru.displayName : (self.replyingMessage.fromId > 0 ? [NSString stringWithFormat:@"id%ld", (long)self.replyingMessage.fromId] : @"");
                     self.replyAuthorLabel.text = name.length > 0 ? [NSString stringWithFormat:@"Ответ для %@", name] : @"Ответ на сообщение";
-                    self.replyTextLabel.text = [self textForMessage:self.replyingMessage];
+                    self.replyTextLabel.text = [self previewTextForMessage:self.replyingMessage];
                 } else if (self.forwardingMessages.count > 0) {
                     self.replyAuthorLabel.text = [NSString stringWithFormat:@"Пересылаемых сообщений: %lu", (unsigned long)self.forwardingMessages.count];
-                    self.replyTextLabel.text = [self textForMessage:self.forwardingMessages[0]];
+                    self.replyTextLabel.text = [self previewTextForMessage:self.forwardingMessages[0]];
                 }
                 currentY += replyH;
             } else {
@@ -2145,53 +2198,92 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     return self.messages.count;
 }
 
-- (NSString *)textForMessage:(VKMessage *)msg {
+- (NSString *)previewTextForMessage:(VKMessage *)msg {
     if (!msg) return @"";
-    NSString *baseText = msg.text ?: @"";
-    NSMutableArray *attachDescriptions = [NSMutableArray array];
+    if (msg.text.length > 0) return msg.text;
     
     if (msg.attachments.count > 0) {
-        for (VKAttachment *att in msg.attachments) {
-            if (![att isKindOfClass:[VKAttachment class]]) continue;
-            if (att.type == VKAttachmentTypePhoto) {
-                if (msg.attachments.count > 1 || baseText.length > 0) {
-                    [attachDescriptions addObject:@"[Фотография]"];
-                }
-            } else if (att.type == VKAttachmentTypeSticker) {
-                [attachDescriptions addObject:@"[Стикер]"];
-            } else if (att.type == VKAttachmentTypeGif) {
-                [attachDescriptions addObject:@"[GIF-анимация]"];
-            } else if (att.type == VKAttachmentTypeAudio) {
-                NSString *aud = [NSString stringWithFormat:@"🎵 %@ — %@", att.audioArtist ?: @"", att.audioTitle ?: @"Трек"];
-                [attachDescriptions addObject:aud];
-            } else if (att.type == VKAttachmentTypeDoc) {
-                NSString *doc = [NSString stringWithFormat:@"📄 %@%@", att.docTitle ?: @"Документ", (att.docSize.length > 0 ? [NSString stringWithFormat:@" (%@)", att.docSize] : @"")];
-                [attachDescriptions addObject:doc];
-            } else if (att.type == VKAttachmentTypeVideo) {
-                NSString *vid = [NSString stringWithFormat:@"🎬 %@", att.videoTitle ?: @"Видеозапись"];
-                [attachDescriptions addObject:vid];
-            } else if (att.type == VKAttachmentTypeWall) {
-                NSString *wall = [NSString stringWithFormat:@"📋 Запись на стене%@", att.wallText.length > 0 ? [NSString stringWithFormat:@": «%@»", att.wallText] : @""];
-                [attachDescriptions addObject:wall];
-            } else if (att.type == VKAttachmentTypeLink) {
-                NSString *lnk = [NSString stringWithFormat:@"🔗 %@", att.linkTitle ?: att.linkURL ?: @"Ссылка"];
-                [attachDescriptions addObject:lnk];
-            } else if (att.type == VKAttachmentTypePoll) {
-                NSString *poll = [NSString stringWithFormat:@"📊 Опрос: %@", att.pollQuestion ?: @""];
-                [attachDescriptions addObject:poll];
-            } else {
-                [attachDescriptions addObject:@"[Вложение]"];
+        VKAttachment *first = msg.attachments[0];
+        if ([first isKindOfClass:[VKAttachment class]]) {
+            if (first.type == VKAttachmentTypePhoto) {
+                return (msg.attachments.count > 1) ? [NSString stringWithFormat:@"%lu фотографии", (unsigned long)msg.attachments.count] : @"[Фотография]";
+            } else if (first.type == VKAttachmentTypeVideo) {
+                return first.videoTitle.length > 0 ? [NSString stringWithFormat:@"🎬 %@", first.videoTitle] : @"[Видеозапись]";
+            } else if (first.type == VKAttachmentTypeSticker) {
+                return @"[Стикер]";
+            } else if (first.type == VKAttachmentTypeGif) {
+                return @"[GIF-анимация]";
+            } else if (first.type == VKAttachmentTypeAudio) {
+                return [NSString stringWithFormat:@"🎵 %@ — %@", first.audioArtist ?: @"", first.audioTitle ?: @"Трек"];
+            } else if (first.type == VKAttachmentTypeDoc) {
+                return [NSString stringWithFormat:@"📄 %@", first.docTitle ?: @"Документ"];
+            } else if (first.type == VKAttachmentTypeWall) {
+                return @"[Запись на стене]";
+            } else if (first.type == VKAttachmentTypeLink) {
+                return [NSString stringWithFormat:@"🔗 %@", first.linkTitle ?: @"Ссылка"];
+            } else if (first.type == VKAttachmentTypePoll) {
+                return [NSString stringWithFormat:@"📊 %@", first.pollQuestion ?: @"Опрос"];
             }
         }
+        return @"[Вложение]";
+    }
+    return @"";
+}
+
+- (NSString *)textForMessage:(VKMessage *)msg {
+    if (!msg) return @"";
+    return msg.text ?: @"";
+}
+
+- (NSArray<VKAttachment *> *)photoAttachmentsInMessage:(VKMessage *)msg {
+    NSMutableArray *arr = [NSMutableArray array];
+    for (VKAttachment *att in msg.attachments) {
+        if ([att isKindOfClass:[VKAttachment class]] && att.type == VKAttachmentTypePhoto) {
+            [arr addObject:att];
+        }
+    }
+    return arr;
+}
+
+- (CGFloat)heightForAttachmentsInMessage:(VKMessage *)msg contentWidth:(CGFloat)contentWidth {
+    if (!msg || msg.attachments.count == 0) return 0.0;
+    
+    CGFloat totalH = 0.0;
+    NSArray *photos = [self photoAttachmentsInMessage:msg];
+    if (photos.count == 1) {
+        VKAttachment *p = photos[0];
+        CGFloat pH = (p.photoWidth > 0 && p.photoHeight > 0) ? (contentWidth * p.photoHeight / p.photoWidth) : 140.0;
+        pH = MAX(90.0, MIN(160.0, pH));
+        totalH += pH;
+    } else if (photos.count == 2) {
+        totalH += 110.0;
+    } else if (photos.count == 3) {
+        totalH += 194.0;
+    } else if (photos.count >= 4) {
+        totalH += 176.0;
     }
     
-    NSString *allAttachStr = [attachDescriptions componentsJoinedByString:@"\n"];
-    if (baseText.length > 0 && allAttachStr.length > 0) {
-        return [NSString stringWithFormat:@"%@\n%@", baseText, allAttachStr];
+    for (VKAttachment *att in msg.attachments) {
+        if (![att isKindOfClass:[VKAttachment class]]) continue;
+        if (att.type == VKAttachmentTypePhoto || att.type == VKAttachmentTypeSticker) continue;
+        
+        if (att.type == VKAttachmentTypeVideo) {
+            totalH += (totalH > 0 ? 6.0 : 0.0) + 130.0;
+        } else if (att.type == VKAttachmentTypeGif) {
+            totalH += (totalH > 0 ? 6.0 : 0.0) + 130.0;
+        } else if (att.type == VKAttachmentTypeDoc) {
+            totalH += (totalH > 0 ? 6.0 : 0.0) + 46.0;
+        } else if (att.type == VKAttachmentTypeWall) {
+            totalH += (totalH > 0 ? 6.0 : 0.0) + 68.0;
+        } else if (att.type == VKAttachmentTypeAudio) {
+            totalH += (totalH > 0 ? 6.0 : 0.0) + 42.0;
+        } else if (att.type == VKAttachmentTypeLink) {
+            totalH += (totalH > 0 ? 6.0 : 0.0) + 48.0;
+        } else if (att.type == VKAttachmentTypePoll) {
+            totalH += (totalH > 0 ? 6.0 : 0.0) + (34.0 + att.pollOptions.count * 30.0 + 20.0);
+        }
     }
-    if (baseText.length > 0) return baseText;
-    if (allAttachStr.length > 0) return allAttachStr;
-    return @"";
+    return totalH;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -2223,17 +2315,22 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     BOOL showAuthor = isGroupChat && !msg.isOutgoing && !joinsPrevious;
     CGFloat authorHeaderH = showAuthor ? 18.0 : 0.0;
     
-    BOOL hasPhoto = (msg.attachments.count > 0 && [msg.attachments[0] isKindOfClass:[VKAttachment class]] && ((VKAttachment *)msg.attachments[0]).type == VKAttachmentTypePhoto);
-    BOOL hasReply = (msg.replyMessage != nil || (msg.fwdMessages && msg.fwdMessages.count > 0));
-    CGFloat replyExtraH = hasReply ? 34.0 : 0.0;
-    CGFloat extraH = (hasPhoto ? 138.0 : 0.0) + authorHeaderH + replyExtraH;
-    
     CGFloat selOffset = self.isSelectionMode ? 32.0 : 0.0;
     CGFloat maxTextW = width - (isGroupChat && !msg.isOutgoing ? 46.0 : 10.0) - 50.0 - selOffset;
-    NSString *displayText = [self textForMessage:msg];
-    CGSize size = [displayText sizeWithFont:[UIFont systemFontOfSize:15] constrainedToSize:CGSizeMake(maxTextW, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
+    CGFloat attContentW = MAX(200.0, maxTextW - 20.0);
+    CGFloat attH = [self heightForAttachmentsInMessage:msg contentWidth:attContentW];
+    BOOL hasReply = (msg.replyMessage != nil || (msg.fwdMessages && msg.fwdMessages.count > 0));
+    CGFloat replyExtraH = hasReply ? 34.0 : 0.0;
+    CGFloat extraH = (attH > 0 ? attH + 8.0 : 0.0) + authorHeaderH + replyExtraH;
     
-    CGFloat bubbleH = ceilf(size.height) + 22.0 + extraH;
+    NSString *displayText = [self textForMessage:msg];
+    CGFloat textH = 0.0;
+    if (displayText.length > 0) {
+        CGSize size = [displayText sizeWithFont:[UIFont systemFontOfSize:15] constrainedToSize:CGSizeMake(maxTextW, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
+        textH = ceilf(size.height);
+    }
+    
+    CGFloat bubbleH = textH + 22.0 + extraH;
     CGFloat gap = (isModern && joinsNext) ? 3.0 : 6.0;
     return MAX(38.0 + extraH, bubbleH + gap);
 }
@@ -2314,18 +2411,29 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         [authorNameLabel addGestureRecognizer:authorTap];
         [bubble addSubview:authorNameLabel];
         
-        // Фото во вложении
-        UIImageView *photoIV = [[UIImageView alloc] initWithFrame:CGRectZero];
-        photoIV.tag = 1004;
-        photoIV.contentMode = UIViewContentModeScaleAspectFill;
-        photoIV.clipsToBounds = YES;
-        photoIV.layer.cornerRadius = 8.0;
-        photoIV.userInteractionEnabled = YES;
-        photoIV.hidden = YES;
-        [bubble addSubview:photoIV];
+        // Контейнер вложений
+        UIView *attachmentsView = [[UIView alloc] initWithFrame:CGRectZero];
+        attachmentsView.tag = 1004;
+        attachmentsView.clipsToBounds = YES;
+        attachmentsView.userInteractionEnabled = YES;
+        attachmentsView.hidden = YES;
+        [bubble addSubview:attachmentsView];
         
-        UITapGestureRecognizer *photoTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(chatPhotoTapped:)];
-        [photoIV addGestureRecognizer:photoTap];
+        // Индикатор Swipe-to-Reply
+        UIView *replyIndicator = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 30.0, 30.0)];
+        replyIndicator.tag = 1030;
+        replyIndicator.backgroundColor = [UIColor colorWithRed:39.0/255.0 green:135.0/255.0 blue:245.0/255.0 alpha:0.9];
+        replyIndicator.layer.cornerRadius = 15.0;
+        replyIndicator.clipsToBounds = YES;
+        replyIndicator.alpha = 0.0;
+        replyIndicator.transform = CGAffineTransformMakeScale(0.5, 0.5);
+        UILabel *arrowLbl = [[UILabel alloc] initWithFrame:replyIndicator.bounds];
+        arrowLbl.text = @"↩";
+        arrowLbl.textColor = [UIColor whiteColor];
+        arrowLbl.font = [UIFont boldSystemFontOfSize:17.0];
+        arrowLbl.textAlignment = NSTextAlignmentCenter;
+        [replyIndicator addSubview:arrowLbl];
+        [cell.contentView addSubview:replyIndicator];
         
         // Цитата ответа / пересылки
         UIView *quoteView = [[UIView alloc] initWithFrame:CGRectZero];
@@ -2378,7 +2486,8 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     UILabel *stickerTimeLabel = (UILabel *)[cell.contentView viewWithTag:1010];
     UIImageView *bubble = (UIImageView *)[cell.contentView viewWithTag:1001];
     UILabel *authorNameLabel = (UILabel *)[bubble viewWithTag:1006];
-    UIImageView *photoIV = (UIImageView *)[bubble viewWithTag:1004];
+    UIView *attachmentsView = [bubble viewWithTag:1004];
+    UIView *replyIndicator = [cell.contentView viewWithTag:1030];
     UIView *quoteView = [bubble viewWithTag:1011];
     UIView *quoteBar = [quoteView viewWithTag:1012];
     UILabel *quoteAuthorLabel = (UILabel *)[quoteView viewWithTag:1013];
@@ -2444,14 +2553,14 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         checkbox.hidden = NO;
         [checkbox setImage:VKCheckboxImage(isRowSelected) forState:UIControlStateNormal];
         bubble.userInteractionEnabled = NO;
-        photoIV.userInteractionEnabled = NO;
+        attachmentsView.userInteractionEnabled = NO;
         stickerIV.userInteractionEnabled = NO;
         authorNameLabel.userInteractionEnabled = NO;
         authorAvatar.userInteractionEnabled = NO;
     } else {
         checkbox.hidden = YES;
         bubble.userInteractionEnabled = YES;
-        photoIV.userInteractionEnabled = YES;
+        attachmentsView.userInteractionEnabled = YES;
         stickerIV.userInteractionEnabled = YES;
         authorNameLabel.userInteractionEnabled = YES;
         authorAvatar.userInteractionEnabled = YES;
@@ -2524,13 +2633,13 @@ static UIImage *VKCheckboxImage(BOOL checked) {
             VKUser *ru = [self senderUserForMessage:msg.replyMessage];
             NSString *authorName = ru ? ru.displayName : (msg.replyMessage.fromId > 0 ? [NSString stringWithFormat:@"id%ld", (long)msg.replyMessage.fromId] : @"Сообщение");
             quoteAuthorLabel.text = authorName;
-            quoteTextLabel.text = [self textForMessage:msg.replyMessage];
+            quoteTextLabel.text = [self previewTextForMessage:msg.replyMessage];
         } else if (msg.fwdMessages.count > 0) {
             VKMessage *fwd = msg.fwdMessages[0];
             VKUser *fu = [self senderUserForMessage:fwd];
             NSString *fwdAuthor = fu ? fu.displayName : (fwd.fromId > 0 ? [NSString stringWithFormat:@"id%ld", (long)fwd.fromId] : @"Сообщение");
             quoteAuthorLabel.text = msg.fwdMessages.count > 1 ? [NSString stringWithFormat:@"%@ (+%lu)", fwdAuthor, (unsigned long)(msg.fwdMessages.count - 1)] : fwdAuthor;
-            quoteTextLabel.text = [self textForMessage:fwd];
+            quoteTextLabel.text = [self previewTextForMessage:fwd];
         }
     } else {
         quoteView.hidden = YES;
@@ -2540,18 +2649,25 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     textLabel.text = displayText;
     
     CGFloat maxTextW = width - (isGroupChat && !msg.isOutgoing ? 46.0 : 10.0) - 50.0 - selOffset;
-    CGSize size = [displayText sizeWithFont:[UIFont systemFontOfSize:15] constrainedToSize:CGSizeMake(maxTextW, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
+    CGSize size = CGSizeZero;
+    if (displayText.length > 0) {
+        size = [displayText sizeWithFont:[UIFont systemFontOfSize:15] constrainedToSize:CGSizeMake(maxTextW, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
+    }
     
-    CGFloat photoH = hasPhoto ? 130.0 : 0.0;
+    CGFloat attContentW = MAX(200.0, maxTextW - 20.0);
+    CGFloat attH = [self heightForAttachmentsInMessage:msg contentWidth:attContentW];
     
     // Расчет ширины пузыря
-    CGFloat bubbleWidth = MAX(hasPhoto ? 196.0 : 86.0, ceilf(size.width) + 28.0);
+    CGFloat bubbleWidth = MAX(86.0, ceilf(size.width) + 28.0);
+    if (attH > 0) {
+        bubbleWidth = MAX(bubbleWidth, 220.0);
+    }
     if (hasReply) {
         bubbleWidth = MAX(bubbleWidth, 190.0);
     }
     
     // Если исходящее однострочное: обеспечиваем место для времени и галочек прочтения
-    if (msg.isOutgoing && size.height <= 22.0) {
+    if (msg.isOutgoing && size.height <= 22.0 && attH == 0) {
         bubbleWidth = MAX(bubbleWidth, ceilf(size.width) + 72.0);
     }
     
@@ -2565,20 +2681,8 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     
     CGFloat authorHeaderH = showAuthor ? 18.0 : 0.0;
     CGFloat replyExtraH = hasReply ? 34.0 : 0.0;
-    CGFloat bubbleHeight = ceilf(size.height) + 22.0 + (hasPhoto ? photoH + 8.0 : 0.0) + authorHeaderH + replyExtraH;
-    
-    if (hasPhoto) {
-        photoIV.hidden = NO;
-        photoIV.image = nil;
-        NSString *url = photoAtt.photoURL;
-        if (url.length > 0) {
-            [[VKImageLoader sharedLoader] loadImageWithURL:url completion:^(UIImage *img) {
-                if (img) photoIV.image = img;
-            }];
-        }
-    } else {
-        photoIV.hidden = YES;
-    }
+    CGFloat textH = displayText.length > 0 ? ceilf(size.height) : 0.0;
+    CGFloat bubbleHeight = textH + 22.0 + (attH > 0 ? attH + 8.0 : 0.0) + authorHeaderH + replyExtraH;
     
     if (msg.isOutgoing) {
         authorAvatar.hidden = YES;
@@ -2654,11 +2758,25 @@ static UIImage *VKCheckboxImage(BOOL checked) {
             quoteTextLabel.frame = CGRectMake(7, 14, bubbleWidth - 32, 14);
             topY += 34.0;
         }
-        if (hasPhoto) {
-            photoIV.frame = CGRectMake(8, topY, bubbleWidth - 20, photoH);
-            topY += photoH + 6.0;
+        
+        if (attH > 0) {
+            attachmentsView.hidden = NO;
+            CGFloat attW = bubbleWidth - 20.0;
+            attachmentsView.frame = CGRectMake(10.0, topY, attW, attH);
+            [self configureAttachmentsView:attachmentsView forMessage:msg width:attW isOutgoing:YES];
+            topY += attH + 6.0;
+        } else {
+            attachmentsView.hidden = YES;
+            [attachmentsView.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
         }
-        textLabel.frame = CGRectMake(12, topY, ceilf(size.width), ceilf(size.height));
+        
+        if (displayText.length > 0) {
+            textLabel.hidden = NO;
+            textLabel.frame = CGRectMake(12, topY, ceilf(size.width), ceilf(size.height));
+        } else {
+            textLabel.hidden = YES;
+            textLabel.frame = CGRectZero;
+        }
         
         // Время и статус прочтения (достаточная ширина 54pt для «16:18 ✓✓»)
         timeLabel.text = [NSString stringWithFormat:@"%@ %@", msg.timeString ?: @"", (msg.isRead ? @"✓✓" : @"✓")];
@@ -2763,16 +2881,49 @@ static UIImage *VKCheckboxImage(BOOL checked) {
             topY += 34.0;
         }
         
-        if (hasPhoto) {
-            photoIV.frame = CGRectMake(14, topY, bubbleWidth - 22, photoH);
-            topY += photoH + 6.0;
+        if (attH > 0) {
+            attachmentsView.hidden = NO;
+            CGFloat attW = bubbleWidth - 22.0;
+            attachmentsView.frame = CGRectMake(12.0, topY, attW, attH);
+            [self configureAttachmentsView:attachmentsView forMessage:msg width:attW isOutgoing:NO];
+            topY += attH + 6.0;
+        } else {
+            attachmentsView.hidden = YES;
+            [attachmentsView.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
         }
-        textLabel.frame = CGRectMake(16, topY, ceilf(size.width), ceilf(size.height));
+        
+        if (displayText.length > 0) {
+            textLabel.hidden = NO;
+            textLabel.frame = CGRectMake(16, topY, ceilf(size.width), ceilf(size.height));
+        } else {
+            textLabel.hidden = YES;
+            textLabel.frame = CGRectZero;
+        }
         
         timeLabel.text = msg.timeString ?: @"";
         timeLabel.textAlignment = NSTextAlignmentRight;
         timeLabel.frame = CGRectMake(bubbleWidth - 46, bubbleHeight - 16, 38, 12);
     }
+    
+    // Настраиваем жест Swipe-to-Reply
+    VKChatSwipeReplyGesture *swipe = nil;
+    for (UIGestureRecognizer *gr in cell.gestureRecognizers) {
+        if ([gr isKindOfClass:[VKChatSwipeReplyGesture class]]) {
+            swipe = (VKChatSwipeReplyGesture *)gr;
+            break;
+        }
+    }
+    if (!swipe) {
+        swipe = [[VKChatSwipeReplyGesture alloc] initWithTarget:self action:@selector(handleCellPan:)];
+        swipe.delegate = self;
+        [cell addGestureRecognizer:swipe];
+    }
+    swipe.message = msg;
+    swipe.bubbleView = bubble;
+    swipe.replyIndicator = replyIndicator;
+    bubble.transform = CGAffineTransformIdentity;
+    replyIndicator.alpha = 0.0;
+    replyIndicator.center = CGPointMake(bubble.frame.origin.x + bubble.frame.size.width + 20.0, bubble.frame.origin.y + bubble.frame.size.height / 2.0);
     
     return cell;
 }
@@ -2841,9 +2992,13 @@ static UIImage *VKCheckboxImage(BOOL checked) {
             NSURL *u = [NSURL URLWithString:att.docURL];
             if (u) [[UIApplication sharedApplication] openURL:u];
             return;
-        } else if (att.type == VKAttachmentTypeVideo && att.videoURL.length > 0) {
-            NSURL *u = [NSURL URLWithString:att.videoURL];
-            if (u) [[UIApplication sharedApplication] openURL:u];
+        } else if (att.type == VKAttachmentTypeVideo) {
+            VKVideoPlayerViewController *player = [[VKVideoPlayerViewController alloc] initWithAttachment:att];
+            [self presentViewController:player animated:YES completion:nil];
+            return;
+        } else if (att.type == VKAttachmentTypeGif) {
+            VKGifViewerViewController *viewer = [[VKGifViewerViewController alloc] initWithAttachment:att];
+            [self presentViewController:viewer animated:YES completion:nil];
             return;
         }
     }
@@ -2881,6 +3036,628 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         [[VKAPIClient sharedClient] callMethod:@"messages.setActivity" parameters:@{@"peer_id": @(self.peerId), @"type": @"typing"} completionHandler:nil];
     }
     return YES;
+}
+
+#pragma mark - Attachments Configuration & Taps
+
+- (void)configureAttachmentsView:(UIView *)container forMessage:(VKMessage *)msg width:(CGFloat)width isOutgoing:(BOOL)isOutgoing {
+    [container.subviews makeObjectsPerformSelector:@selector(removeFromSuperview)];
+    if (!msg || msg.attachments.count == 0) return;
+    
+    CGFloat curY = 0.0;
+    NSArray *photos = [self photoAttachmentsInMessage:msg];
+    
+    // 1. Сетка фотографий
+    if (photos.count == 1) {
+        VKAttachment *p = photos[0];
+        CGFloat pH = (p.photoWidth > 0 && p.photoHeight > 0) ? (width * p.photoHeight / p.photoWidth) : 140.0;
+        pH = MAX(90.0, MIN(160.0, pH));
+        UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(0, curY, width, pH)];
+        iv.contentMode = UIViewContentModeScaleAspectFill;
+        iv.clipsToBounds = YES;
+        iv.layer.cornerRadius = 8.0;
+        iv.userInteractionEnabled = YES;
+        [container addSubview:iv];
+        
+        VKChatAttachmentTapGesture *tap = [[VKChatAttachmentTapGesture alloc] initWithTarget:self action:@selector(chatPhotoAttachmentTapped:)];
+        tap.attachments = photos;
+        tap.initialIndex = 0;
+        [iv addGestureRecognizer:tap];
+        
+        if (p.photoURL.length > 0) {
+            [[VKImageLoader sharedLoader] loadImageWithURL:p.photoURL completion:^(UIImage *img) {
+                if (img) iv.image = img;
+            }];
+        }
+        curY += pH + 6.0;
+    } else if (photos.count == 2) {
+        CGFloat colW = (width - 4.0) / 2.0;
+        CGFloat pH = 110.0;
+        for (NSInteger i = 0; i < 2; i++) {
+            VKAttachment *p = photos[i];
+            UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(i * (colW + 4.0), curY, colW, pH)];
+            iv.contentMode = UIViewContentModeScaleAspectFill;
+            iv.clipsToBounds = YES;
+            iv.layer.cornerRadius = 6.0;
+            iv.userInteractionEnabled = YES;
+            [container addSubview:iv];
+            
+            VKChatAttachmentTapGesture *tap = [[VKChatAttachmentTapGesture alloc] initWithTarget:self action:@selector(chatPhotoAttachmentTapped:)];
+            tap.attachments = photos;
+            tap.initialIndex = i;
+            [iv addGestureRecognizer:tap];
+            
+            if (p.photoURL.length > 0) {
+                [[VKImageLoader sharedLoader] loadImageWithURL:p.photoURL completion:^(UIImage *img) {
+                    if (img) iv.image = img;
+                }];
+            }
+        }
+        curY += pH + 6.0;
+    } else if (photos.count == 3) {
+        VKAttachment *p0 = photos[0];
+        UIImageView *iv0 = [[UIImageView alloc] initWithFrame:CGRectMake(0, curY, width, 110.0)];
+        iv0.contentMode = UIViewContentModeScaleAspectFill;
+        iv0.clipsToBounds = YES;
+        iv0.layer.cornerRadius = 6.0;
+        iv0.userInteractionEnabled = YES;
+        [container addSubview:iv0];
+        VKChatAttachmentTapGesture *tap0 = [[VKChatAttachmentTapGesture alloc] initWithTarget:self action:@selector(chatPhotoAttachmentTapped:)];
+        tap0.attachments = photos;
+        tap0.initialIndex = 0;
+        [iv0 addGestureRecognizer:tap0];
+        if (p0.photoURL.length > 0) {
+            [[VKImageLoader sharedLoader] loadImageWithURL:p0.photoURL completion:^(UIImage *img) {
+                if (img) iv0.image = img;
+            }];
+        }
+        curY += 114.0;
+        
+        CGFloat colW = (width - 4.0) / 2.0;
+        for (NSInteger i = 1; i < 3; i++) {
+            VKAttachment *p = photos[i];
+            UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake((i - 1) * (colW + 4.0), curY, colW, 80.0)];
+            iv.contentMode = UIViewContentModeScaleAspectFill;
+            iv.clipsToBounds = YES;
+            iv.layer.cornerRadius = 6.0;
+            iv.userInteractionEnabled = YES;
+            [container addSubview:iv];
+            VKChatAttachmentTapGesture *tap = [[VKChatAttachmentTapGesture alloc] initWithTarget:self action:@selector(chatPhotoAttachmentTapped:)];
+            tap.attachments = photos;
+            tap.initialIndex = i;
+            [iv addGestureRecognizer:tap];
+            if (p.photoURL.length > 0) {
+                [[VKImageLoader sharedLoader] loadImageWithURL:p.photoURL completion:^(UIImage *img) {
+                    if (img) iv.image = img;
+                }];
+            }
+        }
+        curY += 80.0 + 6.0;
+    } else if (photos.count >= 4) {
+        CGFloat itemW = (width - 4.0) / 2.0;
+        CGFloat itemH = 86.0;
+        for (NSInteger i = 0; i < 4; i++) {
+            VKAttachment *p = photos[i];
+            CGFloat rX = (i % 2) * (itemW + 4.0);
+            CGFloat rY = curY + (i / 2) * (itemH + 4.0);
+            UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(rX, rY, itemW, itemH)];
+            iv.contentMode = UIViewContentModeScaleAspectFill;
+            iv.clipsToBounds = YES;
+            iv.layer.cornerRadius = 6.0;
+            iv.userInteractionEnabled = YES;
+            [container addSubview:iv];
+            
+            VKChatAttachmentTapGesture *tap = [[VKChatAttachmentTapGesture alloc] initWithTarget:self action:@selector(chatPhotoAttachmentTapped:)];
+            tap.attachments = photos;
+            tap.initialIndex = i;
+            [iv addGestureRecognizer:tap];
+            
+            if (p.photoURL.length > 0) {
+                [[VKImageLoader sharedLoader] loadImageWithURL:p.photoURL completion:^(UIImage *img) {
+                    if (img) iv.image = img;
+                }];
+            }
+            
+            if (i == 3 && photos.count > 4) {
+                UIView *ov = [[UIView alloc] initWithFrame:iv.bounds];
+                ov.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.55];
+                UILabel *cLbl = [[UILabel alloc] initWithFrame:ov.bounds];
+                cLbl.text = [NSString stringWithFormat:@"+%lu", (unsigned long)(photos.count - 3)];
+                cLbl.textColor = [UIColor whiteColor];
+                cLbl.font = [UIFont boldSystemFontOfSize:19.0];
+                cLbl.textAlignment = NSTextAlignmentCenter;
+                [ov addSubview:cLbl];
+                [iv addSubview:ov];
+            }
+        }
+        curY += (itemH * 2.0 + 4.0) + 6.0;
+    }
+    
+    // 2. Другие типы вложений
+    for (VKAttachment *att in msg.attachments) {
+        if (![att isKindOfClass:[VKAttachment class]]) continue;
+        if (att.type == VKAttachmentTypePhoto || att.type == VKAttachmentTypeSticker) continue;
+        
+        if (att.type == VKAttachmentTypeVideo) {
+            UIView *card = [[UIView alloc] initWithFrame:CGRectMake(0, curY, width, 130.0)];
+            card.clipsToBounds = YES;
+            card.layer.cornerRadius = 8.0;
+            card.backgroundColor = [UIColor blackColor];
+            
+            UIImageView *tiv = [[UIImageView alloc] initWithFrame:card.bounds];
+            tiv.contentMode = UIViewContentModeScaleAspectFill;
+            tiv.clipsToBounds = YES;
+            [card addSubview:tiv];
+            if (att.videoImageURL.length > 0) {
+                [[VKImageLoader sharedLoader] loadImageWithURL:att.videoImageURL completion:^(UIImage *img) {
+                    if (img) tiv.image = img;
+                }];
+            }
+            
+            UIView *dark = [[UIView alloc] initWithFrame:card.bounds];
+            dark.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.25];
+            [card addSubview:dark];
+            
+            UIView *playCirc = [[UIView alloc] initWithFrame:CGRectMake((width - 40.0)/2.0, (130.0 - 40.0)/2.0, 40.0, 40.0)];
+            playCirc.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.6];
+            playCirc.layer.cornerRadius = 20.0;
+            playCirc.clipsToBounds = YES;
+            UILabel *pArrow = [[UILabel alloc] initWithFrame:CGRectMake(3, 0, 40, 40)];
+            pArrow.text = @"▶";
+            pArrow.textColor = [UIColor whiteColor];
+            pArrow.font = [UIFont boldSystemFontOfSize:17];
+            pArrow.textAlignment = NSTextAlignmentCenter;
+            [playCirc addSubview:pArrow];
+            [card addSubview:playCirc];
+            
+            if (att.videoDuration.length > 0) {
+                UILabel *dur = [[UILabel alloc] initWithFrame:CGRectMake(width - 56, 130 - 24, 48, 16)];
+                dur.text = att.videoDuration;
+                dur.textColor = [UIColor whiteColor];
+                dur.font = [UIFont boldSystemFontOfSize:10.5];
+                dur.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.65];
+                dur.textAlignment = NSTextAlignmentCenter;
+                dur.layer.cornerRadius = 4.0;
+                dur.clipsToBounds = YES;
+                [card addSubview:dur];
+            }
+            
+            UIView *tBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 26)];
+            tBar.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.5];
+            UILabel *tLbl = [[UILabel alloc] initWithFrame:CGRectMake(8, 3, width - 16, 20)];
+            tLbl.text = att.videoTitle ?: @"Видеозапись";
+            tLbl.textColor = [UIColor whiteColor];
+            tLbl.font = [UIFont boldSystemFontOfSize:11.5];
+            [tBar addSubview:tLbl];
+            [card addSubview:tBar];
+            
+            VKChatAttachmentTapGesture *tap = [[VKChatAttachmentTapGesture alloc] initWithTarget:self action:@selector(chatVideoAttachmentTapped:)];
+            tap.attachment = att;
+            [card addGestureRecognizer:tap];
+            [container addSubview:card];
+            curY += 130.0 + 6.0;
+            
+        } else if (att.type == VKAttachmentTypeGif) {
+            UIView *card = [[UIView alloc] initWithFrame:CGRectMake(0, curY, width, 130.0)];
+            card.clipsToBounds = YES;
+            card.layer.cornerRadius = 8.0;
+            card.backgroundColor = [UIColor blackColor];
+            
+            UIImageView *tiv = [[UIImageView alloc] initWithFrame:card.bounds];
+            tiv.contentMode = UIViewContentModeScaleAspectFill;
+            tiv.clipsToBounds = YES;
+            [card addSubview:tiv];
+            if (att.gifPreviewURL.length > 0) {
+                [[VKImageLoader sharedLoader] loadImageWithURL:att.gifPreviewURL completion:^(UIImage *img) {
+                    if (img) tiv.image = img;
+                }];
+            }
+            
+            UILabel *gifBadge = [[UILabel alloc] initWithFrame:CGRectMake((width - 50.0)/2.0, (130.0 - 28.0)/2.0, 50.0, 28.0)];
+            gifBadge.text = @"GIF";
+            gifBadge.textColor = [UIColor whiteColor];
+            gifBadge.font = [UIFont boldSystemFontOfSize:14.0];
+            gifBadge.textAlignment = NSTextAlignmentCenter;
+            gifBadge.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.65];
+            gifBadge.layer.cornerRadius = 14.0;
+            gifBadge.clipsToBounds = YES;
+            [card addSubview:gifBadge];
+            
+            VKChatAttachmentTapGesture *tap = [[VKChatAttachmentTapGesture alloc] initWithTarget:self action:@selector(chatGifAttachmentTapped:)];
+            tap.attachment = att;
+            [card addGestureRecognizer:tap];
+            [container addSubview:card];
+            curY += 130.0 + 6.0;
+            
+        } else if (att.type == VKAttachmentTypeDoc) {
+            UIView *card = [[UIView alloc] initWithFrame:CGRectMake(0, curY, width, 46.0)];
+            card.layer.cornerRadius = 7.0;
+            card.clipsToBounds = YES;
+            card.backgroundColor = isOutgoing ? [UIColor colorWithWhite:1.0 alpha:0.22] : [UIColor colorWithWhite:0.0 alpha:0.06];
+            
+            UIView *iconBox = [[UIView alloc] initWithFrame:CGRectMake(6, 6, 34, 34)];
+            iconBox.backgroundColor = [UIColor colorWithRed:39.0/255.0 green:135.0/255.0 blue:245.0/255.0 alpha:0.85];
+            iconBox.layer.cornerRadius = 5.0;
+            iconBox.clipsToBounds = YES;
+            UILabel *extLbl = [[UILabel alloc] initWithFrame:iconBox.bounds];
+            extLbl.text = att.docExt.length > 0 ? (att.docExt.length > 4 ? [att.docExt substringToIndex:4] : att.docExt) : @"DOC";
+            extLbl.textColor = [UIColor whiteColor];
+            extLbl.font = [UIFont boldSystemFontOfSize:9.5];
+            extLbl.textAlignment = NSTextAlignmentCenter;
+            [iconBox addSubview:extLbl];
+            [card addSubview:iconBox];
+            
+            UILabel *docTitle = [[UILabel alloc] initWithFrame:CGRectMake(46, 6, width - 52, 18)];
+            docTitle.text = att.docTitle ?: @"Документ";
+            docTitle.font = [UIFont boldSystemFontOfSize:12.0];
+            docTitle.textColor = isOutgoing ? [UIColor whiteColor] : [UIColor colorWithRed:25.0/255.0 green:25.0/255.0 blue:26.0/255.0 alpha:1.0];
+            [card addSubview:docTitle];
+            
+            UILabel *docSub = [[UILabel alloc] initWithFrame:CGRectMake(46, 24, width - 52, 16)];
+            docSub.text = att.docSize.length > 0 ? att.docSize : @"Файл";
+            docSub.font = [UIFont systemFontOfSize:10.5];
+            docSub.textColor = isOutgoing ? [UIColor colorWithWhite:1.0 alpha:0.8] : [UIColor colorWithWhite:0.5 alpha:1.0];
+            [card addSubview:docSub];
+            
+            VKChatAttachmentTapGesture *tap = [[VKChatAttachmentTapGesture alloc] initWithTarget:self action:@selector(chatDocAttachmentTapped:)];
+            tap.attachment = att;
+            [card addGestureRecognizer:tap];
+            [container addSubview:card];
+            curY += 46.0 + 6.0;
+            
+        } else if (att.type == VKAttachmentTypeWall) {
+            UIView *card = [[UIView alloc] initWithFrame:CGRectMake(0, curY, width, 68.0)];
+            card.layer.cornerRadius = 6.0;
+            card.clipsToBounds = YES;
+            card.backgroundColor = isOutgoing ? [UIColor colorWithWhite:1.0 alpha:0.18] : [UIColor colorWithWhite:0.0 alpha:0.05];
+            
+            UIView *bar = [[UIView alloc] initWithFrame:CGRectMake(4, 6, 3, 56)];
+            bar.backgroundColor = isOutgoing ? [UIColor whiteColor] : [UIColor colorWithRed:39.0/255.0 green:135.0/255.0 blue:245.0/255.0 alpha:1.0];
+            bar.layer.cornerRadius = 1.5;
+            [card addSubview:bar];
+            
+            UILabel *wHead = [[UILabel alloc] initWithFrame:CGRectMake(12, 6, width - 18, 16)];
+            wHead.text = @"📋 Запись на стене";
+            wHead.font = [UIFont boldSystemFontOfSize:11.5];
+            wHead.textColor = isOutgoing ? [UIColor whiteColor] : [UIColor colorWithRed:39.0/255.0 green:135.0/255.0 blue:245.0/255.0 alpha:1.0];
+            [card addSubview:wHead];
+            
+            UILabel *wBody = [[UILabel alloc] initWithFrame:CGRectMake(12, 24, width - 18, 38)];
+            wBody.text = att.wallText.length > 0 ? att.wallText : @"(без текста)";
+            wBody.font = [UIFont systemFontOfSize:11.0];
+            wBody.numberOfLines = 2;
+            wBody.textColor = isOutgoing ? [UIColor colorWithWhite:1.0 alpha:0.9] : [UIColor colorWithWhite:0.3 alpha:1.0];
+            [card addSubview:wBody];
+            
+            VKChatAttachmentTapGesture *tap = [[VKChatAttachmentTapGesture alloc] initWithTarget:self action:@selector(chatWallAttachmentTapped:)];
+            tap.attachment = att;
+            [card addGestureRecognizer:tap];
+            [container addSubview:card];
+            curY += 68.0 + 6.0;
+            
+        } else if (att.type == VKAttachmentTypeAudio) {
+            UIView *card = [[UIView alloc] initWithFrame:CGRectMake(0, curY, width, 42.0)];
+            card.layer.cornerRadius = 6.0;
+            card.clipsToBounds = YES;
+            card.backgroundColor = isOutgoing ? [UIColor colorWithWhite:1.0 alpha:0.2] : [UIColor colorWithWhite:0.0 alpha:0.06];
+            
+            UILabel *audIcon = [[UILabel alloc] initWithFrame:CGRectMake(6, 6, 30, 30)];
+            audIcon.text = @"▶";
+            audIcon.textColor = isOutgoing ? [UIColor whiteColor] : [UIColor colorWithRed:39.0/255.0 green:135.0/255.0 blue:245.0/255.0 alpha:1.0];
+            audIcon.font = [UIFont boldSystemFontOfSize:15];
+            audIcon.textAlignment = NSTextAlignmentCenter;
+            [card addSubview:audIcon];
+            
+            UILabel *audTitle = [[UILabel alloc] initWithFrame:CGRectMake(42, 4, width - 85, 17)];
+            audTitle.text = att.audioTitle ?: @"Аудиозапись";
+            audTitle.font = [UIFont boldSystemFontOfSize:11.5];
+            audTitle.textColor = isOutgoing ? [UIColor whiteColor] : [UIColor colorWithRed:25.0/255.0 green:25.0/255.0 blue:26.0/255.0 alpha:1.0];
+            [card addSubview:audTitle];
+            
+            UILabel *audArtist = [[UILabel alloc] initWithFrame:CGRectMake(42, 21, width - 85, 16)];
+            audArtist.text = att.audioArtist ?: @"";
+            audArtist.font = [UIFont systemFontOfSize:10.5];
+            audArtist.textColor = isOutgoing ? [UIColor colorWithWhite:1.0 alpha:0.8] : [UIColor colorWithWhite:0.5 alpha:1.0];
+            [card addSubview:audArtist];
+            
+            UILabel *audDur = [[UILabel alloc] initWithFrame:CGRectMake(width - 46, 12, 40, 16)];
+            audDur.text = att.audioDuration ?: @"";
+            audDur.font = [UIFont systemFontOfSize:10.5];
+            audDur.textAlignment = NSTextAlignmentRight;
+            audDur.textColor = isOutgoing ? [UIColor colorWithWhite:1.0 alpha:0.8] : [UIColor colorWithWhite:0.5 alpha:1.0];
+            [card addSubview:audDur];
+            
+            VKChatAttachmentTapGesture *tap = [[VKChatAttachmentTapGesture alloc] initWithTarget:self action:@selector(chatAudioAttachmentTapped:)];
+            tap.attachment = att;
+            [card addGestureRecognizer:tap];
+            [container addSubview:card];
+            curY += 42.0 + 6.0;
+        }
+    }
+}
+
+- (void)chatPhotoAttachmentTapped:(VKChatAttachmentTapGesture *)gesture {
+    if (gesture.attachments.count > 0) {
+        VKPhotoViewerViewController *viewer = [[VKPhotoViewerViewController alloc] initWithAttachments:gesture.attachments initialIndex:gesture.initialIndex];
+        [self presentViewController:viewer animated:YES completion:nil];
+    }
+}
+
+- (void)chatVideoAttachmentTapped:(VKChatAttachmentTapGesture *)gesture {
+    if (gesture.attachment) {
+        VKVideoPlayerViewController *player = [[VKVideoPlayerViewController alloc] initWithAttachment:gesture.attachment];
+        [self presentViewController:player animated:YES completion:nil];
+    }
+}
+
+- (void)chatGifAttachmentTapped:(VKChatAttachmentTapGesture *)gesture {
+    if (gesture.attachment) {
+        VKGifViewerViewController *viewer = [[VKGifViewerViewController alloc] initWithAttachment:gesture.attachment];
+        [self presentViewController:viewer animated:YES completion:nil];
+    }
+}
+
+- (void)chatDocAttachmentTapped:(VKChatAttachmentTapGesture *)gesture {
+    if (gesture.attachment.docURL.length > 0) {
+        NSURL *u = [NSURL URLWithString:gesture.attachment.docURL];
+        if (u) [[UIApplication sharedApplication] openURL:u];
+    }
+}
+
+- (void)chatWallAttachmentTapped:(VKChatAttachmentTapGesture *)gesture {
+    if (gesture.attachment && gesture.attachment.wallPostId != 0) {
+        VKPost *dummyPost = [[VKPost alloc] init];
+        dummyPost.vkID = gesture.attachment.wallPostId;
+        dummyPost.ownerID = gesture.attachment.wallOwnerId;
+        dummyPost.text = gesture.attachment.wallText;
+        VKPostDetailViewController *postVC = [[VKPostDetailViewController alloc] initWithPost:dummyPost];
+        [self.navigationController pushViewController:postVC animated:YES];
+    }
+}
+
+- (void)chatAudioAttachmentTapped:(VKChatAttachmentTapGesture *)gesture {
+    VKAttachment *att = gesture.attachment;
+    if (att && (att.audioURL.length > 0 || att.audioId != 0)) {
+        VKAudioTrack *track = [[VKAudioTrack alloc] init];
+        track.audioId = att.audioId;
+        track.trackId = att.audioId;
+        track.ownerId = att.audioOwnerId;
+        track.artist = att.audioArtist ?: @"";
+        track.title = att.audioTitle ?: @"";
+        track.streamURL = att.audioURL;
+        track.url = att.audioURL;
+        [[VKAudioPlayer sharedPlayer] playTrack:track];
+        VKAudioPlayerViewController *pvc = [[VKAudioPlayerViewController alloc] init];
+        [self presentViewController:pvc animated:YES completion:nil];
+    }
+}
+
+#pragma mark - Swipe to Reply
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
+    if ([gestureRecognizer isKindOfClass:[VKChatSwipeReplyGesture class]]) {
+        if (self.isSelectionMode) return NO;
+        UIPanGestureRecognizer *pan = (UIPanGestureRecognizer *)gestureRecognizer;
+        CGPoint v = [pan velocityInView:pan.view];
+        return (fabs(v.x) > fabs(v.y) * 1.5 && v.x < 0);
+    }
+    return YES;
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+    if ([gestureRecognizer isKindOfClass:[VKChatSwipeReplyGesture class]]) {
+        return NO;
+    }
+    return YES;
+}
+
+- (void)handleCellPan:(VKChatSwipeReplyGesture *)pan {
+    if (self.isSelectionMode || !pan.bubbleView) return;
+    
+    CGPoint translation = [pan translationInView:pan.bubbleView.superview];
+    CGFloat tx = translation.x;
+    
+    if (pan.state == UIGestureRecognizerStateBegan || pan.state == UIGestureRecognizerStateChanged) {
+        if (tx < 0) {
+            CGFloat damped = -powf(-tx, 0.82);
+            damped = MAX(damped, -65.0);
+            pan.bubbleView.transform = CGAffineTransformMakeTranslation(damped, 0);
+            
+            CGFloat progress = MIN(1.0, fabs(damped) / 38.0);
+            pan.replyIndicator.alpha = progress;
+            pan.replyIndicator.transform = CGAffineTransformMakeScale(0.5 + 0.5 * progress, 0.5 + 0.5 * progress);
+        } else {
+            pan.bubbleView.transform = CGAffineTransformIdentity;
+            pan.replyIndicator.alpha = 0.0;
+        }
+    } else if (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled) {
+        BOOL shouldReply = (tx < -45.0);
+        [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+            pan.bubbleView.transform = CGAffineTransformIdentity;
+            pan.replyIndicator.alpha = 0.0;
+            pan.replyIndicator.transform = CGAffineTransformMakeScale(0.5, 0.5);
+        } completion:^(BOOL finished) {
+            if (shouldReply && pan.message) {
+                [self triggerReplyForMessage:pan.message];
+            }
+        }];
+    }
+}
+
+- (void)triggerReplyForMessage:(VKMessage *)msg {
+    if (!msg || [msg isServiceAction]) return;
+    self.replyingMessage = msg;
+    self.forwardingMessages = nil;
+    self.editingMessage = nil;
+    [self updateLayoutAnimated:YES];
+    [self.messageTextField becomeFirstResponder];
+}
+
+#pragma mark - Chat Search
+
+- (void)toggleSearchMode {
+    if (self.isSearchingMessages) {
+        [self closeSearchMode];
+    } else {
+        [self openSearchMode];
+    }
+}
+
+- (void)openSearchMode {
+    self.isSearchingMessages = YES;
+    if (!self.searchBarContainer) {
+        CGFloat w = self.view.bounds.size.width;
+        self.searchBarContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 44)];
+        self.searchBarContainer.backgroundColor = [UIColor colorWithRed:244.0/255.0 green:246.0/255.0 blue:249.0/255.0 alpha:1.0];
+        
+        self.messageSearchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, w - 100, 44)];
+        self.messageSearchBar.delegate = self;
+        self.messageSearchBar.placeholder = @"Поиск в сообщениях...";
+        if ([self.messageSearchBar respondsToSelector:@selector(setBackgroundImage:)]) {
+            [self.messageSearchBar setBackgroundImage:[[UIImage alloc] init]];
+        }
+        [self.searchBarContainer addSubview:self.messageSearchBar];
+        
+        self.searchMatchesLabel = [[UILabel alloc] initWithFrame:CGRectMake(w - 98, 4, 30, 36)];
+        self.searchMatchesLabel.font = [UIFont systemFontOfSize:11];
+        self.searchMatchesLabel.textColor = [UIColor colorWithWhite:0.4 alpha:1.0];
+        self.searchMatchesLabel.textAlignment = NSTextAlignmentCenter;
+        [self.searchBarContainer addSubview:self.searchMatchesLabel];
+        
+        self.searchPrevButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        self.searchPrevButton.frame = CGRectMake(w - 68, 7, 30, 30);
+        [self.searchPrevButton setTitle:@"▲" forState:UIControlStateNormal];
+        [self.searchPrevButton setTitleColor:[UIColor colorWithRed:39.0/255.0 green:135.0/255.0 blue:245.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+        self.searchPrevButton.titleLabel.font = [UIFont boldSystemFontOfSize:16];
+        [self.searchPrevButton addTarget:self action:@selector(searchPrevAction) forControlEvents:UIControlEventTouchUpInside];
+        [self.searchBarContainer addSubview:self.searchPrevButton];
+        
+        self.searchNextButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        self.searchNextButton.frame = CGRectMake(w - 38, 7, 30, 30);
+        [self.searchNextButton setTitle:@"▼" forState:UIControlStateNormal];
+        [self.searchNextButton setTitleColor:[UIColor colorWithRed:39.0/255.0 green:135.0/255.0 blue:245.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+        self.searchNextButton.titleLabel.font = [UIFont boldSystemFontOfSize:16];
+        [self.searchNextButton addTarget:self action:@selector(searchNextAction) forControlEvents:UIControlEventTouchUpInside];
+        [self.searchBarContainer addSubview:self.searchNextButton];
+    }
+    
+    self.searchBarContainer.frame = CGRectMake(0, 0, self.view.bounds.size.width, 44);
+    [self.view addSubview:self.searchBarContainer];
+    
+    UIEdgeInsets insets = self.tableView.contentInset;
+    insets.top += 44.0;
+    self.tableView.contentInset = insets;
+    self.tableView.scrollIndicatorInsets = insets;
+    
+    [self.messageSearchBar becomeFirstResponder];
+    [self performMessageSearch:self.messageSearchBar.text];
+}
+
+- (void)closeSearchMode {
+    self.isSearchingMessages = NO;
+    [self.messageSearchBar resignFirstResponder];
+    [self.searchBarContainer removeFromSuperview];
+    self.searchBarContainer = nil;
+    self.searchMatchingIndices = nil;
+    self.currentSearchMatchIndex = -1;
+    
+    UIEdgeInsets insets = self.tableView.contentInset;
+    insets.top = MAX(0, insets.top - 44.0);
+    self.tableView.contentInset = insets;
+    self.tableView.scrollIndicatorInsets = insets;
+    
+    [self.tableView reloadData];
+}
+
+- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
+    [self performMessageSearch:searchText];
+}
+
+- (void)searchBarCancelButtonClicked:(UISearchBar *)searchBar {
+    [self closeSearchMode];
+}
+
+- (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
+    [searchBar resignFirstResponder];
+}
+
+- (void)performMessageSearch:(NSString *)query {
+    NSString *trimmed = [query stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    self.searchMatchingIndices = [NSMutableArray array];
+    self.currentSearchMatchIndex = -1;
+    
+    if (trimmed.length == 0) {
+        self.searchMatchesLabel.text = @"";
+        return;
+    }
+    
+    for (NSInteger i = 0; i < (NSInteger)self.messages.count; i++) {
+        VKMessage *m = self.messages[i];
+        BOOL match = NO;
+        if (m.text.length > 0 && [m.text rangeOfString:trimmed options:NSCaseInsensitiveSearch].location != NSNotFound) {
+            match = YES;
+        } else {
+            for (VKAttachment *att in m.attachments) {
+                if ([att isKindOfClass:[VKAttachment class]]) {
+                    if (att.videoTitle.length > 0 && [att.videoTitle rangeOfString:trimmed options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                        match = YES; break;
+                    }
+                    if (att.docTitle.length > 0 && [att.docTitle rangeOfString:trimmed options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                        match = YES; break;
+                    }
+                    if (att.audioTitle.length > 0 && [att.audioTitle rangeOfString:trimmed options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                        match = YES; break;
+                    }
+                    if (att.wallText.length > 0 && [att.wallText rangeOfString:trimmed options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                        match = YES; break;
+                    }
+                }
+            }
+        }
+        if (match) {
+            [self.searchMatchingIndices addObject:@(i)];
+        }
+    }
+    
+    if (self.searchMatchingIndices.count > 0) {
+        self.currentSearchMatchIndex = self.searchMatchingIndices.count - 1;
+        [self jumpToCurrentSearchMatch];
+    } else {
+        self.searchMatchesLabel.text = @"0";
+    }
+}
+
+- (void)jumpToCurrentSearchMatch {
+    if (self.currentSearchMatchIndex >= 0 && self.currentSearchMatchIndex < (NSInteger)self.searchMatchingIndices.count) {
+        NSInteger row = [self.searchMatchingIndices[self.currentSearchMatchIndex] integerValue];
+        self.searchMatchesLabel.text = [NSString stringWithFormat:@"%ld/%lu", (long)(self.currentSearchMatchIndex + 1), (unsigned long)self.searchMatchingIndices.count];
+        NSIndexPath *ip = [NSIndexPath indexPathForRow:row inSection:0];
+        [self.tableView scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
+        [self.tableView selectRowAtIndexPath:ip animated:YES scrollPosition:UITableViewScrollPositionNone];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self.tableView deselectRowAtIndexPath:ip animated:YES];
+        });
+    }
+}
+
+- (void)searchPrevAction {
+    if (self.searchMatchingIndices.count == 0) return;
+    if (self.currentSearchMatchIndex > 0) {
+        self.currentSearchMatchIndex--;
+    } else {
+        self.currentSearchMatchIndex = self.searchMatchingIndices.count - 1;
+    }
+    [self jumpToCurrentSearchMatch];
+}
+
+- (void)searchNextAction {
+    if (self.searchMatchingIndices.count == 0) return;
+    if (self.currentSearchMatchIndex < (NSInteger)self.searchMatchingIndices.count - 1) {
+        self.currentSearchMatchIndex++;
+    } else {
+        self.currentSearchMatchIndex = 0;
+    }
+    [self jumpToCurrentSearchMatch];
 }
 
 @end

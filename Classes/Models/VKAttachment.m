@@ -62,8 +62,8 @@
             fullW = 800; fullH = 600;
         }
         
-        att.photoURLLow = lowURL ?: fullURL;
-        att.photoURLFull = fullURL ?: lowURL;
+        att.photoURLLow = [[VKStickersService sharedService] normalizeURL:(lowURL ?: fullURL)];
+        att.photoURLFull = [[VKStickersService sharedService] normalizeURL:(fullURL ?: lowURL)];
         
         NSInteger qualityPref = [[NSUserDefaults standardUserDefaults] integerForKey:@"VKPhotoQualityPreference"];
         if (qualityPref == 1) { // High quality
@@ -84,7 +84,9 @@
     if ([typeStr isEqualToString:@"video"]) {
         att.type = VKAttachmentTypeVideo;
         NSDictionary *v = dict[@"video"];
-        att.videoId = [v[@"id"] integerValue];
+        att.videoId = [v[@"id"] integerValue] ?: [v[@"vid"] integerValue];
+        att.ownerId = [v[@"owner_id"] integerValue];
+        att.videoOwnerId = att.ownerId;
         att.videoTitle = v[@"title"] ?: @"Видеозапись";
         NSInteger sec = [v[@"duration"] integerValue];
         att.videoDuration = [NSString stringWithFormat:@"%ld:%02ld", (long)(sec / 60), (long)(sec % 60)];
@@ -93,12 +95,17 @@
         if ([imgs isKindOfClass:[NSArray class]] && imgs.count > 0) {
             att.videoImageURL = [imgs lastObject][@"url"];
         }
+        if (!att.videoImageURL) {
+            att.videoImageURL = v[@"photo_320"] ?: v[@"photo_640"] ?: v[@"photo_130"] ?: v[@"photo_800"] ?: v[@"thumb"] ?: v[@"image_medium"];
+        }
+        att.videoImageURL = [[VKStickersService sharedService] normalizeURL:att.videoImageURL];
         
         NSDictionary *files = v[@"files"];
         if ([files isKindOfClass:[NSDictionary class]]) {
-            att.videoURL = files[@"mp4_720"] ?: files[@"mp4_480"] ?: files[@"mp4_360"] ?: files[@"mp4_240"];
+            att.videoURL = files[@"mp4_720"] ?: files[@"mp4_480"] ?: files[@"mp4_360"] ?: files[@"mp4_240"] ?: files[@"mp4_1080"] ?: files[@"src"] ?: files[@"url"];
         }
-        if (!att.videoURL) att.videoURL = v[@"player"];
+        if (!att.videoURL) att.videoURL = v[@"player"] ?: v[@"direct_url"] ?: v[@"url"];
+        att.videoURL = [[VKStickersService sharedService] normalizeURL:att.videoURL];
         return att;
     }
     
@@ -107,9 +114,10 @@
         NSDictionary *a = dict[@"audio"];
         att.audioId = [a[@"id"] integerValue];
         att.audioOwnerId = [a[@"owner_id"] integerValue];
+        att.ownerId = att.audioOwnerId;
         att.audioArtist = a[@"artist"] ?: @"";
         att.audioTitle = a[@"title"] ?: @"";
-        att.audioURL = a[@"url"] ?: a[@"stream_url"] ?: a[@"link"];
+        att.audioURL = [[VKStickersService sharedService] normalizeURL:(a[@"url"] ?: a[@"stream_url"] ?: a[@"link"])];
         NSInteger sec = [a[@"duration"] integerValue];
         att.audioDuration = [NSString stringWithFormat:@"%ld:%02ld", (long)(sec / 60), (long)(sec % 60)];
         return att;
@@ -117,13 +125,14 @@
     
     if ([typeStr isEqualToString:@"doc"]) {
         NSDictionary *d = dict[@"doc"];
+        att.ownerId = [d[@"owner_id"] integerValue];
         NSString *ext = [d[@"ext"] lowercaseString];
         NSInteger docType = [d[@"type"] integerValue];
         
         if ([ext isEqualToString:@"gif"] || docType == 3 || d[@"preview"] != nil) {
             att.type = VKAttachmentTypeGif;
             att.docTitle = d[@"title"] ?: @"GIF";
-            att.docURL = d[@"url"];
+            att.docURL = [[VKStickersService sharedService] normalizeURL:d[@"url"]];
             
             // Превью гифки
             NSDictionary *prev = d[@"preview"];
@@ -144,11 +153,13 @@
             if (!att.gifPreviewURL) {
                 att.gifPreviewURL = att.docURL;
             }
+            att.gifPreviewURL = [[VKStickersService sharedService] normalizeURL:att.gifPreviewURL];
+            att.docURL = [[VKStickersService sharedService] normalizeURL:att.docURL];
         } else {
             att.type = VKAttachmentTypeDoc;
             att.docTitle = d[@"title"] ?: @"Документ";
             att.docExt = ext.uppercaseString;
-            att.docURL = d[@"url"];
+            att.docURL = [[VKStickersService sharedService] normalizeURL:d[@"url"]];
             NSInteger bytes = [d[@"size"] integerValue];
             if (bytes < 1024 * 1024) {
                 att.docSize = [NSString stringWithFormat:@"%.1f KB", bytes / 1024.0];
@@ -178,6 +189,7 @@
         if (!att.linkImageURL) {
             att.linkImageURL = l[@"image_src"] ?: l[@"preview_url"];
         }
+        att.linkImageURL = [[VKStickersService sharedService] normalizeURL:att.linkImageURL];
         return att;
     }
     
@@ -186,8 +198,10 @@
         NSDictionary *p = dict[@"poll"];
         att.pollId = [p[@"id"] integerValue];
         att.pollOwnerId = [p[@"owner_id"] integerValue];
+        att.ownerId = att.pollOwnerId;
         att.pollQuestion = p[@"question"] ?: @"Опрос";
         att.pollTotalVotes = [p[@"votes"] integerValue];
+        att.myAnswerId = [p[@"answer_id"] integerValue] ?: [p[@"my_answer_id"] integerValue] ?: [p[@"user_answer_id"] integerValue];
         
         NSMutableArray *opts = [NSMutableArray array];
         NSArray *answers = p[@"answers"];
@@ -197,6 +211,9 @@
                 opt.optionId = [ans[@"id"] integerValue];
                 opt.text = ans[@"text"] ?: @"";
                 opt.votes = [ans[@"votes"] integerValue];
+                if ([ans[@"user_voted"] boolValue] || [ans[@"voted"] boolValue]) {
+                    att.myAnswerId = opt.optionId;
+                }
                 [opts addObject:opt];
             }
         }
@@ -227,7 +244,7 @@
         att.type = VKAttachmentTypeAudioMessage;
         NSDictionary *am = dict[@"audio_message"];
         att.audioMessageId = [am[@"id"] integerValue];
-        att.audioMessageURL = am[@"link_mp3"] ?: am[@"link_ogg"];
+        att.audioMessageURL = [[VKStickersService sharedService] normalizeURL:(am[@"link_mp3"] ?: am[@"link_ogg"])];
         att.audioMessageDuration = [am[@"duration"] integerValue];
         return att;
     }
@@ -237,6 +254,7 @@
         NSDictionary *w = dict[@"wall"];
         att.wallPostId = [w[@"id"] integerValue];
         att.wallOwnerId = [w[@"to_id"] integerValue] ?: [w[@"owner_id"] integerValue] ?: [w[@"from_id"] integerValue];
+        att.ownerId = att.wallOwnerId;
         att.wallText = w[@"text"] ?: @"";
         return att;
     }
