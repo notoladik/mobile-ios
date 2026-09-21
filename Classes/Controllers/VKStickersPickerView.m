@@ -94,6 +94,22 @@
 
 - (void)reloadPacks {
     self.packs = [[VKStickersService sharedService] activeStickerPacks];
+    if (self.packs.count == 0) {
+        __weak typeof(self) weakSelf = self;
+        [[VKStickersService sharedService] fetchStorePacksWithCompletion:^(NSArray<VKStickerPack *> *packs, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                __strong typeof(weakSelf) strongSelf = weakSelf;
+                if (!strongSelf) return;
+                strongSelf.packs = [[VKStickersService sharedService] activeStickerPacks];
+                if (strongSelf.selectedPackIndex >= (NSInteger)strongSelf.packs.count) {
+                    strongSelf.selectedPackIndex = 0;
+                }
+                [strongSelf renderPacksBar];
+                [strongSelf renderStickersGrid];
+            });
+        }];
+        return;
+    }
     if (self.selectedPackIndex >= (NSInteger)self.packs.count) {
         self.selectedPackIndex = 0;
     }
@@ -131,9 +147,17 @@
         iv.contentMode = UIViewContentModeScaleAspectFit;
         iv.clipsToBounds = YES;
         iv.userInteractionEnabled = NO;
+        iv.image = nil;
         if (pack.previewURL) {
-            [[VKImageLoader sharedLoader] loadImageWithURL:pack.previewURL completion:^(UIImage *img) {
-                if (img) iv.image = img;
+            NSString *url = pack.previewURL;
+            iv.accessibilityValue = url;
+            __weak typeof(iv) weakIV = iv;
+            [[VKImageLoader sharedLoader] loadImageWithURL:url completion:^(UIImage *img) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (img && [weakIV.accessibilityValue isEqualToString:url]) {
+                        weakIV.image = img;
+                    }
+                });
             }];
         }
         [btn addSubview:iv];
@@ -192,9 +216,17 @@
         iv.contentMode = UIViewContentModeScaleAspectFit;
         iv.clipsToBounds = YES;
         iv.userInteractionEnabled = NO;
+        iv.image = nil;
         if (st.imageURL) {
-            [[VKImageLoader sharedLoader] loadImageWithURL:st.imageURL completion:^(UIImage *img) {
-                if (img) iv.image = img;
+            NSString *url = st.imageURL;
+            iv.accessibilityValue = url;
+            __weak typeof(iv) weakIV = iv;
+            [[VKImageLoader sharedLoader] loadImageWithURL:url completion:^(UIImage *img) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (img && [weakIV.accessibilityValue isEqualToString:url]) {
+                        weakIV.image = img;
+                    }
+                });
             }];
         }
         [btn addSubview:iv];

@@ -21,6 +21,10 @@
 
 // Получение URL стикера по его ID
 - (NSString *)stickerURLForId:(NSInteger)stickerId;
+- (NSString *)stickerURLForId:(NSInteger)stickerId packId:(NSInteger)packId;
+
+// Преобразование относительного URL в абсолютный с учетом текущего хоста
+- (NSString *)normalizeURL:(NSString *)urlStr;
 
 // Поиск или создание объекта стикера по ID
 - (VKSticker *)stickerWithId:(NSInteger)stickerId;

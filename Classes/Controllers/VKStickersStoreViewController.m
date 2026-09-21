@@ -157,8 +157,15 @@
     
     icon.image = nil;
     if (pack.previewURL) {
-        [[VKImageLoader sharedLoader] loadImageWithURL:pack.previewURL completion:^(UIImage *img) {
-            if (img) icon.image = img;
+        NSString *url = pack.previewURL;
+        icon.accessibilityValue = url;
+        __weak typeof(icon) weakIcon = icon;
+        [[VKImageLoader sharedLoader] loadImageWithURL:url completion:^(UIImage *img) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (img && [weakIcon.accessibilityValue isEqualToString:url]) {
+                    weakIcon.image = img;
+                }
+            });
         }];
     }
     
@@ -225,9 +232,13 @@
     // Превью и описание
     UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake((width - 80) / 2.0, 16, 80, 80)];
     iv.contentMode = UIViewContentModeScaleAspectFit;
+    iv.image = nil;
     if (pack.previewURL) {
+        __weak typeof(iv) weakIV = iv;
         [[VKImageLoader sharedLoader] loadImageWithURL:pack.previewURL completion:^(UIImage *img) {
-            if (img) iv.image = img;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (img) weakIV.image = img;
+            });
         }];
     }
     [sv addSubview:iv];
@@ -257,9 +268,13 @@
         VKSticker *st = pack.stickers[i];
         UIImageView *stIV = [[UIImageView alloc] initWithFrame:CGRectMake(curX, curY, itemSize, itemSize)];
         stIV.contentMode = UIViewContentModeScaleAspectFit;
+        stIV.image = nil;
         if (st.imageURL) {
+            __weak typeof(stIV) weakSTIV = stIV;
             [[VKImageLoader sharedLoader] loadImageWithURL:st.imageURL completion:^(UIImage *img) {
-                if (img) stIV.image = img;
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (img) weakSTIV.image = img;
+                });
             }];
         }
         [sv addSubview:stIV];

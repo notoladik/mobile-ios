@@ -1,5 +1,6 @@
 #import "VKAttachment.h"
 #import "NSNull+Safe.h"
+#import "VKStickersService.h"
 
 @implementation VKPollOption
 @end
@@ -215,6 +216,10 @@
         } else {
             att.stickerURL = s[@"photo_352"] ?: s[@"photo_256"] ?: s[@"photo_128"] ?: s[@"photo_512"];
         }
+        if ((!att.stickerURL || att.stickerURL.length == 0) && att.stickerId > 0) {
+            att.stickerURL = [[VKStickersService sharedService] stickerURLForId:att.stickerId];
+        }
+        att.stickerURL = [[VKStickersService sharedService] normalizeURL:att.stickerURL];
         return att;
     }
     
