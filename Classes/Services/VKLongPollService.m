@@ -21,6 +21,7 @@ NSString *const VKLongPollDidReceiveNewMessageNotification   = @"VKLongPollDidRe
 NSString *const VKLongPollDidReadMessagesNotification       = @"VKLongPollDidReadMessagesNotification";
 NSString *const VKLongPollUserTypingNotification             = @"VKLongPollUserTypingNotification";
 NSString *const VKLongPollUnreadCountDidChangeNotification   = @"VKLongPollUnreadCountDidChangeNotification";
+NSString *const VKLongPollUserPresenceDidChangeNotification = @"VKLongPollUserPresenceDidChangeNotification";
 
 @interface VKLongPollService ()
 
@@ -436,6 +437,34 @@ NSString *const VKLongPollUnreadCountDidChangeNotification   = @"VKLongPollUnrea
                                                                           userInfo:@{@"peer_id": @(peerId),
                                                                                      @"local_id": @(localId),
                                                                                      @"is_outgoing": @(YES)}];
+                    });
+                }
+                break;
+            }
+                
+            case 8: {
+                // Пользователь онлайн: [8, -user_id, flags, timestamp]
+                if (event.count >= 2) {
+                    NSInteger userId = labs([event[1] integerValue]);
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [[NSNotificationCenter defaultCenter] postNotificationName:VKLongPollUserPresenceDidChangeNotification
+                                                                            object:self
+                                                                          userInfo:@{@"user_id": @(userId),
+                                                                                     @"is_online": @(YES)}];
+                    });
+                }
+                break;
+            }
+                
+            case 9: {
+                // Пользователь оффлайн: [9, -user_id, flags, timestamp]
+                if (event.count >= 2) {
+                    NSInteger userId = labs([event[1] integerValue]);
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [[NSNotificationCenter defaultCenter] postNotificationName:VKLongPollUserPresenceDidChangeNotification
+                                                                            object:self
+                                                                          userInfo:@{@"user_id": @(userId),
+                                                                                     @"is_online": @(NO)}];
                     });
                 }
                 break;

@@ -1,10 +1,11 @@
-﻿#import <Foundation/Foundation.h>
+#import <Foundation/Foundation.h>
 #import "VKMessage.h"
 
 extern NSString *const VKLongPollDidReceiveNewMessageNotification;
 extern NSString *const VKLongPollDidReadMessagesNotification;
 extern NSString *const VKLongPollUserTypingNotification;
 extern NSString *const VKLongPollUnreadCountDidChangeNotification;
+extern NSString *const VKLongPollUserPresenceDidChangeNotification;
 
 @interface VKLongPollService : NSObject
 

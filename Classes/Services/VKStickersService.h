@@ -19,6 +19,12 @@
 
 + (instancetype)sharedService;
 
+// Получение URL стикера по его ID
+- (NSString *)stickerURLForId:(NSInteger)stickerId;
+
+// Поиск или создание объекта стикера по ID
+- (VKSticker *)stickerWithId:(NSInteger)stickerId;
+
 // Получение списка активных (установленных) паков для пикера
 - (NSArray<VKStickerPack *> *)activeStickerPacks;
 

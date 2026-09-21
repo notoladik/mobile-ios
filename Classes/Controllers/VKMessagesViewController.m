@@ -18,6 +18,7 @@
 @property (nonatomic, assign) BOOL isLoading;
 @property (nonatomic, assign) BOOL isLoadingMore;
 @property (nonatomic, assign) BOOL canLoadMore;
+@property (nonatomic, strong) NSMutableDictionary *typingPeers;
 @end
 
 @implementation VKMessagesViewController
@@ -33,20 +34,17 @@
     
     self.title = @"Сообщения";
     self.conversations = [NSMutableArray array];
+    self.typingPeers = [NSMutableDictionary dictionary];
     self.filteredConversations = [NSMutableArray array];
-    self.tableView.rowHeight = 72.0;
-    if ([self.tableView respondsToSelector:@selector(setSeparatorInset:)]) {
-        self.tableView.separatorInset = UIEdgeInsetsMake(0, 70, 0, 0);
-    }
     
-    if ([self respondsToSelector:@selector(setEdgesForExtendedLayout:)]) {
-        self.edgesForExtendedLayout = UIRectEdgeNone;
-    }
+    self.tableView.rowHeight = 72.0;
+    self.tableView.separatorInset = UIEdgeInsetsMake(0, 70, 0, 0);
     
     // Поисковая строка диалогов
     self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 44)];
-    self.searchBar.placeholder = @"Поиск диалогов";
+    self.searchBar.placeholder = @"Поиск";
     self.searchBar.delegate = self;
+    self.searchBar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     if ([[VKThemeManager sharedManager] isSkeuomorphic]) {
         self.searchBar.tintColor = [UIColor colorWithRed:80.0/255.0 green:110.0/255.0 blue:145.0/255.0 alpha:1.0];
     }
@@ -58,6 +56,8 @@
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(setupNavigationItems) name:VKSideMenuStateDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didReceiveNewMessage:) name:VKLongPollDidReceiveNewMessageNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didReadMessages:) name:VKLongPollDidReadMessagesNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(userTypingNotification:) name:VKLongPollUserTypingNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(userPresenceNotification:) name:VKLongPollUserPresenceDidChangeNotification object:nil];
     
     if (NSClassFromString(@"UIRefreshControl")) {
         UIRefreshControl *refreshControl = [[UIRefreshControl alloc] init];
@@ -298,6 +298,74 @@
     });
 }
 
+- (void)userTypingNotification:(NSNotification *)note {
+    NSInteger peerId = [note.userInfo[@"peer_id"] integerValue];
+    if (peerId != 0) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.typingPeers[@(peerId)] = [NSDate date];
+            [self.tableView reloadData];
+            [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(clearTypingForPeer:) object:@(peerId)];
+            [self performSelector:@selector(clearTypingForPeer:) withObject:@(peerId) afterDelay:5.0];
+        });
+    }
+}
+
+- (void)clearTypingForPeer:(NSNumber *)peerIdNum {
+    [self.typingPeers removeObjectForKey:peerIdNum];
+    [self.tableView reloadData];
+}
+
+- (void)userPresenceNotification:(NSNotification *)note {
+    NSInteger userId = [note.userInfo[@"user_id"] integerValue];
+    BOOL online = [note.userInfo[@"online"] boolValue];
+    if (userId != 0) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            BOOL changed = NO;
+            for (VKConversation *c in self.conversations) {
+                if (c.peerUser && c.peerUser.uid == userId) {
+                    c.peerUser.isOnline = online;
+                    changed = YES;
+                }
+            }
+            if (changed) {
+                [self.tableView reloadData];
+            }
+        });
+    }
+}
+
+- (NSString *)formatDateForTimestamp:(NSTimeInterval)timestamp {
+    if (timestamp <= 0) return @"";
+    NSDate *date = [NSDate dateWithTimeIntervalSince1970:timestamp];
+    NSCalendar *calendar = [NSCalendar currentCalendar];
+    NSDateComponents *todayComponents = [calendar components:NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay fromDate:[NSDate date]];
+    NSDateComponents *dateComponents = [calendar components:NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay | NSCalendarUnitWeekday fromDate:date];
+    
+    if (todayComponents.year == dateComponents.year &&
+        todayComponents.month == dateComponents.month &&
+        todayComponents.day == dateComponents.day) {
+        NSDateFormatter *df = [[NSDateFormatter alloc] init];
+        [df setDateFormat:@"HH:mm"];
+        return [df stringFromDate:date];
+    }
+    
+    NSTimeInterval diff = [[NSDate date] timeIntervalSinceDate:date];
+    if (diff < 7 * 86400 && diff > 0) {
+        NSArray *weekdays = @[@"", @"Вс", @"Пн", @"Вт", @"Ср", @"Чт", @"Пт", @"Сб"];
+        if (dateComponents.weekday >= 1 && dateComponents.weekday <= 7) {
+            return weekdays[dateComponents.weekday];
+        }
+    }
+    
+    NSDateFormatter *df = [[NSDateFormatter alloc] init];
+    if (todayComponents.year == dateComponents.year) {
+        [df setDateFormat:@"dd.MM"];
+    } else {
+        [df setDateFormat:@"dd.MM.yy"];
+    }
+    return [df stringFromDate:date];
+}
+
 #pragma mark - Table View Data Source
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -316,6 +384,17 @@
         avatar.backgroundColor = [UIColor colorWithWhite:0.92 alpha:1.0];
         avatar.tag = 301;
         [cell.contentView addSubview:avatar];
+        
+        // Точка онлайн для аватара в стиле SwiftUI / modern
+        UIView *onlineDot = [[UIView alloc] initWithFrame:CGRectMake(46, 46, 14, 14)];
+        onlineDot.tag = 309;
+        onlineDot.layer.cornerRadius = 7.0;
+        onlineDot.layer.borderWidth = 2.0;
+        onlineDot.layer.borderColor = [UIColor whiteColor].CGColor;
+        onlineDot.backgroundColor = [UIColor colorWithRed:75.0/255.0 green:179.0/255.0 blue:75.0/255.0 alpha:1.0];
+        onlineDot.clipsToBounds = YES;
+        onlineDot.hidden = YES;
+        [cell.contentView addSubview:onlineDot];
         
         UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         nameLabel.font = [UIFont boldSystemFontOfSize:15];
@@ -374,11 +453,20 @@
     
     VKConversation *conv = data[indexPath.row];
     CGFloat width = tableView.bounds.size.width;
+    BOOL isModern = [[VKThemeManager sharedManager] isModern];
     
     UIImageView *avatar = (UIImageView *)[cell.contentView viewWithTag:301];
     avatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:48.0];
     avatar.layer.borderWidth = [[VKThemeManager sharedManager] avatarBorderWidth];
     avatar.layer.borderColor = [[VKThemeManager sharedManager] avatarBorderColor].CGColor;
+    
+    UIView *onlineDot = [cell.contentView viewWithTag:309];
+    if (isModern && conv.peerUser.isOnline && !conv.isChat && !conv.isGroup) {
+        onlineDot.hidden = NO;
+        onlineDot.frame = CGRectMake(12 + 48 - 14, 12 + 48 - 14, 14, 14);
+    } else {
+        onlineDot.hidden = YES;
+    }
     
     UILabel *nameLabel = (UILabel *)[cell.contentView viewWithTag:302];
     nameLabel.font = [[VKThemeManager sharedManager] titleFontOfSize:15];
@@ -436,11 +524,19 @@
         supporterBadge.hidden = YES;
     }
     
-    // Дата последнего сообщения
-    dateLabel.text = conv.lastMessage.timeString ?: @"";
+    // Дата последнего сообщения (современный формат)
+    NSString *formattedDate = [self formatDateForTimestamp:[conv.lastMessage.date timeIntervalSince1970]];
+    dateLabel.text = formattedDate.length > 0 ? formattedDate : (conv.lastMessage.timeString ?: @"");
     dateLabel.frame = CGRectMake(width - 80, 16, 70, 16);
     
-    msgLabel.text = [conv previewText];
+    // Проверяем статус набора текста
+    if (self.typingPeers[@(conv.peerId)]) {
+        msgLabel.text = @"печатает...";
+        msgLabel.textColor = [[VKThemeManager sharedManager] accentColor];
+    } else {
+        msgLabel.text = [conv previewText];
+        msgLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+    }
     msgLabel.frame = CGRectMake(70, 36, width - 130, 18);
     
     if (conv.unreadCount > 0) {

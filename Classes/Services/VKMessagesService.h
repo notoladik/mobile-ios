@@ -95,4 +95,11 @@
              peerId:(NSInteger)peerId
          completion:(void (^)(BOOL success, NSInteger messageId, NSError *error))completion;
 
+- (void)setTypingForPeerId:(NSInteger)peerId
+                completion:(void (^)(BOOL success, NSError *error))completion;
+
+- (void)markAsReadForPeerId:(NSInteger)peerId
+             startMessageId:(NSInteger)startMessageId
+                 completion:(void (^)(BOOL success))completion;
+
 @end

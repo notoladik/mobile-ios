@@ -661,4 +661,31 @@
     }];
 }
 
+- (void)setTypingForPeerId:(NSInteger)peerId
+                completion:(void (^)(BOOL success, NSError *error))completion {
+    NSDictionary *params = @{
+        @"peer_id": @(peerId),
+        @"type": @"typing"
+    };
+    [[VKAPIClient sharedClient] callMethod:@"messages.setActivity" parameters:params completionHandler:^(id response, NSError *error) {
+        if (error) {
+            if (completion) completion(NO, error);
+            return;
+        }
+        if (completion) completion(YES, nil);
+    }];
+}
+
+- (void)markAsReadForPeerId:(NSInteger)peerId
+             startMessageId:(NSInteger)startMessageId
+                 completion:(void (^)(BOOL success))completion {
+    NSMutableDictionary *params = [NSMutableDictionary dictionaryWithObject:@(peerId) forKey:@"peer_id"];
+    if (startMessageId > 0) {
+        params[@"start_message_id"] = @(startMessageId);
+    }
+    [[VKAPIClient sharedClient] callMethod:@"messages.markAsRead" parameters:params completionHandler:^(id response, NSError *error) {
+        if (completion) completion(error == nil);
+    }];
+}
+
 @end

@@ -47,6 +47,20 @@
     return [NSString stringWithFormat:@"https://%@/stickers/%ld/256.png", host, (long)stickerId];
 }
 
+- (VKSticker *)stickerWithId:(NSInteger)stickerId {
+    for (VKStickerPack *pack in [self activeStickerPacks]) {
+        for (VKSticker *st in pack.stickers) {
+            if (st.stickerId == stickerId) {
+                return st;
+            }
+        }
+    }
+    VKSticker *st = [[VKSticker alloc] init];
+    st.stickerId = stickerId;
+    st.imageURL = [self stickerURLForId:stickerId];
+    return st;
+}
+
 // Создание базового пака стикеров
 - (VKStickerPack *)createDefaultPackWithId:(NSInteger)packId
                                      title:(NSString *)title
