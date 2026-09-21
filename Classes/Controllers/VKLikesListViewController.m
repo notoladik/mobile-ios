@@ -70,11 +70,11 @@
     bgView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     bgView.backgroundColor = [UIColor clearColor];
     
-    self.emptyLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 120, self.view.bounds.size.width - 40, 60)];
+    self.emptyLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 110, self.view.bounds.size.width - 40, 70)];
     self.emptyLabel.textAlignment = NSTextAlignmentCenter;
     self.emptyLabel.font = [UIFont systemFontOfSize:14];
     self.emptyLabel.textColor = [UIColor grayColor];
-    self.emptyLabel.numberOfLines = 2;
+    self.emptyLabel.numberOfLines = 0;
     self.emptyLabel.hidden = YES;
     self.emptyLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [bgView addSubview:self.emptyLabel];
@@ -113,15 +113,18 @@
     if (self.segmentedControl && self.currentFilter < self.segmentedControl.numberOfSegments) {
         NSString *title = (self.currentFilter == 0) ?
             [NSString stringWithFormat:@"Понравилось (%ld)", (long)self.totalCount] :
-            [NSString stringWithFormat:@"Поделились (%ld)", (long)self.totalCount];
+            @"Поделились";
         [self.segmentedControl setTitle:title forSegmentAtIndex:self.currentFilter];
     } else if (!self.segmentedControl) {
         self.title = (self.totalCount > 0) ?
             [NSString stringWithFormat:@"Оценили (%ld)", (long)self.totalCount] : @"Оценили";
     }
     
-    if (self.users.count == 0) {
-        self.emptyLabel.text = (self.currentFilter == 1) ? @"Пока никто не поделился записью." : @"Пока никто не оценил.";
+    if (self.currentFilter == 1) {
+        self.emptyLabel.text = @"OpenVK API пока не поддерживает\nполучение списка поделившихся.";
+        self.emptyLabel.hidden = NO;
+    } else if (self.users.count == 0) {
+        self.emptyLabel.text = @"Пока никто не оценил.";
         self.emptyLabel.hidden = NO;
     } else {
         self.emptyLabel.hidden = YES;
@@ -132,6 +135,26 @@
 
 - (void)loadDataReset:(BOOL)reset {
     if (self.isLoading) return;
+    
+    if (self.currentFilter == 1) {
+        // OpenVK API не поддерживает filter=copies в likes.getList и не имеет wall.getReposts.
+        // Сервер при filter=copies ошибочно отдает список лайкнувших.
+        self.isLoading = NO;
+        [self.spinner stopAnimating];
+        if (self.refreshControl.isRefreshing) {
+            [self.refreshControl endRefreshing];
+        }
+        [self.users removeAllObjects];
+        self.totalCount = 0;
+        if (self.segmentedControl && self.segmentedControl.numberOfSegments > 1) {
+            [self.segmentedControl setTitle:@"Поделились" forSegmentAtIndex:1];
+        }
+        self.emptyLabel.text = @"OpenVK API пока не поддерживает\nполучение списка поделившихся.";
+        self.emptyLabel.hidden = NO;
+        [self.tableView reloadData];
+        return;
+    }
+    
     self.isLoading = YES;
     
     if (reset) {
@@ -335,6 +358,7 @@
 }
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    if (self.currentFilter == 1) return;
     CGFloat currentOffset = scrollView.contentOffset.y;
     CGFloat maximumOffset = scrollView.contentSize.height - scrollView.frame.size.height;
     
