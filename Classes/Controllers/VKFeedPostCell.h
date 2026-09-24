@@ -41,6 +41,8 @@
 @property (nonatomic, strong) UIView *repostLeftBarView;
 @property (nonatomic, strong) UIImageView *repostAvatarImageView;
 @property (nonatomic, strong) UILabel *repostAuthorLabel;
+@property (nonatomic, strong) UILabel *repostDateAndPlatformLabel;
+@property (nonatomic, strong) UIImageView *repostPlatformImageView;
 @property (nonatomic, strong) UILabel *repostTextLabel;
 @property (nonatomic, strong) UIButton *expandRepostTextButton;
 
