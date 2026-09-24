@@ -23,9 +23,11 @@
 #import "VKSupportersService.h"
 #import "VKCrashLogger.h"
 #import "VKShareManager.h"
+#import "VKAppConfig.h"
 
 @interface VKProfileViewController () <UIActionSheetDelegate>
 @property (nonatomic, strong) NSMutableArray *wallPosts;
+@property (nonatomic, strong) NSMutableSet *revealedPostIds;
 @property (nonatomic, assign) BOOL isLoading;
 @property (nonatomic, assign) BOOL isShowingArchive;
 @property (nonatomic, strong) VKPost *selectedPostForAction;
@@ -77,9 +79,11 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
     }
     
     self.title = self.user.displayName ?: @"Профиль";
+    self.revealedPostIds = [NSMutableSet set];
     [self applyThemeStyle];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applyThemeStyle) name:VKThemeDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(setupNavigationItems) name:VKSideMenuStateDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nsfwSettingDidChange) name:VKNSFWSettingDidChangeNotification object:nil];
     
     if ([self.user isCurrentUser] || self.user.canWriteOnWall || self.user.canPost) {
         self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"•••" style:UIBarButtonItemStylePlain target:self action:@selector(optionsAction)];
@@ -94,6 +98,10 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
     }
     
     [self loadProfileData];
+}
+
+- (void)nsfwSettingDidChange {
+    [self.tableView reloadData];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -451,7 +459,8 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
     } else {
         if (indexPath.row >= (NSInteger)self.wallPosts.count) return 44.0;
         VKPost *post = self.wallPosts[indexPath.row];
-        return [VKFeedPostCell heightForPost:post width:tableView.bounds.size.width isRevealed:YES];
+        BOOL isRevealed = [self.revealedPostIds containsObject:@(post.vkID)] || ([VKAppConfig nsfwDisplayMode] == VKNSFWDisplayModeShowAlways);
+        return [VKFeedPostCell heightForPost:post width:tableView.bounds.size.width isRevealed:isRevealed];
     }
 }
 
@@ -823,9 +832,14 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
         
         if (indexPath.row < (NSInteger)self.wallPosts.count) {
             VKPost *post = self.wallPosts[indexPath.row];
-            [cell configureWithPost:post isRevealed:YES width:tableView.bounds.size.width];
+            BOOL isRevealed = [self.revealedPostIds containsObject:@(post.vkID)] || ([VKAppConfig nsfwDisplayMode] == VKNSFWDisplayModeShowAlways);
+            [cell configureWithPost:post isRevealed:isRevealed width:tableView.bounds.size.width];
             
             __weak typeof(self) weakSelf = self;
+            cell.onRevealSpoilerTapped = ^(VKPost *p) {
+                [weakSelf.revealedPostIds addObject:@(p.vkID)];
+                [weakSelf.tableView reloadData];
+            };
             cell.onOptionsTapped = ^(VKPost *p) {
                 [weakSelf showPostOptions:p];
             };

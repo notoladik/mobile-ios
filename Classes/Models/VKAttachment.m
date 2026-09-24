@@ -14,10 +14,12 @@
     if (!typeStr) return nil;
     
     VKAttachment *att = [[VKAttachment alloc] init];
+    att.isExplicit = [dict[@"is_explicit"] boolValue] || [dict[@"nsfw"] boolValue] || [dict[@"explicit"] boolValue];
     
     if ([typeStr isEqualToString:@"photo"]) {
         att.type = VKAttachmentTypePhoto;
         NSDictionary *p = dict[@"photo"];
+        att.isExplicit = att.isExplicit || [p[@"is_explicit"] boolValue] || [p[@"nsfw"] boolValue] || [p[@"explicit"] boolValue];
         att.photoId = [p[@"id"] integerValue];
         att.ownerId = [p[@"owner_id"] integerValue];
         
@@ -84,6 +86,7 @@
     if ([typeStr isEqualToString:@"video"]) {
         att.type = VKAttachmentTypeVideo;
         NSDictionary *v = dict[@"video"];
+        att.isExplicit = att.isExplicit || [v[@"is_explicit"] boolValue] || [v[@"nsfw"] boolValue] || [v[@"explicit"] boolValue];
         att.videoId = [v[@"id"] integerValue] ?: [v[@"vid"] integerValue];
         att.ownerId = [v[@"owner_id"] integerValue];
         att.videoOwnerId = att.ownerId;

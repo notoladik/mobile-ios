@@ -35,6 +35,9 @@
 @property (nonatomic, strong) NSMutableArray<NSString *> *pendingPollAnswers;
 @property (nonatomic, assign) BOOL pendingPollIsAnonymous;
 
+@property (nonatomic, assign) BOOL isExplicitPost;
+@property (nonatomic, strong) UIButton *nsfwButton;
+
 @end
 
 @implementation VKNewPostViewController
@@ -142,7 +145,8 @@
         @{@"title": @"🎬 Видео", @"tag": @(102)},
         @{@"title": @"📄 Документ", @"tag": @(103)},
         @{@"title": @"📊 Опрос", @"tag": @(104)},
-        @{@"title": @"🔗 Источник", @"tag": @(105)}
+        @{@"title": @"🔗 Источник", @"tag": @(105)},
+        @{@"title": @"🔞 18+", @"tag": @(106)}
     ];
     
     CGFloat curX = 10.0;
@@ -160,6 +164,10 @@
         btn.layer.borderColor = [UIColor colorWithWhite:0.85 alpha:1.0].CGColor;
         [btn addTarget:self action:@selector(toolbarButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
         [self.toolbarScrollView addSubview:btn];
+        
+        if ([b[@"tag"] integerValue] == 106) {
+            self.nsfwButton = btn;
+        }
         
         curX += s.width + 24.0;
     }
@@ -343,6 +351,24 @@
     } else if (btn.tag == 105) {
         // Источник (Copyright)
         [self showCopyrightDialog];
+    } else if (btn.tag == 106) {
+        // 18+ (NSFW) переключатель
+        self.isExplicitPost = !self.isExplicitPost;
+        [self updateNSFWButtonState];
+    }
+}
+
+- (void)updateNSFWButtonState {
+    if (self.isExplicitPost) {
+        [self.nsfwButton setTitle:@"🔞 18+ (вкл)" forState:UIControlStateNormal];
+        [self.nsfwButton setTitleColor:[UIColor colorWithRed:220.0/255.0 green:53.0/255.0 blue:69.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+        self.nsfwButton.layer.borderColor = [UIColor colorWithRed:220.0/255.0 green:53.0/255.0 blue:69.0/255.0 alpha:1.0].CGColor;
+        self.nsfwButton.backgroundColor = [UIColor colorWithRed:255.0/255.0 green:235.0/255.0 blue:238.0/255.0 alpha:1.0];
+    } else {
+        [self.nsfwButton setTitle:@"🔞 18+" forState:UIControlStateNormal];
+        [self.nsfwButton setTitleColor:[[VKThemeManager sharedManager] accentColor] forState:UIControlStateNormal];
+        self.nsfwButton.layer.borderColor = [UIColor colorWithWhite:0.85 alpha:1.0].CGColor;
+        self.nsfwButton.backgroundColor = [UIColor clearColor];
     }
 }
 
@@ -642,7 +668,7 @@
                                                   ownerId:targetOwner
                                               attachments:attCombined
                                                 copyright:self.copyrightUrl
-                                                 explicit:NO
+                                                 explicit:self.isExplicitPost
                                                 fromGroup:NO
                                                completion:^(BOOL success, NSError *error) {
             [self.activityIndicator stopAnimating];

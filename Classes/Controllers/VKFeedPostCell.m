@@ -1,4 +1,5 @@
 #import "VKFeedPostCell.h"
+#import "VKAppConfig.h"
 #import "VKImageLoader.h"
 #import "VKSupportersService.h"
 #import "VKThemeManager.h"
@@ -93,6 +94,25 @@
         _dateAndPlatformLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
         [_cardBackgroundView addSubview:_dateAndPlatformLabel];
         
+        // NSFW Badge (18+)
+        _nsfwBadgeView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 48, 17)];
+        _nsfwBadgeView.backgroundColor = [UIColor colorWithRed:235.0/255.0 green:50.0/255.0 blue:75.0/255.0 alpha:0.12];
+        _nsfwBadgeView.layer.borderColor = [UIColor colorWithRed:220.0/255.0 green:40.0/255.0 blue:65.0/255.0 alpha:0.5].CGColor;
+        _nsfwBadgeView.layer.borderWidth = 0.5;
+        _nsfwBadgeView.layer.cornerRadius = 4.0;
+        _nsfwBadgeView.clipsToBounds = YES;
+        _nsfwBadgeView.hidden = YES;
+        [_cardBackgroundView addSubview:_nsfwBadgeView];
+        
+        _nsfwBadgeLabel = [[UILabel alloc] initWithFrame:_nsfwBadgeView.bounds];
+        _nsfwBadgeLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        _nsfwBadgeLabel.text = @"🔞 18+";
+        _nsfwBadgeLabel.font = [UIFont boldSystemFontOfSize:10.5];
+        _nsfwBadgeLabel.textColor = [UIColor colorWithRed:215.0/255.0 green:35.0/255.0 blue:55.0/255.0 alpha:1.0];
+        _nsfwBadgeLabel.textAlignment = NSTextAlignmentCenter;
+        _nsfwBadgeLabel.backgroundColor = [UIColor clearColor];
+        [_nsfwBadgeView addSubview:_nsfwBadgeLabel];
+        
         _moreButton = [UIButton buttonWithType:UIButtonTypeCustom];
         [_moreButton setTitle:@"•••" forState:UIControlStateNormal];
         [_moreButton setTitleColor:[UIColor colorWithWhite:0.65 alpha:1.0] forState:UIControlStateNormal];
@@ -132,7 +152,7 @@
         
         // Spoiler Overlay
         _spoilerOverlayView = [[UIView alloc] initWithFrame:CGRectZero];
-        _spoilerOverlayView.backgroundColor = [UIColor blackColor];
+        _spoilerOverlayView.backgroundColor = [UIColor colorWithRed:24.0/255.0 green:26.0/255.0 blue:32.0/255.0 alpha:0.94];
         _spoilerOverlayView.layer.cornerRadius = 8.0;
         _spoilerOverlayView.clipsToBounds = YES;
         _spoilerOverlayView.userInteractionEnabled = YES;
@@ -141,26 +161,47 @@
         [_spoilerOverlayView addGestureRecognizer:spoilerTap];
         [_contentContainerView addSubview:_spoilerOverlayView];
         
-        _spoilerEyeImageView = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 48, 48)];
-        _spoilerEyeImageView.layer.cornerRadius = 24.0;
-        _spoilerEyeImageView.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.15];
+        _spoilerEyeImageView = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 44, 44)];
+        _spoilerEyeImageView.layer.cornerRadius = 22.0;
+        _spoilerEyeImageView.backgroundColor = [UIColor colorWithRed:235.0/255.0 green:50.0/255.0 blue:75.0/255.0 alpha:0.25];
         _spoilerEyeImageView.clipsToBounds = YES;
+        
+        UILabel *eyeIconLbl = [[UILabel alloc] initWithFrame:_spoilerEyeImageView.bounds];
+        eyeIconLbl.text = @"🔞";
+        eyeIconLbl.font = [UIFont systemFontOfSize:22];
+        eyeIconLbl.textAlignment = NSTextAlignmentCenter;
+        eyeIconLbl.backgroundColor = [UIColor clearColor];
+        [_spoilerEyeImageView addSubview:eyeIconLbl];
         [_spoilerOverlayView addSubview:_spoilerEyeImageView];
         
         _spoilerTitleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-        _spoilerTitleLabel.text = @"Содержимое поста скрыто под спойлером";
-        _spoilerTitleLabel.font = [UIFont boldSystemFontOfSize:14];
+        _spoilerTitleLabel.text = @"Деликатный контент (18+ / NSFW)";
+        _spoilerTitleLabel.font = [UIFont boldSystemFontOfSize:13.5];
         _spoilerTitleLabel.textColor = [UIColor whiteColor];
         _spoilerTitleLabel.textAlignment = NSTextAlignmentCenter;
-        _spoilerTitleLabel.numberOfLines = 2;
+        _spoilerTitleLabel.numberOfLines = 1;
+        _spoilerTitleLabel.backgroundColor = [UIColor clearColor];
         [_spoilerOverlayView addSubview:_spoilerTitleLabel];
         
         _spoilerSubtitleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-        _spoilerSubtitleLabel.text = @"Нажмите, чтобы просмотреть";
-        _spoilerSubtitleLabel.font = [UIFont systemFontOfSize:12];
+        _spoilerSubtitleLabel.text = @"Запись содержит материалы для взрослых";
+        _spoilerSubtitleLabel.font = [UIFont systemFontOfSize:11.5];
         _spoilerSubtitleLabel.textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
         _spoilerSubtitleLabel.textAlignment = NSTextAlignmentCenter;
+        _spoilerSubtitleLabel.backgroundColor = [UIColor clearColor];
         [_spoilerOverlayView addSubview:_spoilerSubtitleLabel];
+        
+        _spoilerRevealButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        _spoilerRevealButton.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.18];
+        _spoilerRevealButton.layer.cornerRadius = 14.0;
+        _spoilerRevealButton.layer.borderWidth = 0.5;
+        _spoilerRevealButton.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.35].CGColor;
+        _spoilerRevealButton.clipsToBounds = YES;
+        [_spoilerRevealButton setTitle:@"Показать запись" forState:UIControlStateNormal];
+        [_spoilerRevealButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        _spoilerRevealButton.titleLabel.font = [UIFont boldSystemFontOfSize:12];
+        [_spoilerRevealButton addTarget:self action:@selector(revealSpoilerTapped) forControlEvents:UIControlEventTouchUpInside];
+        [_spoilerOverlayView addSubview:_spoilerRevealButton];
         
         // Repost block
         _repostContainerView = [[UIView alloc] initWithFrame:CGRectZero];
@@ -241,6 +282,8 @@
     self.currentPost = nil;
     self.currentPhotos = nil;
     self.isExplicitRevealed = NO;
+    self.spoilerOverlayView.hidden = YES;
+    self.nsfwBadgeView.hidden = YES;
 
     self.onLikeTapped = nil;
     self.onCommentTapped = nil;
@@ -615,8 +658,9 @@
     
     CGFloat h = 60.0; // Header (Avatar 40pt at y=10 + bottom margin 10pt)
     
-    if (post.isExplicit && !isRevealed) {
-        return h + 180.0 + 34.0 + 8.0;
+    BOOL shouldHideNSFW = post.isExplicit && !isRevealed && [VKAppConfig isNSFWFilterEnabled];
+    if (shouldHideNSFW) {
+        return h + 150.0 + 36.0 + 8.0;
     }
     
     // Текст
@@ -863,7 +907,17 @@
     self.avatarImageView.frame = CGRectMake(0.0, 0.0, 40.0, 40.0);
     self.wallOwnerAvatarImageView.frame = CGRectMake(24.0, 24.0, 18.0, 18.0);
     
-    self.authorNameLabel.frame = CGRectMake(headerLeft, 10.0, headerRight - headerLeft, 19.0);
+    if (post.isExplicit) {
+        self.nsfwBadgeView.hidden = NO;
+        CGSize authorSize = [post.author.displayName sizeWithFont:self.authorNameLabel.font];
+        CGFloat maxAuthorW = headerRight - headerLeft - 56.0;
+        CGFloat authorW = MIN(ceilf(authorSize.width), maxAuthorW);
+        self.authorNameLabel.frame = CGRectMake(headerLeft, 10.0, authorW, 19.0);
+        self.nsfwBadgeView.frame = CGRectMake(headerLeft + authorW + 6.0, 11.0, 48.0, 17.0);
+    } else {
+        self.nsfwBadgeView.hidden = YES;
+        self.authorNameLabel.frame = CGRectMake(headerLeft, 10.0, headerRight - headerLeft, 19.0);
+    }
     self.dateAndPlatformLabel.frame = CGRectMake(headerLeft, 31.0, headerRight - headerLeft, 15.0);
     self.moreButton.frame = CGRectMake(cardWidth - 44.0, 4.0, 40.0, 36.0);
     
@@ -873,8 +927,37 @@
     CGFloat currentY = 60.0;
     self.contentContainerView.frame = CGRectMake(contentX, 0, contentW, totalHeight - bottomSpacing - 36.0);
     
-    // Текст поста
-    if (post.text.length > 0) {
+    BOOL isFilterEnabled = [VKAppConfig isNSFWFilterEnabled];
+    BOOL shouldHideNSFW = post.isExplicit && !isRevealed && isFilterEnabled;
+    
+    if (shouldHideNSFW) {
+        self.spoilerOverlayView.hidden = NO;
+        CGFloat spoilerH = 145.0;
+        self.spoilerOverlayView.frame = CGRectMake(0, currentY, contentW, spoilerH);
+        
+        CGFloat eyeSize = 44.0;
+        self.spoilerEyeImageView.frame = CGRectMake(floorf((contentW - eyeSize) / 2.0), 14.0, eyeSize, eyeSize);
+        self.spoilerTitleLabel.frame = CGRectMake(10.0, 64.0, contentW - 20.0, 20.0);
+        self.spoilerSubtitleLabel.frame = CGRectMake(10.0, 85.0, contentW - 20.0, 16.0);
+        
+        CGFloat btnW = 140.0;
+        CGFloat btnH = 28.0;
+        self.spoilerRevealButton.frame = CGRectMake(floorf((contentW - btnW) / 2.0), 106.0, btnW, btnH);
+        
+        self.postTextLabel.hidden = YES;
+        self.expandTextButton.hidden = YES;
+        self.photosContainerView.hidden = YES;
+        self.attachmentsContainerView.hidden = YES;
+        self.repostContainerView.hidden = YES;
+        
+        currentY += spoilerH + 10.0;
+    } else {
+        self.spoilerOverlayView.hidden = YES;
+        self.photosContainerView.hidden = NO;
+        self.attachmentsContainerView.hidden = NO;
+        
+        // Текст поста
+        if (post.text.length > 0) {
         self.postTextLabel.hidden = NO;
         self.postTextLabel.text = post.text;
         CGSize textSize = [post.text sizeWithFont:[UIFont systemFontOfSize:15]
@@ -1720,6 +1803,7 @@
         [self.contentContainerView addSubview:sLabel];
         currentY += 22.0;
     }
+    } // Конец ветки else (!shouldHideNSFW)
     
     // Кнопки лайк / комменты / репост
     CGFloat cardH = totalHeight - bottomSpacing;
@@ -1730,6 +1814,7 @@
     [self.cardBackgroundView bringSubviewToFront:self.moreButton];
     [self.cardBackgroundView bringSubviewToFront:self.avatarContainerView];
     [self.cardBackgroundView bringSubviewToFront:self.authorNameLabel];
+    [self.cardBackgroundView bringSubviewToFront:self.nsfwBadgeView];
     
     UIColor *defIconColor = isSkeuomorph ? [UIColor colorWithRed:100.0/255.0 green:110.0/255.0 blue:125.0/255.0 alpha:1.0] : [UIColor colorWithRed:130.0/255.0 green:140.0/255.0 blue:155.0/255.0 alpha:1.0];
     UIColor *likeIconColor = post.isLiked ? (isSkeuomorph ? [UIColor colorWithRed:215.0/255.0 green:35.0/255.0 blue:55.0/255.0 alpha:1.0] : [UIColor colorWithRed:235.0/255.0 green:45.0/255.0 blue:70.0/255.0 alpha:1.0]) : defIconColor;

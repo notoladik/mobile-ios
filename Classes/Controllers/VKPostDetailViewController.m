@@ -15,6 +15,7 @@
 #import "VKThemeManager.h"
 #import "VKCrashLogger.h"
 #import "VKShareManager.h"
+#import "VKAppConfig.h"
 
 #pragma mark - VKCommentCell (Идентично скриншоту VK iOS с поддержкой вложений)
 
@@ -664,6 +665,7 @@
 @property (nonatomic, strong) UIImageView *attachmentPreviewImageView;
 @property (nonatomic, strong) UIButton *removeAttachmentButton;
 @property (nonatomic, assign) CGFloat lastKeyboardHeight;
+@property (nonatomic, assign) BOOL isPostRevealed;
 @end
 
 @implementation VKPostDetailViewController
@@ -712,9 +714,19 @@
     [self setupNavigationItems];
     [self loadComments];
     
+    self.isPostRevealed = !self.post.isExplicit || ![VKAppConfig isNSFWFilterEnabled] || ([VKAppConfig nsfwDisplayMode] == VKNSFWDisplayModeShowAlways);
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nsfwSettingDidChange) name:VKNSFWSettingDidChangeNotification object:nil];
+    
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillShow:) name:UIKeyboardWillShowNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillHide:) name:UIKeyboardWillHideNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applyThemeStyle) name:VKThemeDidChangeNotification object:nil];
+}
+
+- (void)nsfwSettingDidChange {
+    if (!self.isPostRevealed && (!self.post.isExplicit || ![VKAppConfig isNSFWFilterEnabled] || [VKAppConfig nsfwDisplayMode] == VKNSFWDisplayModeShowAlways)) {
+        self.isPostRevealed = YES;
+    }
+    [self.tableView reloadData];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -1272,7 +1284,7 @@
     CGFloat width = tableView.bounds.size.width;
     if (width <= 0) width = [[UIScreen mainScreen] bounds].size.width;
     if (indexPath.section == 0) {
-        return [VKFeedPostCell heightForPost:self.post width:width isRevealed:YES];
+        return [VKFeedPostCell heightForPost:self.post width:width isRevealed:self.isPostRevealed];
     } else {
         if (self.comments.count == 0) return 70.0;
         VKComment *c = self.comments[indexPath.row];
@@ -1290,8 +1302,12 @@
         if (!cell) {
             cell = [[VKFeedPostCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:PostCellId];
         }
-        [cell configureWithPost:self.post isRevealed:YES width:tableView.bounds.size.width];
+        [cell configureWithPost:self.post isRevealed:self.isPostRevealed width:tableView.bounds.size.width];
         __weak typeof(self) weakSelf = self;
+        cell.onRevealSpoilerTapped = ^(VKPost *p) {
+            weakSelf.isPostRevealed = YES;
+            [weakSelf.tableView reloadData];
+        };
         cell.onOptionsTapped = ^(VKPost *p) {
             [weakSelf postOptionsAction];
         };

@@ -16,6 +16,7 @@
 #import "VKOfflinePlaceholderView.h"
 #import "VKNetworkStatusManager.h"
 #import "VKShareManager.h"
+#import "VKAppConfig.h"
 
 typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     VKFeedTypeModeMyNews = 0,
@@ -71,6 +72,7 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     [self applyCurrentThemeStyle];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applyCurrentThemeStyle) name:VKThemeDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(networkStatusDidChange:) name:VKNetworkStatusDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nsfwSettingDidChange) name:VKNSFWSettingDidChangeNotification object:nil];
     
     [self setupNavigationItems];
     
@@ -81,6 +83,23 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
     }
     
     [self loadFeedFromStart:YES];
+}
+
+- (void)nsfwSettingDidChange {
+    [self.tableView reloadData];
+}
+
+- (NSArray<VKPost *> *)visiblePosts {
+    if ([VKAppConfig isNSFWFilterEnabled] && [VKAppConfig nsfwDisplayMode] == VKNSFWDisplayModeHideCompletely) {
+        NSMutableArray *res = [NSMutableArray array];
+        for (VKPost *p in self.posts) {
+            if (!p.isExplicit) {
+                [res addObject:p];
+            }
+        }
+        return res;
+    }
+    return self.posts;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -352,13 +371,14 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return self.posts.count;
+    return self.visiblePosts.count;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.row >= (NSInteger)self.posts.count) return 44.0;
-    VKPost *post = self.posts[indexPath.row];
-    BOOL isRevealed = [self.revealedPostIds containsObject:@(post.vkID)];
+    NSArray *posts = self.visiblePosts;
+    if (indexPath.row >= (NSInteger)posts.count) return 44.0;
+    VKPost *post = posts[indexPath.row];
+    BOOL isRevealed = [self.revealedPostIds containsObject:@(post.vkID)] || ([VKAppConfig nsfwDisplayMode] == VKNSFWDisplayModeShowAlways);
     return [VKFeedPostCell heightForPost:post width:tableView.bounds.size.width isRevealed:isRevealed];
 }
 
@@ -369,10 +389,11 @@ typedef NS_ENUM(NSInteger, VKFeedTypeMode) {
         cell = [[VKFeedPostCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:CellIdentifier];
     }
     
-    if (indexPath.row >= (NSInteger)self.posts.count) return cell;
+    NSArray *posts = self.visiblePosts;
+    if (indexPath.row >= (NSInteger)posts.count) return cell;
     
-    VKPost *post = self.posts[indexPath.row];
-    BOOL isRevealed = [self.revealedPostIds containsObject:@(post.vkID)];
+    VKPost *post = posts[indexPath.row];
+    BOOL isRevealed = [self.revealedPostIds containsObject:@(post.vkID)] || ([VKAppConfig nsfwDisplayMode] == VKNSFWDisplayModeShowAlways);
     [cell configureWithPost:post isRevealed:isRevealed width:tableView.bounds.size.width];
     
     __weak typeof(self) weakSelf = self;

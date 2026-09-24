@@ -3,6 +3,7 @@
 #import "VKLoginViewController.h"
 #import "VKAppearanceViewController.h"
 #import "VKDataStorageViewController.h"
+#import "VKFeedSettingsViewController.h"
 #import "VKImageLoader.h"
 #import "VKSupportersService.h"
 #import "VKSupportersViewController.h"
@@ -149,13 +150,19 @@
         static NSString *MenuCellId = @"VKSettingsMenuRowCell";
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:MenuCellId];
         if (!cell) {
-            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:MenuCellId];
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:MenuCellId];
             cell.textLabel.font = [UIFont systemFontOfSize:15];
+            cell.detailTextLabel.font = [UIFont systemFontOfSize:13];
+            cell.detailTextLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         }
+        cell.detailTextLabel.text = nil;
         
         switch (indexPath.row) {
-            case 0: cell.textLabel.text = @"📰  Лента"; break;
+            case 0:
+                cell.textLabel.text = @"📰  Лента";
+                cell.detailTextLabel.text = [VKAppConfig isNSFWFilterEnabled] ? @"18+ скрыт" : @"18+ открыт";
+                break;
             case 1: cell.textLabel.text = @"📱  Устройства"; break;
             case 2: cell.textLabel.text = @"👤  Аккаунт"; break;
             case 3: cell.textLabel.text = @"🔔  Уведомления и звуки"; break;
@@ -211,7 +218,11 @@
             [self.navigationController pushViewController:loginVC animated:YES];
         }
     } else if (indexPath.section == 1) {
-        if (indexPath.row == 5) {
+        if (indexPath.row == 0) {
+            // Лента и NSFW
+            VKFeedSettingsViewController *feedVC = [[VKFeedSettingsViewController alloc] init];
+            [self.navigationController pushViewController:feedVC animated:YES];
+        } else if (indexPath.row == 5) {
             // Данные и память
             VKDataStorageViewController *storageVC = [[VKDataStorageViewController alloc] init];
             [self.navigationController pushViewController:storageVC animated:YES];

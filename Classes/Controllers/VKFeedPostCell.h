@@ -29,6 +29,11 @@
 @property (nonatomic, strong) UIImageView *spoilerEyeImageView;
 @property (nonatomic, strong) UILabel *spoilerTitleLabel;
 @property (nonatomic, strong) UILabel *spoilerSubtitleLabel;
+@property (nonatomic, strong) UIButton *spoilerRevealButton;
+
+// Пометка NSFW (18+)
+@property (nonatomic, strong) UIView *nsfwBadgeView;
+@property (nonatomic, strong) UILabel *nsfwBadgeLabel;
 
 // Репост (repostHistory)
 @property (nonatomic, strong) UIView *repostContainerView;

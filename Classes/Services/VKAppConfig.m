@@ -113,4 +113,38 @@ static NSString *const kDefaultInstance = @"api.openvk.org";
     return [NSURL URLWithString:host];
 }
 
+#pragma mark - NSFW / 18+ Filter Settings
+
+NSString *const VKNSFWSettingDidChangeNotification = @"VKNSFWSettingDidChangeNotification";
+static NSString *const kOpenVKNSFWFilterKey = @"openvk.nsfw.filter_enabled";
+static NSString *const kOpenVKNSFWDisplayModeKey = @"openvk.nsfw.display_mode";
+
++ (BOOL)isNSFWFilterEnabled {
+    id val = [[NSUserDefaults standardUserDefaults] objectForKey:kOpenVKNSFWFilterKey];
+    if (val == nil) {
+        return YES; // По умолчанию включено (контент скрыт)
+    }
+    return [val boolValue];
+}
+
++ (void)setNSFWFilterEnabled:(BOOL)enabled {
+    [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:kOpenVKNSFWFilterKey];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    [[NSNotificationCenter defaultCenter] postNotificationName:VKNSFWSettingDidChangeNotification object:nil];
+}
+
++ (VKNSFWDisplayMode)nsfwDisplayMode {
+    id val = [[NSUserDefaults standardUserDefaults] objectForKey:kOpenVKNSFWDisplayModeKey];
+    if (val == nil) {
+        return VKNSFWDisplayModeSpoiler; // По умолчанию плашка/спойлер
+    }
+    return (VKNSFWDisplayMode)[val integerValue];
+}
+
++ (void)setNSFWDisplayMode:(VKNSFWDisplayMode)mode {
+    [[NSUserDefaults standardUserDefaults] setInteger:mode forKey:kOpenVKNSFWDisplayModeKey];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    [[NSNotificationCenter defaultCenter] postNotificationName:VKNSFWSettingDidChangeNotification object:nil];
+}
+
 @end

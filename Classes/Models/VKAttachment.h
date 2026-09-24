@@ -23,6 +23,7 @@ typedef NS_ENUM(NSInteger, VKAttachmentType) {
 @interface VKAttachment : NSObject
 
 @property (nonatomic, assign) VKAttachmentType type;
+@property (nonatomic, assign) BOOL isExplicit;
 
 // Photo
 @property (nonatomic, assign) NSInteger photoId;

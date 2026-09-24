@@ -59,7 +59,12 @@
     } else {
         post.text = @"";
     }
-    post.isExplicit = [dict[@"is_explicit"] boolValue] || [dict[@"nsfw"] boolValue];
+    post.isExplicit = [dict[@"is_explicit"] boolValue] ||
+                      [dict[@"nsfw"] boolValue] ||
+                      [dict[@"explicit"] boolValue] ||
+                      [dict[@"is_nsfw"] boolValue] ||
+                      [dict[@"spoiler"] boolValue] ||
+                      [dict[@"content_warning"] boolValue];
     post.isArchived = [dict[@"is_archived"] boolValue];
     post.isPinned = [dict[@"is_pinned"] integerValue] == 1;
     
@@ -81,7 +86,12 @@
     if ([rawAtts isKindOfClass:[NSArray class]]) {
         for (NSDictionary *rawAtt in rawAtts) {
             VKAttachment *a = [VKAttachment attachmentFromDictionary:rawAtt];
-            if (a) [atts addObject:a];
+            if (a) {
+                [atts addObject:a];
+                if (a.isExplicit) {
+                    post.isExplicit = YES;
+                }
+            }
         }
     }
     post.attachments = atts;
@@ -92,7 +102,12 @@
     if ([rawHistory isKindOfClass:[NSArray class]]) {
         for (NSDictionary *rawPost in rawHistory) {
             VKPost *reposted = [VKPost postFromDictionary:rawPost profiles:profiles groups:groups];
-            if (reposted) [history addObject:reposted];
+            if (reposted) {
+                [history addObject:reposted];
+                if (reposted.isExplicit) {
+                    post.isExplicit = YES;
+                }
+            }
         }
     }
     post.repostHistory = history;

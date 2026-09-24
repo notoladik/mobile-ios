@@ -9,6 +9,7 @@
 #import "VKThemeManager.h"
 #import "VKSideMenuManager.h"
 #import "VKCrashLogger.h"
+#import "VKAppConfig.h"
 
 @interface VKSearchVideoGridCell : UITableViewCell
 @property (nonatomic, strong) NSArray<VKAttachment *> *videos;
@@ -146,6 +147,7 @@
 @property (nonatomic, strong) NSArray *allGroups;
 @property (nonatomic, strong) NSArray *allAudios;
 @property (nonatomic, strong) NSMutableArray *singleResults;
+@property (nonatomic, strong) NSMutableSet *revealedPostIds;
 @end
 
 @implementation VKSearchViewController
@@ -174,7 +176,10 @@
     self.title = @"Поиск";
     self.categoryButtons = [NSMutableArray array];
     self.singleResults = [NSMutableArray array];
+    self.revealedPostIds = [NSMutableSet set];
     self.selectedCategoryIndex = 0;
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nsfwSettingChanged) name:VKNSFWSettingDidChangeNotification object:nil];
     
     if ([self respondsToSelector:@selector(setEdgesForExtendedLayout:)]) {
         self.edgesForExtendedLayout = UIRectEdgeNone;
@@ -533,6 +538,10 @@
     [self performSearchWithQuery:self.currentQuery];
 }
 
+- (void)nsfwSettingChanged {
+    [self.tableView reloadData];
+}
+
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
     if (self.selectedCategoryIndex == 0) return 36.0;
     return 0.01;
@@ -544,10 +553,12 @@
             return [VKSearchVideoGridCell heightForVideosCount:self.allVideos.count];
         }
         VKPost *p = self.allPosts[indexPath.row];
-        return [VKFeedPostCell heightForPost:p width:tableView.bounds.size.width isRevealed:YES];
+        BOOL isRevealed = [self.revealedPostIds containsObject:@(p.vkID)] || ([VKAppConfig nsfwDisplayMode] == VKNSFWDisplayModeShowAlways);
+        return [VKFeedPostCell heightForPost:p width:tableView.bounds.size.width isRevealed:isRevealed];
     } else if (self.selectedCategoryIndex == 5) {
         VKPost *p = self.singleResults[indexPath.row];
-        return [VKFeedPostCell heightForPost:p width:tableView.bounds.size.width isRevealed:YES];
+        BOOL isRevealed = [self.revealedPostIds containsObject:@(p.vkID)] || ([VKAppConfig nsfwDisplayMode] == VKNSFWDisplayModeShowAlways);
+        return [VKFeedPostCell heightForPost:p width:tableView.bounds.size.width isRevealed:isRevealed];
     } else if (self.selectedCategoryIndex == 4) {
         return 52.0; // Музыка
     }
@@ -578,7 +589,13 @@
                 cell = [[VKFeedPostCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:PostCellId];
             }
             VKPost *p = self.allPosts[indexPath.row];
-            [cell configureWithPost:p isRevealed:YES width:tableView.bounds.size.width];
+            BOOL isRevealed = [self.revealedPostIds containsObject:@(p.vkID)] || ([VKAppConfig nsfwDisplayMode] == VKNSFWDisplayModeShowAlways);
+            [cell configureWithPost:p isRevealed:isRevealed width:tableView.bounds.size.width];
+            __weak typeof(self) weakSelf = self;
+            cell.onRevealSpoilerTapped = ^(VKPost *revealedPost) {
+                [weakSelf.revealedPostIds addObject:@(revealedPost.vkID)];
+                [weakSelf.tableView reloadData];
+            };
             return cell;
         }
     } else if (self.selectedCategoryIndex == 5) {
@@ -588,7 +605,13 @@
             cell = [[VKFeedPostCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:PostCellId];
         }
         VKPost *p = self.singleResults[indexPath.row];
-        [cell configureWithPost:p isRevealed:YES width:tableView.bounds.size.width];
+        BOOL isRevealed = [self.revealedPostIds containsObject:@(p.vkID)] || ([VKAppConfig nsfwDisplayMode] == VKNSFWDisplayModeShowAlways);
+        [cell configureWithPost:p isRevealed:isRevealed width:tableView.bounds.size.width];
+        __weak typeof(self) weakSelf = self;
+        cell.onRevealSpoilerTapped = ^(VKPost *revealedPost) {
+            [weakSelf.revealedPostIds addObject:@(revealedPost.vkID)];
+            [weakSelf.tableView reloadData];
+        };
         return cell;
     } else if (self.selectedCategoryIndex == 4) {
         static NSString *AudioCellId = @"VKSearchAudioCell";
