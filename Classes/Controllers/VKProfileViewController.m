@@ -29,6 +29,8 @@
 @property (nonatomic, strong) NSMutableArray *wallPosts;
 @property (nonatomic, strong) NSMutableSet *revealedPostIds;
 @property (nonatomic, assign) BOOL isLoading;
+@property (nonatomic, assign) BOOL isLoadingMore;
+@property (nonatomic, assign) NSInteger wallTotalCount;
 @property (nonatomic, assign) BOOL isShowingArchive;
 @property (nonatomic, strong) VKPost *selectedPostForAction;
 @end
@@ -151,7 +153,7 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
                                                            delegate:self
                                                   cancelButtonTitle:@"Отмена"
                                              destructiveButtonTitle:nil
-                                                  otherButtonTitles:@"Новая запись", archiveTitle, @"Скопировать ссылку", nil];
+                                                  otherButtonTitles:@"Новая запись", archiveTitle, @"Открыть веб-архив в Safari", @"Скопировать ссылку", nil];
         sheet.tag = 501;
         [sheet showInView:self.view];
     } else {
@@ -209,9 +211,26 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
 
 - (void)toggleArchiveMode {
     self.isShowingArchive = !self.isShowingArchive;
+    self.wallTotalCount = 0;
     [self.wallPosts removeAllObjects];
     [self.tableView reloadData];
     [self loadProfileData];
+}
+
+- (void)openWebArchive {
+    NSInteger uid = self.user.uid;
+    if (uid == 0 && [self.user isCurrentUser]) {
+        uid = [[VKAuthService sharedService] currentUserModel].uid;
+    }
+    NSString *base = [[VKAppConfig apiBaseURL] absoluteString];
+    if ([base hasSuffix:@"/"]) {
+        base = [base substringToIndex:base.length - 1];
+    }
+    NSString *urlStr = [NSString stringWithFormat:@"%@/wall%ld?type=archive", base, (long)uid];
+    NSURL *url = [NSURL URLWithString:urlStr];
+    if (url) {
+        [[UIApplication sharedApplication] openURL:url];
+    }
 }
 
 - (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
@@ -223,6 +242,8 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
         } else if (buttonIndex == 1) {
             [self toggleArchiveMode];
         } else if (buttonIndex == 2) {
+            [self openWebArchive];
+        } else if (buttonIndex == 3) {
             [UIPasteboard generalPasteboard].string = [NSString stringWithFormat:@"https://openvk.su/id%ld", (long)self.user.uid];
         }
     } else if (actionSheet.tag == 502) {
@@ -280,6 +301,9 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
                         }
                         UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"В архиве" message:@"Запись сохранена в архив." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
                         [alert show];
+                    } else {
+                        UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Ошибка архивации" message:@"Сервер OpenVK пока не поддерживает архивацию через мобильное API. Воспользуйтесь веб-версией OpenVK." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                        [alert show];
                     }
                 });
             }];
@@ -293,6 +317,9 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
                             [self.tableView deleteRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:idx inSection:1]] withRowAnimation:UITableViewRowAnimationAutomatic];
                         }
                         UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Восстановлено" message:@"Запись восстановлена на стену." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                        [alert show];
+                    } else {
+                        UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Ошибка восстановления" message:@"Сервер OpenVK пока не поддерживает восстановление через мобильное API. Воспользуйтесь веб-версией OpenVK." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
                         [alert show];
                     }
                 });
@@ -348,12 +375,77 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
                 [self.refreshControl endRefreshing];
             }
             if (!wallErr && posts) {
+                self.wallTotalCount = totalCount;
+                if (posts.count < 30) {
+                    self.wallTotalCount = posts.count;
+                }
                 [self.wallPosts removeAllObjects];
                 [self.wallPosts addObjectsFromArray:posts];
+            } else if (self.isShowingArchive) {
+                [self.wallPosts removeAllObjects];
+                self.wallTotalCount = 0;
             }
             [self.tableView reloadData];
         }];
     }];
+}
+
+- (void)loadMoreWallPosts {
+    if (self.isLoading || self.isLoadingMore) return;
+    if (self.wallTotalCount > 0 && (NSInteger)self.wallPosts.count >= self.wallTotalCount) return;
+    
+    self.isLoadingMore = YES;
+    
+    NSInteger uid = self.user.uid;
+    if (uid == 0 && [self.user isCurrentUser]) {
+        uid = [[VKAuthService sharedService] currentUserModel].uid;
+    }
+    
+    UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
+    spinner.frame = CGRectMake(0, 0, self.tableView.bounds.size.width, 44);
+    [spinner startAnimating];
+    self.tableView.tableFooterView = spinner;
+    
+    NSInteger currentOffset = self.wallPosts.count;
+    NSString *filter = self.isShowingArchive ? @"archived" : nil;
+    
+    __weak typeof(self) weakSelf = self;
+    [[VKProfileService sharedService] fetchWallForOwnerId:uid offset:currentOffset count:30 filter:filter completion:^(NSArray *posts, NSInteger totalCount, NSError *wallErr) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        
+        strongSelf.isLoadingMore = NO;
+        strongSelf.tableView.tableFooterView = [[UIView alloc] initWithFrame:CGRectZero];
+        
+        if (!wallErr && posts.count > 0) {
+            strongSelf.wallTotalCount = totalCount;
+            if (posts.count < 30) {
+                strongSelf.wallTotalCount = strongSelf.wallPosts.count + posts.count;
+            }
+            NSMutableArray *indexPaths = [NSMutableArray array];
+            for (NSInteger i = 0; i < (NSInteger)posts.count; i++) {
+                [indexPaths addObject:[NSIndexPath indexPathForRow:strongSelf.wallPosts.count + i inSection:1]];
+            }
+            [strongSelf.wallPosts addObjectsFromArray:posts];
+            [strongSelf.tableView insertRowsAtIndexPaths:indexPaths withRowAnimation:UITableViewRowAnimationNone];
+        } else {
+            strongSelf.wallTotalCount = strongSelf.wallPosts.count;
+        }
+    }];
+}
+
+#pragma mark - UIScrollViewDelegate (Infinite Scroll)
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    if (self.isLoading || self.isLoadingMore) return;
+    if (self.wallTotalCount > 0 && (NSInteger)self.wallPosts.count >= self.wallTotalCount) return;
+    
+    CGFloat currentOffset = scrollView.contentOffset.y;
+    CGFloat maximumOffset = scrollView.contentSize.height - scrollView.frame.size.height;
+    
+    if (maximumOffset - currentOffset <= 350.0 && scrollView.contentSize.height > scrollView.bounds.size.height) {
+        [self loadMoreWallPosts];
+    }
 }
 
 - (void)writeMessageAction {
@@ -405,37 +497,74 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
 #pragma mark - Table view data source
 
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
-    if (section == 1 && self.isShowingArchive) {
-        return 40.0;
+    if (section == 1) {
+        return self.isShowingArchive ? 42.0 : 36.0;
     }
     return 0.0;
 }
 
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
-    if (section == 1 && self.isShowingArchive) {
-        UIView *banner = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 40.0)];
-        banner.backgroundColor = [UIColor colorWithRed:236.0/255.0 green:242.0/255.0 blue:252.0/255.0 alpha:0.98];
+    if (section == 1) {
+        NSInteger myUid = [[VKAuthService sharedService] currentUserModel].uid;
+        BOOL isMyProfile = [self.user isCurrentUser] || (self.user.uid == myUid);
         
-        UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(12, 10, tableView.bounds.size.width - 110, 20)];
-        lbl.font = [UIFont boldSystemFontOfSize:13];
-        lbl.textColor = [UIColor colorWithRed:60.0/255.0 green:90.0/255.0 blue:130.0/255.0 alpha:1.0];
-        lbl.text = @"📦 Архив записей (скрыты)";
-        [banner addSubview:lbl];
-        
-        UIButton *exitBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-        exitBtn.frame = CGRectMake(tableView.bounds.size.width - 95, 6, 85, 28);
-        exitBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-        exitBtn.titleLabel.font = [UIFont boldSystemFontOfSize:12];
-        [exitBtn setTitle:@"К стене ✕" forState:UIControlStateNormal];
-        [exitBtn setTitleColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] forState:UIControlStateNormal];
-        [exitBtn addTarget:self action:@selector(toggleArchiveMode) forControlEvents:UIControlEventTouchUpInside];
-        [banner addSubview:exitBtn];
-        
-        UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, 39.5, tableView.bounds.size.width, 0.5)];
-        sep.backgroundColor = [UIColor colorWithRed:210.0/255.0 green:220.0/255.0 blue:235.0/255.0 alpha:1.0];
-        sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-        [banner addSubview:sep];
-        return banner;
+        if (self.isShowingArchive) {
+            UIView *banner = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 42.0)];
+            banner.backgroundColor = [UIColor colorWithRed:236.0/255.0 green:242.0/255.0 blue:252.0/255.0 alpha:0.98];
+            
+            UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(12, 11, tableView.bounds.size.width - 110, 20)];
+            lbl.font = [UIFont boldSystemFontOfSize:13];
+            lbl.textColor = [UIColor colorWithRed:60.0/255.0 green:90.0/255.0 blue:130.0/255.0 alpha:1.0];
+            lbl.text = self.wallPosts.count > 0 ? [NSString stringWithFormat:@"📦 Архив записей (%ld)", (long)self.wallPosts.count] : @"📦 Архив записей";
+            [banner addSubview:lbl];
+            
+            UIButton *exitBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+            exitBtn.frame = CGRectMake(tableView.bounds.size.width - 95, 7, 85, 28);
+            exitBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+            exitBtn.titleLabel.font = [UIFont boldSystemFontOfSize:12];
+            [exitBtn setTitle:@"К стене ✕" forState:UIControlStateNormal];
+            [exitBtn setTitleColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+            [exitBtn addTarget:self action:@selector(toggleArchiveMode) forControlEvents:UIControlEventTouchUpInside];
+            [banner addSubview:exitBtn];
+            
+            UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, 41.5, tableView.bounds.size.width, 0.5)];
+            sep.backgroundColor = [UIColor colorWithRed:210.0/255.0 green:220.0/255.0 blue:235.0/255.0 alpha:1.0];
+            sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+            [banner addSubview:sep];
+            return banner;
+        } else {
+            UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 36.0)];
+            headerView.backgroundColor = [UIColor colorWithRed:244.0/255.0 green:245.0/255.0 blue:247.0/255.0 alpha:0.98];
+            
+            UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(12, 8, tableView.bounds.size.width - 120, 20)];
+            lbl.font = [UIFont boldSystemFontOfSize:12];
+            lbl.textColor = [[VKThemeManager sharedManager] secondaryTextColor] ?: [UIColor colorWithRed:101.0/255.0 green:113.0/255.0 blue:127.0/255.0 alpha:1.0];
+            
+            NSInteger count = self.wallTotalCount > 0 ? self.wallTotalCount : self.wallPosts.count;
+            if (count > 0) {
+                lbl.text = [NSString stringWithFormat:@"ЗАПИСИ НА СТЕНЕ  %ld", (long)count];
+            } else {
+                lbl.text = @"ЗАПИСИ НА СТЕНЕ";
+            }
+            [headerView addSubview:lbl];
+            
+            if (isMyProfile) {
+                UIButton *archiveBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+                archiveBtn.frame = CGRectMake(tableView.bounds.size.width - 105, 4, 95, 28);
+                archiveBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+                archiveBtn.titleLabel.font = [UIFont systemFontOfSize:12];
+                [archiveBtn setTitle:@"📦 Архив ›" forState:UIControlStateNormal];
+                [archiveBtn setTitleColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+                [archiveBtn addTarget:self action:@selector(toggleArchiveMode) forControlEvents:UIControlEventTouchUpInside];
+                [headerView addSubview:archiveBtn];
+            }
+            
+            UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, 35.5, tableView.bounds.size.width, 0.5)];
+            sep.backgroundColor = [[VKThemeManager sharedManager] separatorColor] ?: [UIColor colorWithRed:215.0/255.0 green:217.0/255.0 blue:220.0/255.0 alpha:1.0];
+            sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+            [headerView addSubview:sep];
+            return headerView;
+        }
     }
     return nil;
 }
@@ -446,6 +575,9 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return 1;
+    if (self.isShowingArchive && self.wallPosts.count == 0 && !self.isLoading) {
+        return 1;
+    }
     return self.wallPosts.count;
 }
 
@@ -457,6 +589,9 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
         // Высота шапки со счетчиками и кнопками для iOS 6 и iOS 7
         return self.user.isGroup ? 200.0 : 210.0;
     } else {
+        if (self.isShowingArchive && self.wallPosts.count == 0 && !self.isLoading) {
+            return 130.0;
+        }
         if (indexPath.row >= (NSInteger)self.wallPosts.count) return 44.0;
         VKPost *post = self.wallPosts[indexPath.row];
         BOOL isRevealed = [self.revealedPostIds containsObject:@(post.vkID)] || ([VKAppConfig nsfwDisplayMode] == VKNSFWDisplayModeShowAlways);
@@ -821,9 +956,42 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
                 }
             }
         }
-        
         return cell;
     } else {
+        if (self.isShowingArchive && self.wallPosts.count == 0 && !self.isLoading) {
+            static NSString *EmptyArchiveCellId = @"VKProfileEmptyArchiveCell";
+            UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:EmptyArchiveCellId];
+            if (!cell) {
+                cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:EmptyArchiveCellId];
+                cell.selectionStyle = UITableViewCellSelectionStyleNone;
+                cell.backgroundColor = [UIColor clearColor];
+                
+                UILabel *msgLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 16, tableView.bounds.size.width - 32, 44)];
+                msgLabel.tag = 910;
+                msgLabel.font = [UIFont systemFontOfSize:13];
+                msgLabel.textColor = [UIColor grayColor];
+                msgLabel.numberOfLines = 0;
+                msgLabel.textAlignment = NSTextAlignmentCenter;
+                msgLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+                msgLabel.text = @"Архив записей пуст или не поддерживается мобильным API данного сервера OpenVK.\nВы можете открыть веб-архив в браузере:";
+                [cell.contentView addSubview:msgLabel];
+                
+                UIButton *webBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+                webBtn.tag = 911;
+                webBtn.frame = CGRectMake((tableView.bounds.size.width - 240) / 2.0, 68, 240, 36);
+                webBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+                webBtn.layer.cornerRadius = 6.0;
+                webBtn.clipsToBounds = YES;
+                webBtn.backgroundColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
+                webBtn.titleLabel.font = [UIFont boldSystemFontOfSize:13];
+                [webBtn setTitle:@"🌐 Открыть веб-архив в Safari" forState:UIControlStateNormal];
+                [webBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+                [webBtn addTarget:self action:@selector(openWebArchive) forControlEvents:UIControlEventTouchUpInside];
+                [cell.contentView addSubview:webBtn];
+            }
+            return cell;
+        }
+        
         static NSString *CellId = @"VKFeedPostCell";
         VKFeedPostCell *cell = [tableView dequeueReusableCellWithIdentifier:CellId];
         if (!cell) {
