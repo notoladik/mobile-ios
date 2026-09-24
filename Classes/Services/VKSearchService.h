@@ -12,6 +12,15 @@
                        count:(NSInteger)count
                   completion:(void (^)(NSArray *users, NSInteger totalCount, NSError *error))completion;
 
+- (void)searchUsersWithQuery:(NSString *)query
+                        sort:(NSInteger)sort
+                         sex:(NSInteger)sex
+                      online:(BOOL)onlineOnly
+                    hasPhoto:(BOOL)hasPhotoOnly
+                      offset:(NSInteger)offset
+                       count:(NSInteger)count
+                  completion:(void (^)(NSArray *users, NSInteger totalCount, NSError *error))completion;
+
 - (void)searchGroupsWithQuery:(NSString *)query
                        offset:(NSInteger)offset
                         count:(NSInteger)count

@@ -16,13 +16,28 @@
                       offset:(NSInteger)offset
                        count:(NSInteger)count
                   completion:(void (^)(NSArray *users, NSInteger totalCount, NSError *error))completion {
+    [self searchUsersWithQuery:query sort:0 sex:0 online:NO hasPhoto:NO offset:offset count:count completion:completion];
+}
+
+- (void)searchUsersWithQuery:(NSString *)query
+                        sort:(NSInteger)sort
+                         sex:(NSInteger)sex
+                      online:(BOOL)onlineOnly
+                    hasPhoto:(BOOL)hasPhotoOnly
+                      offset:(NSInteger)offset
+                       count:(NSInteger)count
+                  completion:(void (^)(NSArray *users, NSInteger totalCount, NSError *error))completion {
     
-    NSDictionary *params = @{
+    NSMutableDictionary *params = [NSMutableDictionary dictionaryWithDictionary:@{
         @"q": query ?: @"",
         @"offset": @(offset),
         @"count": @(count > 0 ? count : 30),
-        @"fields": @"photo_100,photo_200,online,verified,screen_name,city,status"
-    };
+        @"fields": @"photo_100,photo_200,online,verified,screen_name,city,status,sex"
+    }];
+    if (sort > 0) params[@"sort"] = @(sort);
+    if (sex > 0) params[@"sex"] = @(sex);
+    if (onlineOnly) params[@"online"] = @(1);
+    if (hasPhotoOnly) params[@"has_photo"] = @(1);
     
     [[VKAPIClient sharedClient] callMethod:@"users.search" parameters:params completionHandler:^(id response, NSError *error) {
         if (error) {

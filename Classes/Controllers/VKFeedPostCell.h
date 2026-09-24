@@ -12,6 +12,7 @@
 @property (nonatomic, strong) UIImageView *supporterBadgeImageView;
 @property (nonatomic, strong) UILabel *wallOwnerNoteLabel;
 @property (nonatomic, strong) UILabel *dateAndPlatformLabel;
+@property (nonatomic, strong) UIImageView *platformImageView;
 @property (nonatomic, strong) UIButton *moreButton;
 
 @property (nonatomic, strong) UIView *contentContainerView;

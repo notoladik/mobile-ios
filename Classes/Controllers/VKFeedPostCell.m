@@ -94,6 +94,12 @@
         _dateAndPlatformLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
         [_cardBackgroundView addSubview:_dateAndPlatformLabel];
         
+        _platformImageView = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 12, 12)];
+        _platformImageView.contentMode = UIViewContentModeScaleAspectFit;
+        _platformImageView.clipsToBounds = YES;
+        _platformImageView.hidden = YES;
+        [_cardBackgroundView addSubview:_platformImageView];
+        
         // NSFW Badge (18+)
         _nsfwBadgeView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 48, 17)];
         _nsfwBadgeView.backgroundColor = [UIColor colorWithRed:235.0/255.0 green:50.0/255.0 blue:75.0/255.0 alpha:0.12];
@@ -284,6 +290,8 @@
     self.isExplicitRevealed = NO;
     self.spoilerOverlayView.hidden = YES;
     self.nsfwBadgeView.hidden = YES;
+    self.platformImageView.hidden = YES;
+    self.platformImageView.image = nil;
 
     self.onLikeTapped = nil;
     self.onCommentTapped = nil;
@@ -857,14 +865,8 @@
         self.wallOwnerNoteLabel.hidden = YES;
     }
     
-    // Дата и платформа
-    NSString *platformName = @"";
-    if (post.platform.length > 0) {
-        if ([post.platform isEqualToString:@"iphone"] || [post.platform isEqualToString:@"ipad"]) platformName = @"";
-        else if ([post.platform isEqualToString:@"android"]) platformName = @"Android";
-        else if ([post.platform isEqualToString:@"wphone"]) platformName = @"WP";
-    }
-    NSString *dateText = platformName.length > 0 ? [NSString stringWithFormat:@"%@ • %@", post.timeAgo, platformName] : post.timeAgo;
+    // Дата и платформа публикации
+    NSString *dateText = post.timeAgo ?: @"";
     if (post.isPinned) {
         dateText = [NSString stringWithFormat:@"📌 Закреплено • %@", dateText];
     }
@@ -872,6 +874,24 @@
         dateText = [NSString stringWithFormat:@"[Архив] %@", dateText];
     }
     self.dateAndPlatformLabel.text = dateText;
+    
+    UIImage *platImg = nil;
+    NSString *plat = [post.platform lowercaseString];
+    if ([plat isEqualToString:@"iphone"] || [plat isEqualToString:@"ipad"] || [plat isEqualToString:@"ios"] || [plat isEqualToString:@"apple"]) {
+        platImg = [UIImage imageNamed:@"post_app_ios"];
+    } else if ([plat isEqualToString:@"android"]) {
+        platImg = [UIImage imageNamed:@"post_app_android"];
+    } else if ([plat isEqualToString:@"wphone"] || [plat isEqualToString:@"windows"]) {
+        platImg = [UIImage imageNamed:@"post_app_windows"];
+    } else if ([plat isEqualToString:@"mvk"] || [plat isEqualToString:@"mobile"]) {
+        platImg = [UIImage imageNamed:@"post_app_mvk"];
+    } else if ([plat isEqualToString:@"instagram"]) {
+        platImg = [UIImage imageNamed:@"post_app_instagram"];
+    } else if ([plat isEqualToString:@"snapster"]) {
+        platImg = [UIImage imageNamed:@"post_app_snapster"];
+    } else if (plat.length > 0) {
+        platImg = [UIImage imageNamed:@"post_app_other"];
+    }
     
     // Позиционирование карточки
     CGFloat margin = [[VKThemeManager sharedManager] cardHorizontalMargin];
@@ -918,7 +938,19 @@
         self.nsfwBadgeView.hidden = YES;
         self.authorNameLabel.frame = CGRectMake(headerLeft, 10.0, headerRight - headerLeft, 19.0);
     }
-    self.dateAndPlatformLabel.frame = CGRectMake(headerLeft, 31.0, headerRight - headerLeft, 15.0);
+    CGSize dateSize = [dateText sizeWithFont:self.dateAndPlatformLabel.font];
+    CGFloat maxDateW = headerRight - headerLeft - (platImg ? 18.0 : 0.0);
+    CGFloat actualDateW = MIN(ceilf(dateSize.width), maxDateW);
+    self.dateAndPlatformLabel.frame = CGRectMake(headerLeft, 31.0, actualDateW, 15.0);
+    
+    if (platImg) {
+        self.platformImageView.image = platImg;
+        self.platformImageView.hidden = NO;
+        self.platformImageView.frame = CGRectMake(headerLeft + actualDateW + 5.0, 32.5, 12.0, 12.0);
+    } else {
+        self.platformImageView.hidden = YES;
+        self.platformImageView.image = nil;
+    }
     self.moreButton.frame = CGRectMake(cardWidth - 44.0, 4.0, 40.0, 36.0);
     
     // Контент

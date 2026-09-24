@@ -35,9 +35,16 @@
         }
     }
     
-    // Платформа
+    // Платформа публикации
     if ([dict[@"post_source"] isKindOfClass:[NSDictionary class]]) {
-        post.platform = dict[@"post_source"][@"platform"];
+        NSDictionary *ps = dict[@"post_source"];
+        NSString *plat = ps[@"platform"];
+        NSString *type = ps[@"type"];
+        if ([plat isKindOfClass:[NSString class]] && plat.length > 0) {
+            post.platform = [plat lowercaseString];
+        } else if ([type isKindOfClass:[NSString class]] && type.length > 0) {
+            post.platform = [type lowercaseString];
+        }
     }
     
     // Дата
