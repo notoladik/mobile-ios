@@ -138,7 +138,7 @@
         @"owner_id": @(ownerId),
         @"post_id": @(postId)
     };
-    [[VKAPIClient sharedClient] callMethod:@"wall.archivePost" parameters:params completionHandler:^(id response, NSError *error) {
+    [[VKAPIClient sharedClient] callMethod:@"wall.archive" parameters:params completionHandler:^(id response, NSError *error) {
         if (completion) {
             completion(error == nil, error);
         }
@@ -150,7 +150,7 @@
         @"owner_id": @(ownerId),
         @"post_id": @(postId)
     };
-    [[VKAPIClient sharedClient] callMethod:@"wall.restorePost" parameters:params completionHandler:^(id response, NSError *error) {
+    [[VKAPIClient sharedClient] callMethod:@"wall.reveal" parameters:params completionHandler:^(id response, NSError *error) {
         if (completion) {
             completion(error == nil, error);
         }
