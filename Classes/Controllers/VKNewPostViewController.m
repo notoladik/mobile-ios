@@ -51,6 +51,17 @@
     return self;
 }
 
+- (instancetype)initWithOwnerId:(NSInteger)ownerId initialImage:(UIImage *)image {
+    self = [self initWithOwnerId:ownerId];
+    if (self && image) {
+        VKAttachedItem *item = [[VKAttachedItem alloc] init];
+        item.type = @"photo";
+        item.localImage = image;
+        [_attachedItems addObject:item];
+    }
+    return self;
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"Новая запись";
@@ -108,6 +119,10 @@
     // Клавиатурные события
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillShow:) name:UIKeyboardWillShowNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillHide:) name:UIKeyboardWillHideNotification object:nil];
+    
+    if (self.attachedItems.count > 0) {
+        [self reloadAttachmentsTray];
+    }
     
     [self.textView becomeFirstResponder];
 }

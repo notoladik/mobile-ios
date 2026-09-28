@@ -1,6 +1,7 @@
 #import "VKMessagesService.h"
 #import "VKAPIClient.h"
 #import "VKAuthService.h"
+#import "VKFeedService.h"
 
 @implementation VKMessagesService
 
@@ -242,14 +243,16 @@
     
     [[VKAPIClient sharedClient] callMethod:@"photos.getMessagesUploadServer" parameters:serverParams completionHandler:^(id response, NSError *error) {
         if (error) {
-            if (completion) completion(nil, error);
+            // OpenVK fallback: photos.getMessagesUploadServer is not implemented on OpenVK servers.
+            // Fall back to photos.getWallUploadServer + photos.saveWallPhoto which OpenVK fully supports.
+            [[VKFeedService sharedService] uploadWallPhoto:image ownerId:0 completion:completion];
             return;
         }
         
         NSDictionary *resp = [response isKindOfClass:[NSDictionary class]] ? (response[@"response"] ?: response) : nil;
         NSString *uploadUrl = resp[@"upload_url"];
         if (!uploadUrl || uploadUrl.length == 0) {
-            if (completion) completion(nil, [NSError errorWithDomain:@"VKMessagesService" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"No upload_url"}]);
+            [[VKFeedService sharedService] uploadWallPhoto:image ownerId:0 completion:completion];
             return;
         }
         
@@ -273,7 +276,7 @@
             
             [[VKAPIClient sharedClient] callMethod:@"photos.saveMessagesPhoto" parameters:saveParams completionHandler:^(id saveResp, NSError *saveErr) {
                 if (saveErr) {
-                    if (completion) completion(nil, saveErr);
+                    [[VKFeedService sharedService] uploadWallPhoto:image ownerId:0 completion:completion];
                     return;
                 }
                 
@@ -289,7 +292,7 @@
                     }
                 }
                 
-                if (completion) completion(nil, [NSError errorWithDomain:@"VKMessagesService" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"Failed to save message photo"}]);
+                [[VKFeedService sharedService] uploadWallPhoto:image ownerId:0 completion:completion];
             }];
         }];
     }];

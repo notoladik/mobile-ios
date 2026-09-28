@@ -25,7 +25,7 @@
 #import "VKShareManager.h"
 #import "VKAppConfig.h"
 
-@interface VKProfileViewController () <UIActionSheetDelegate>
+@interface VKProfileViewController () <UIActionSheetDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property (nonatomic, strong) NSMutableArray *wallPosts;
 @property (nonatomic, strong) NSMutableSet *revealedPostIds;
 @property (nonatomic, assign) BOOL isLoading;
@@ -351,6 +351,36 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
     };
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:newPostVC];
     [self presentViewController:nav animated:YES completion:nil];
+}
+
+- (void)postPhotoAction {
+    UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+    picker.delegate = self;
+    picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+#pragma mark - UIImagePickerControllerDelegate
+
+- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary *)info {
+    UIImage *chosenImage = info[UIImagePickerControllerEditedImage] ?: info[UIImagePickerControllerOriginalImage];
+    [picker dismissViewControllerAnimated:YES completion:^{
+        if (chosenImage) {
+            NSInteger targetOwner = self.user.uid;
+            if (targetOwner == 0) targetOwner = [[VKAuthService sharedService] currentUserModel].uid;
+            VKNewPostViewController *newPostVC = [[VKNewPostViewController alloc] initWithOwnerId:targetOwner initialImage:chosenImage];
+            __weak typeof(self) weakSelf = self;
+            newPostVC.onPostCreated = ^{
+                [weakSelf loadProfileData];
+            };
+            UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:newPostVC];
+            [self presentViewController:nav animated:YES completion:nil];
+        }
+    }];
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
+    [picker dismissViewControllerAnimated:YES completion:nil];
 }
 
 - (void)loadProfileData {
@@ -796,6 +826,9 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
         UIScrollView *countersScroll = (UIScrollView *)[cell.contentView viewWithTag:606];
         UIView *actionsBar = [cell.contentView viewWithTag:607];
         
+        NSInteger myId = [[VKAuthService sharedService] currentUserId];
+        BOOL isMyProfile = (self.user.uid == myId || self.user.uid == 0 || [self.user isCurrentUser]);
+        
         avatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:72.0];
         avatar.layer.borderWidth = [[VKThemeManager sharedManager] avatarBorderWidth];
         avatar.layer.borderColor = [[VKThemeManager sharedManager] avatarBorderColor].CGColor;
@@ -811,7 +844,12 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
             }];
         }
         
-        nameLabel.text = self.user.displayName;
+        if (self.user.isOfficial) {
+            nameLabel.text = [NSString stringWithFormat:@"%@ ✓", self.user.displayName];
+        } else {
+            nameLabel.text = self.user.displayName;
+        }
+        
         if (self.user.isGroup) {
             if ([self.user.groupType isEqualToString:@"page"]) {
                 statusLabel.text = @"публичная страница";
@@ -820,15 +858,28 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
             } else {
                 statusLabel.text = self.user.isClosed ? @"закрытая группа" : @"открытая группа";
             }
+            statusLabel.textColor = [UIColor grayColor];
             cityLabel.text = self.user.status.length > 0 ? self.user.status : @"";
         } else {
+            BOOL hasStatus = (self.user.status.length > 0);
             NSString *onlText = self.user.isOnline ? @"online" : (self.user.lastSeen ?: @"был(а) недавно");
             if (self.user.isOnline && self.user.onlinePlatform.length > 0) {
-                onlText = [NSString stringWithFormat:@"online %@", self.user.onlinePlatform];
+                onlText = [NSString stringWithFormat:@"online (%@)", self.user.onlinePlatform];
             }
-            statusLabel.text = onlText;
-            statusLabel.textColor = self.user.isOnline ? [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] : [UIColor grayColor];
-            cityLabel.text = self.user.city.length > 0 ? self.user.city : (self.user.status ?: @"");
+            if (self.user.city.length > 0) {
+                onlText = [NSString stringWithFormat:@"%@ • %@", onlText, self.user.city];
+            }
+            
+            if (hasStatus) {
+                statusLabel.text = self.user.status;
+                statusLabel.textColor = [UIColor colorWithRed:50.0/255.0 green:50.0/255.0 blue:55.0/255.0 alpha:1.0];
+                cityLabel.text = onlText;
+                cityLabel.textColor = self.user.isOnline ? [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] : [UIColor grayColor];
+            } else {
+                statusLabel.text = onlText;
+                statusLabel.textColor = self.user.isOnline ? [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] : [UIColor grayColor];
+                cityLabel.text = @"";
+            }
         }
         
         // Заполняем счетчики
@@ -925,7 +976,7 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
             }
             [joinBtn addTarget:self action:@selector(toggleGroupAction) forControlEvents:UIControlEventTouchUpInside];
             [actionsBar addSubview:joinBtn];
-        } else {
+        } else if (isMyProfile) {
             CGFloat actW = cell.contentView.bounds.size.width / 3.0;
             NSArray *acts = @[
                 @{@"title": @"Запись", @"image": @"7_profile_post_text"},
@@ -947,6 +998,8 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
                 }
                 
                 if (i == 0) [actBtn addTarget:self action:@selector(newPostAction) forControlEvents:UIControlEventTouchUpInside];
+                else if (i == 1) [actBtn addTarget:self action:@selector(postPhotoAction) forControlEvents:UIControlEventTouchUpInside];
+                else if (i == 2) [actBtn addTarget:self action:@selector(newPostAction) forControlEvents:UIControlEventTouchUpInside];
                 [actionsBar addSubview:actBtn];
                 
                 if (i < 2) {
@@ -955,6 +1008,37 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
                     [actionsBar addSubview:div];
                 }
             }
+        } else {
+            // Чужой профиль: кнопки [Сообщение] и [Добавить в друзья]
+            CGFloat btnW = (cell.contentView.bounds.size.width - 32 - 10) / 2.0;
+            
+            UIButton *msgBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+            msgBtn.frame = CGRectMake(16, 6, btnW, 36);
+            msgBtn.layer.cornerRadius = 4.0;
+            msgBtn.clipsToBounds = YES;
+            msgBtn.backgroundColor = [UIColor colorWithRed:81.0/255.0 green:129.0/255.0 blue:184.0/255.0 alpha:1.0];
+            [msgBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+            msgBtn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+            [msgBtn setTitle:@"Сообщение" forState:UIControlStateNormal];
+            [msgBtn addTarget:self action:@selector(writeMessageAction) forControlEvents:UIControlEventTouchUpInside];
+            [actionsBar addSubview:msgBtn];
+            
+            UIButton *frBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+            frBtn.frame = CGRectMake(16 + btnW + 10, 6, btnW, 36);
+            frBtn.layer.cornerRadius = 4.0;
+            frBtn.clipsToBounds = YES;
+            frBtn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+            if (self.user.isFriend) {
+                frBtn.backgroundColor = [UIColor colorWithRed:242.0/255.0 green:243.0/255.0 blue:245.0/255.0 alpha:1.0];
+                [frBtn setTitleColor:[UIColor colorWithRed:40.0/255.0 green:40.0/255.0 blue:40.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+                [frBtn setTitle:@"У вас в друзьях ✓" forState:UIControlStateNormal];
+            } else {
+                frBtn.backgroundColor = [UIColor colorWithRed:235.0/255.0 green:242.0/255.0 blue:250.0/255.0 alpha:1.0];
+                [frBtn setTitleColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0] forState:UIControlStateNormal];
+                [frBtn setTitle:@"Добавить в друзья" forState:UIControlStateNormal];
+            }
+            [frBtn addTarget:self action:@selector(toggleFriendAction) forControlEvents:UIControlEventTouchUpInside];
+            [actionsBar addSubview:frBtn];
         }
         return cell;
     } else {

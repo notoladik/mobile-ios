@@ -1169,7 +1169,7 @@
     if (self.attachedImage) {
         [self.sendButton setTitle:@"..." forState:UIControlStateNormal];
         UIImage *uploadImg = self.attachedImage;
-        [[VKFeedService sharedService] uploadWallPhoto:uploadImg ownerId:self.post.ownerID completion:^(NSString *attachmentString, NSError *uploadError) {
+        [[VKFeedService sharedService] uploadWallPhoto:uploadImg ownerId:0 completion:^(NSString *attachmentString, NSError *uploadError) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (uploadError || !attachmentString) {
                     self.sendButton.userInteractionEnabled = YES;
