@@ -1,0 +1,62 @@
+name: Build OpenVK iOS IPA
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build IPA
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential fakeroot git perl libxml2-utils zip unzip curl xz-utils
+
+      - name: Install Theos and iOS toolchain
+        run: |
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+
+      - name: Install iPhoneOS 12.4 SDK
+        run: |
+          mkdir -p $HOME/theos/sdks
+          curl -fsSL https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS12.4.sdk.tar.xz | tar -xJ -C $HOME/theos/sdks
+
+      - name: Run unit tests
+        run: |
+          gcc -IClasses/Services tests/test_client_design.c -lm -o test_client_design
+          ./test_client_design
+          gcc -IClasses/Services tests/test_pcm.c -lm -lpthread -o test_pcm
+          ./test_pcm
+
+      - name: Build IPA with Theos
+        run: |
+          export THEOS=$HOME/theos
+          make clean
+          make ipa
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenVK-Legacy-ipa
+          path: OpenVK-Legacy.ipa
+          if-no-files-found: error
+
+      - name: Release IPA on Tag
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: OpenVK-Legacy.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
