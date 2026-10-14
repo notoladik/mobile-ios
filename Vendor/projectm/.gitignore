@@ -25,7 +25,6 @@ Makefile.in
 /libtool
 /stamp-h1
 .dirstamp
-/src/libprojectM/config.h
 ar-lib
 compile
 depcomp
