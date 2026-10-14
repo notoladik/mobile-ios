@@ -4,6 +4,7 @@
 #import "VKFeedService.h"
 #import "VKAuthService.h"
 #import "VKFeedPostCell.h"
+#import "VKTextParser.h"
 #import "VKProfileViewController.h"
 #import "VKProfileService.h"
 #import "VKPhotoViewerViewController.h"
@@ -206,29 +207,10 @@
 
 + (NSAttributedString *)attributedTextForComment:(NSString *)rawText {
     if (!rawText || rawText.length == 0) return [[NSAttributedString alloc] initWithString:@""];
-    
-    NSMutableAttributedString *attr = [[NSMutableAttributedString alloc] initWithString:rawText attributes:@{
-        NSFontAttributeName: [UIFont systemFontOfSize:14],
-        NSForegroundColorAttributeName: [UIColor colorWithRed:20.0/255.0 green:20.0/255.0 blue:24.0/255.0 alpha:1.0]
-    }];
-    
-    NSError *error = nil;
-    NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"\\[(id|club)(\\d+)\\|([^\\]]+)\\]" options:0 error:&error];
-    if (!error) {
-        NSArray *matches = [regex matchesInString:attr.string options:0 range:NSMakeRange(0, attr.string.length)];
-        for (NSTextCheckingResult *match in [matches reverseObjectEnumerator]) {
-            NSRange fullRange = [match rangeAtIndex:0];
-            NSRange nameRange = [match rangeAtIndex:3];
-            NSString *name = [attr.string substringWithRange:nameRange];
-            
-            NSAttributedString *replacement = [[NSAttributedString alloc] initWithString:name attributes:@{
-                NSFontAttributeName: [UIFont boldSystemFontOfSize:14],
-                NSForegroundColorAttributeName: [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]
-            }];
-            [attr replaceCharactersInRange:fullRange withAttributedString:replacement];
-        }
-    }
-    return attr;
+    return [VKTextParser attributedStringForText:rawText
+                                            font:[UIFont systemFontOfSize:14]
+                                       textColor:[UIColor colorWithRed:20.0/255.0 green:20.0/255.0 blue:24.0/255.0 alpha:1.0]
+                                       linkColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
 }
 
 + (CGFloat)heightForComment:(VKComment *)comment width:(CGFloat)width {

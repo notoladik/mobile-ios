@@ -3,6 +3,7 @@
 #import "VKProfileService.h"
 #import "VKAuthService.h"
 #import "VKNewPostViewController.h"
+#import "VKNotificationsViewController.h"
 #import "VKChatViewController.h"
 #import "VKSettingsViewController.h"
 #import "VKPhotoViewerViewController.h"
@@ -17,6 +18,7 @@
 #import "VKFeedPostCell.h"
 #import "VKFeedService.h"
 #import "VKThemeManager.h"
+#import "VKClientDesign.h"
 #import "VKSideMenuManager.h"
 #import "VKPostDetailViewController.h"
 #import "VKImageLoader.h"
@@ -24,6 +26,8 @@
 #import "VKCrashLogger.h"
 #import "VKShareManager.h"
 #import "VKAppConfig.h"
+#import "VKKateSettings.h"
+#import "VKKateTheme.h"
 
 @interface VKProfileViewController () <UIActionSheetDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property (nonatomic, strong) NSMutableArray *wallPosts;
@@ -84,6 +88,7 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
     self.revealedPostIds = [NSMutableSet set];
     [self applyThemeStyle];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applyThemeStyle) name:VKThemeDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applyThemeStyle) name:VKClientDesignDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(setupNavigationItems) name:VKSideMenuStateDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nsfwSettingDidChange) name:VKNSFWSettingDidChangeNotification object:nil];
     
@@ -111,8 +116,36 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
     [self setupNavigationItems];
 }
 
+- (BOOL)shouldDisplayKateHub {
+    if (![[VKThemeManager sharedManager] isKateTheme]) return NO;
+    if (self.isFullProfileMode) return NO;
+    if (![VKClientDesign profileMenu]) return NO;
+    
+    NSInteger myUid = [[VKAuthService sharedService] currentUserModel].uid;
+    BOOL isMyProfile = [self.user isCurrentUser] || (self.user.uid == myUid) || (self.user.uid == 0);
+    return isMyProfile;
+}
+
 - (void)setupNavigationItems {
+    BOOL isKate = [[VKThemeManager sharedManager] isKateTheme];
     BOOL isRoot = (self.navigationController.viewControllers.count > 0 && self.navigationController.viewControllers[0] == self);
+    
+    if (isKate) {
+        if (!isRoot) {
+            UIImage *homeImg = [UIImage imageNamed:@"kate_home"];
+            if (homeImg) {
+                self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithImage:homeImg style:UIBarButtonItemStylePlain target:self action:@selector(goBackAction)];
+            } else {
+                self.navigationItem.leftBarButtonItem = [[VKThemeManager sharedManager] barButtonItemWithTitle:@"Назад" target:self action:@selector(goBackAction) isBack:YES];
+            }
+            
+            UIBarButtonItem *overflowItem = [[UIBarButtonItem alloc] initWithImage:[UIImage imageNamed:@"kate_overflow"] style:UIBarButtonItemStylePlain target:self action:@selector(optionsAction)];
+            UIBarButtonItem *refreshItem = [[UIBarButtonItem alloc] initWithImage:[UIImage imageNamed:@"kate_refresh"] style:UIBarButtonItemStylePlain target:self action:@selector(refreshProfile)];
+            self.navigationItem.rightBarButtonItems = @[overflowItem, refreshItem];
+        }
+        return;
+    }
+    
     if (isRoot) {
         if ([[VKSideMenuManager sharedManager] isSideMenuEnabled]) {
             self.navigationItem.leftBarButtonItem = [[VKThemeManager sharedManager] navBarMenuBarButtonItemWithTarget:self action:@selector(leftMenuButtonAction)];
@@ -527,6 +560,9 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
 #pragma mark - Table view data source
 
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    if ([self shouldDisplayKateHub]) {
+        return 0.0;
+    }
     if (section == 1) {
         return self.isShowingArchive ? 42.0 : 36.0;
     }
@@ -534,6 +570,9 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
 }
 
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    if ([self shouldDisplayKateHub]) {
+        return nil;
+    }
     if (section == 1) {
         NSInteger myUid = [[VKAuthService sharedService] currentUserModel].uid;
         BOOL isMyProfile = [self.user isCurrentUser] || (self.user.uid == myUid);
@@ -600,10 +639,17 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+    if ([self shouldDisplayKateHub]) {
+        return 2;
+    }
     return 2; // Секция 0: Шапка профиля и счетчики, Секция 1: Стена постов
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    if ([self shouldDisplayKateHub]) {
+        if (section == 0) return 1;
+        return 9;
+    }
     if (section == 0) return 1;
     if (self.isShowingArchive && self.wallPosts.count == 0 && !self.isLoading) {
         return 1;
@@ -612,11 +658,18 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if ([self shouldDisplayKateHub]) {
+        return 48.0;
+    }
     if (indexPath.section == 0) {
+        if ([[VKThemeManager sharedManager] isKateTheme]) {
+            NSInteger myId = [[VKAuthService sharedService] currentUserId];
+            BOOL isMyProfile = (self.user.uid == myId || self.user.uid == 0 || [self.user isCurrentUser]);
+            return isMyProfile ? 736.0 : 790.0;
+        }
         if ([[VKThemeManager sharedManager] isModern]) {
             return 196.0;
         }
-        // Высота шапки со счетчиками и кнопками для iOS 6 и iOS 7
         return self.user.isGroup ? 200.0 : 210.0;
     } else {
         if (self.isShowingArchive && self.wallPosts.count == 0 && !self.isLoading) {
@@ -630,10 +683,487 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if ([self shouldDisplayKateHub]) {
+        if (indexPath.section == 0) {
+            static NSString *HubHeaderId = @"VKKateProfileHubHeaderCell";
+            UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:HubHeaderId];
+            if (!cell) {
+                cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:HubHeaderId];
+                cell.selectionStyle = UITableViewCellSelectionStyleNone;
+                
+                UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 12, tableView.bounds.size.width - 64, 24)];
+                nameLabel.tag = 101;
+                nameLabel.font = [UIFont boldSystemFontOfSize:16.5];
+                nameLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+                [cell.contentView addSubview:nameLabel];
+                
+                UIImageView *mobileIV = [[UIImageView alloc] initWithFrame:CGRectMake(tableView.bounds.size.width - 34, 14, 16, 20)];
+                mobileIV.tag = 102;
+                mobileIV.contentMode = UIViewContentModeScaleAspectFit;
+                mobileIV.image = [UIImage imageNamed:@"kate_mobile_online"];
+                mobileIV.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+                [cell.contentView addSubview:mobileIV];
+                
+                UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, 47.5, tableView.bounds.size.width, 0.5)];
+                sep.tag = 103;
+                sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+                [cell.contentView addSubview:sep];
+            }
+            
+            VKKateTheme *kt = [VKKateTheme currentTheme];
+            cell.backgroundColor = kt.cardBackgroundColor;
+            
+            UILabel *nameLabel = (UILabel *)[cell.contentView viewWithTag:101];
+            nameLabel.text = self.user.displayName ?: @"";
+            nameLabel.textColor = kt.primaryTextColor;
+            
+            UIView *sep = [cell.contentView viewWithTag:103];
+            sep.backgroundColor = kt.separatorColor;
+            
+            return cell;
+        } else {
+            static NSString *HubMenuId = @"VKKateProfileHubMenuCell";
+            UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:HubMenuId];
+            if (!cell) {
+                cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:HubMenuId];
+                cell.selectionStyle = UITableViewCellSelectionStyleBlue;
+                
+                UIImageView *iconIV = [[UIImageView alloc] initWithFrame:CGRectMake(16, 12, 24, 24)];
+                iconIV.tag = 201;
+                iconIV.contentMode = UIViewContentModeScaleAspectFit;
+                [cell.contentView addSubview:iconIV];
+                
+                UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(54, 13, tableView.bounds.size.width - 120, 22)];
+                titleLabel.tag = 202;
+                titleLabel.font = [UIFont systemFontOfSize:15.5];
+                titleLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+                [cell.contentView addSubview:titleLabel];
+                
+                UILabel *badgeLabel = [[UILabel alloc] initWithFrame:CGRectMake(tableView.bounds.size.width - 60, 14, 48, 20)];
+                badgeLabel.tag = 203;
+                badgeLabel.font = [UIFont systemFontOfSize:14];
+                badgeLabel.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
+                badgeLabel.textAlignment = NSTextAlignmentRight;
+                badgeLabel.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+                [cell.contentView addSubview:badgeLabel];
+                
+                UIView *sep = [[UIView alloc] initWithFrame:CGRectMake(0, 47.5, tableView.bounds.size.width, 0.5)];
+                sep.tag = 204;
+                sep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+                [cell.contentView addSubview:sep];
+            }
+            
+            VKKateTheme *kt = [VKKateTheme currentTheme];
+            cell.backgroundColor = kt.cardBackgroundColor;
+            
+            UIImageView *iconIV = (UIImageView *)[cell.contentView viewWithTag:201];
+            UILabel *titleLabel = (UILabel *)[cell.contentView viewWithTag:202];
+            UILabel *badgeLabel = (UILabel *)[cell.contentView viewWithTag:203];
+            UIView *sep = [cell.contentView viewWithTag:204];
+            
+            titleLabel.textColor = kt.primaryTextColor;
+            sep.backgroundColor = kt.separatorColor;
+            badgeLabel.textColor = kt.secondaryTextColor;
+            
+            badgeLabel.text = @"";
+            
+            switch (indexPath.row) {
+                case 0:
+                    iconIV.image = [UIImage imageNamed:@"profile_friends_icon_4"];
+                    titleLabel.text = @"Друзья";
+                    if (self.user.friendsCount > 0) badgeLabel.text = [NSString stringWithFormat:@"%ld", (long)self.user.friendsCount];
+                    break;
+                case 1:
+                    iconIV.image = [UIImage imageNamed:@"profile_wall_icon_4"];
+                    titleLabel.text = @"Стена";
+                    if (self.wallTotalCount > 0) badgeLabel.text = [NSString stringWithFormat:@"%ld", (long)self.wallTotalCount];
+                    break;
+                case 2:
+                    iconIV.image = [UIImage imageNamed:@"profile_groups_icon_4"];
+                    titleLabel.text = @"Группы";
+                    if (self.user.groupsCount > 0) badgeLabel.text = [NSString stringWithFormat:@"%ld", (long)self.user.groupsCount];
+                    break;
+                case 3:
+                    iconIV.image = [UIImage imageNamed:@"profile_photos_icon_4"];
+                    titleLabel.text = @"Фотографии";
+                    if (self.user.photoCount > 0) badgeLabel.text = [NSString stringWithFormat:@"%ld", (long)self.user.photoCount];
+                    break;
+                case 4:
+                    iconIV.image = [UIImage imageNamed:@"profile_audio_icon_4"];
+                    titleLabel.text = @"Аудио";
+                    if (self.user.audioCount > 0) badgeLabel.text = [NSString stringWithFormat:@"%ld", (long)self.user.audioCount];
+                    break;
+                case 5:
+                    iconIV.image = [UIImage imageNamed:@"profile_video_icon_4"];
+                    titleLabel.text = @"Видео";
+                    if (self.user.videoCount > 0) badgeLabel.text = [NSString stringWithFormat:@"%ld", (long)self.user.videoCount];
+                    break;
+                case 6:
+                    iconIV.image = [UIImage imageNamed:@"profile_fave_icon_4"];
+                    titleLabel.text = @"Закладки";
+                    break;
+                case 7:
+                    iconIV.image = [UIImage imageNamed:@"profile_replies_icon_4"];
+                    titleLabel.text = @"Ответы";
+                    break;
+                case 8:
+                    iconIV.image = [UIImage imageNamed:@"profile_full_profile_icon_4"];
+                    titleLabel.text = @"Полный профиль";
+                    break;
+            }
+            return cell;
+        }
+    }
+    
     if (indexPath.section == 0) {
+        BOOL isKate = [[VKThemeManager sharedManager] isKateTheme];
         BOOL isModern = [[VKThemeManager sharedManager] isModern];
-        NSString *HeaderCellId = isModern ? @"VKProfileSwiftUIHeaderCell" : @"VKProfileAuthenticHeaderCell";
+        NSString *HeaderCellId = isKate ? @"VKProfileKateWideAvaHeaderCell" : (isModern ? @"VKProfileSwiftUIHeaderCell" : @"VKProfileAuthenticHeaderCell");
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:HeaderCellId];
+        
+        if (isKate) {
+            if (!cell) {
+                cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:HeaderCellId];
+                cell.selectionStyle = UITableViewCellSelectionStyleNone;
+                
+                CGFloat width = tableView.bounds.size.width;
+                VKKateTheme *kt = [VKKateTheme currentTheme];
+                cell.backgroundColor = kt.cardBackgroundColor;
+                
+                // 1. Cover Photo (265.0pt)
+                UIImageView *coverIV = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, width, 265.0)];
+                coverIV.tag = 910;
+                coverIV.contentMode = UIViewContentModeScaleAspectFill;
+                coverIV.clipsToBounds = YES;
+                coverIV.userInteractionEnabled = YES;
+                coverIV.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+                [cell.contentView addSubview:coverIV];
+                
+                // Градиентная тень внизу фото
+                UIView *gradView = [[UIView alloc] initWithFrame:CGRectMake(0, 165.0, width, 100.0)];
+                gradView.tag = 930;
+                gradView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+                CAGradientLayer *gradLayer = [CAGradientLayer layer];
+                gradLayer.frame = CGRectMake(0, 0, width, 100.0);
+                gradLayer.colors = @[(id)[UIColor clearColor].CGColor, (id)[UIColor colorWithWhite:0.0 alpha:0.8].CGColor];
+                [gradView.layer addSublayer:gradLayer];
+                [cell.contentView addSubview:gradView];
+                
+                // Имя пользователя (22sp bold white с тенью)
+                UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 206, width - 32, 28)];
+                nameLabel.tag = 911;
+                nameLabel.font = [UIFont boldSystemFontOfSize:22.0];
+                nameLabel.textColor = [UIColor whiteColor];
+                nameLabel.shadowColor = [UIColor blackColor];
+                nameLabel.shadowOffset = CGSizeMake(1, 1);
+                nameLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+                [cell.contentView addSubview:nameLabel];
+                
+                // Статус online / last seen (12.5pt white с тенью)
+                UILabel *statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 236, width - 50, 18)];
+                statusLabel.tag = 912;
+                statusLabel.font = [UIFont systemFontOfSize:12.5];
+                statusLabel.textColor = [UIColor whiteColor];
+                statusLabel.shadowColor = [UIColor blackColor];
+                statusLabel.shadowOffset = CGSizeMake(1, 1);
+                [cell.contentView addSubview:statusLabel];
+                
+                // Зеленый индикатор / иконка телефона
+                UIImageView *onlineDot = [[UIImageView alloc] initWithFrame:CGRectMake(60, 239, 12, 12)];
+                onlineDot.tag = 913;
+                onlineDot.contentMode = UIViewContentModeScaleAspectFit;
+                [cell.contentView addSubview:onlineDot];
+                
+                // 2. Кнопки действий (40pt)
+                CGFloat btnW = (width - 40.0) / 2.0;
+                UIButton *btn1 = [UIButton buttonWithType:UIButtonTypeCustom];
+                btn1.frame = CGRectMake(16, 277, btnW, 40.0);
+                btn1.tag = 914;
+                btn1.backgroundColor = kt.profileButtonBackgroundColor;
+                btn1.layer.cornerRadius = 3.0;
+                btn1.clipsToBounds = YES;
+                btn1.titleLabel.font = [UIFont boldSystemFontOfSize:13.5];
+                [btn1 setTitleColor:kt.profileButtonTextColor forState:UIControlStateNormal];
+                [cell.contentView addSubview:btn1];
+                
+                UIButton *btn2 = [UIButton buttonWithType:UIButtonTypeCustom];
+                btn2.frame = CGRectMake(16 + btnW + 8.0, 277, btnW, 40.0);
+                btn2.tag = 915;
+                btn2.backgroundColor = kt.profileButtonBackgroundColor;
+                btn2.layer.cornerRadius = 3.0;
+                btn2.clipsToBounds = YES;
+                btn2.titleLabel.font = [UIFont boldSystemFontOfSize:13.5];
+                [btn2 setTitleColor:kt.profileButtonTextColor forState:UIControlStateNormal];
+                [cell.contentView addSubview:btn2];
+                
+                // 3. Сетка 3x2 (Стена | Друзья | Группы) и (Фото | Все фото | Музыка)
+                CGFloat colW = floorf(width / 3.0);
+                CGFloat gridY = 329.0;
+                
+                // Разделитель над сеткой
+                UIView *divGridTop = [[UIView alloc] initWithFrame:CGRectMake(0, gridY, width, 0.5)];
+                divGridTop.tag = 940;
+                divGridTop.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+                [cell.contentView addSubview:divGridTop];
+                
+                // Col 0: Стена
+                UIButton *colWall = [UIButton buttonWithType:UIButtonTypeCustom];
+                colWall.frame = CGRectMake(0, gridY, colW, 60.0);
+                colWall.tag = 916;
+                [colWall addTarget:self action:@selector(scrollToWallAction) forControlEvents:UIControlEventTouchUpInside];
+                [cell.contentView addSubview:colWall];
+                
+                // Col 1: Друзья
+                UIButton *colFriends = [UIButton buttonWithType:UIButtonTypeCustom];
+                colFriends.frame = CGRectMake(colW, gridY, colW, 60.0);
+                colFriends.tag = 917;
+                [colFriends addTarget:self action:@selector(openFriendsList) forControlEvents:UIControlEventTouchUpInside];
+                [cell.contentView addSubview:colFriends];
+                
+                // Col 2: Группы
+                UIButton *colGroups = [UIButton buttonWithType:UIButtonTypeCustom];
+                colGroups.frame = CGRectMake(colW * 2, gridY, width - colW * 2, 60.0);
+                colGroups.tag = 918;
+                [colGroups addTarget:self action:@selector(openGroupsList) forControlEvents:UIControlEventTouchUpInside];
+                [cell.contentView addSubview:colGroups];
+                
+                // Разделитель между строками 1 и 2
+                UIView *divGridMid = [[UIView alloc] initWithFrame:CGRectMake(0, gridY + 60.0, width, 0.5)];
+                divGridMid.tag = 941;
+                divGridMid.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+                [cell.contentView addSubview:divGridMid];
+                
+                // Row 2
+                CGFloat row2Y = gridY + 60.5;
+                // Col 3: Фото
+                UIButton *colPhotos = [UIButton buttonWithType:UIButtonTypeCustom];
+                colPhotos.frame = CGRectMake(0, row2Y, colW, 60.0);
+                colPhotos.tag = 919;
+                [colPhotos addTarget:self action:@selector(openPhotosList) forControlEvents:UIControlEventTouchUpInside];
+                [cell.contentView addSubview:colPhotos];
+                
+                // Col 4: Все фото
+                UIButton *colAllPhotos = [UIButton buttonWithType:UIButtonTypeCustom];
+                colAllPhotos.frame = CGRectMake(colW, row2Y, colW, 60.0);
+                colAllPhotos.tag = 920;
+                [colAllPhotos addTarget:self action:@selector(openPhotosList) forControlEvents:UIControlEventTouchUpInside];
+                [cell.contentView addSubview:colAllPhotos];
+                
+                // Col 5: Музыка
+                UIButton *colAudios = [UIButton buttonWithType:UIButtonTypeCustom];
+                colAudios.frame = CGRectMake(colW * 2, row2Y, width - colW * 2, 60.0);
+                colAudios.tag = 921;
+                [colAudios addTarget:self action:@selector(openAudiosList) forControlEvents:UIControlEventTouchUpInside];
+                [cell.contentView addSubview:colAudios];
+                
+                // Разделитель под сеткой
+                UIView *divGridBot = [[UIView alloc] initWithFrame:CGRectMake(0, row2Y + 60.0, width, 0.5)];
+                divGridBot.tag = 942;
+                divGridBot.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+                [cell.contentView addSubview:divGridBot];
+                
+                // 4. Список деталей (Подписчики, Видео, Документы, Заметки, Интересные страницы, Подробная инфа)
+                CGFloat detY = row2Y + 61.0;
+                
+                NSArray *detailTitles = @[@"Подписчики", @"Видео", @"Документы", @"Заметки", @"Интересные страницы", @"Подробная информация"];
+                for (NSInteger d = 0; d < (NSInteger)detailTitles.count; d++) {
+                    CGFloat rowH = (d >= 4) ? 38.0 : 42.0;
+                    
+                    UIButton *detBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+                    detBtn.frame = CGRectMake(0, detY, width, rowH);
+                    detBtn.tag = 950 + d;
+                    detBtn.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+                    [cell.contentView addSubview:detBtn];
+                    
+                    UILabel *tLbl = [[UILabel alloc] initWithFrame:CGRectMake(16, 10, width - 80, 20)];
+                    tLbl.tag = 960 + d;
+                    tLbl.font = [UIFont systemFontOfSize:15];
+                    tLbl.text = detailTitles[d];
+                    [detBtn addSubview:tLbl];
+                    
+                    UILabel *cLbl = [[UILabel alloc] initWithFrame:CGRectMake(width - 60, 10, 44, 20)];
+                    cLbl.tag = 970 + d;
+                    cLbl.font = [UIFont systemFontOfSize:14];
+                    cLbl.textAlignment = NSTextAlignmentRight;
+                    cLbl.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+                    [detBtn addSubview:cLbl];
+                    
+                    detY += rowH;
+                }
+                
+                // 5. Блок с фактами (Пол, ID, Был(а) в сети, Город)
+                UIView *factsView = [[UIView alloc] initWithFrame:CGRectMake(16, detY + 6.0, width - 32, 75.0)];
+                factsView.tag = 980;
+                factsView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+                [cell.contentView addSubview:factsView];
+                
+                UILabel *factsLabel = [[UILabel alloc] initWithFrame:factsView.bounds];
+                factsLabel.tag = 981;
+                factsLabel.font = [UIFont systemFontOfSize:13.5];
+                factsLabel.numberOfLines = 4;
+                factsLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+                [factsView addSubview:factsLabel];
+                
+                // Нижний разделитель секции
+                UIView *botSep = [[UIView alloc] initWithFrame:CGRectMake(0, 782.0, width, 8.0)];
+                botSep.tag = 990;
+                botSep.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+                [cell.contentView addSubview:botSep];
+            }
+            
+            // Наполняем данными:
+            UIImageView *coverIV = (UIImageView *)[cell.contentView viewWithTag:910];
+            UILabel *nameLabel = (UILabel *)[cell.contentView viewWithTag:911];
+            UILabel *statusLabel = (UILabel *)[cell.contentView viewWithTag:912];
+            UIImageView *onlineDot = (UIImageView *)[cell.contentView viewWithTag:913];
+            UIButton *btn1 = (UIButton *)[cell.contentView viewWithTag:914];
+            UIButton *btn2 = (UIButton *)[cell.contentView viewWithTag:915];
+            UIButton *colWall = (UIButton *)[cell.contentView viewWithTag:916];
+            UIButton *colFriends = (UIButton *)[cell.contentView viewWithTag:917];
+            UIButton *colGroups = (UIButton *)[cell.contentView viewWithTag:918];
+            UIButton *colPhotos = (UIButton *)[cell.contentView viewWithTag:919];
+            UIButton *colAllPhotos = (UIButton *)[cell.contentView viewWithTag:920];
+            UIButton *colAudios = (UIButton *)[cell.contentView viewWithTag:921];
+            
+            VKKateTheme *kt = [VKKateTheme currentTheme];
+            UIColor *bgCol = kt.cardBackgroundColor;
+            UIColor *textCol = kt.primaryTextColor;
+            UIColor *subCol = kt.secondaryTextColor;
+            UIColor *divCol = kt.separatorColor;
+            
+            cell.backgroundColor = bgCol;
+            btn1.backgroundColor = kt.profileButtonBackgroundColor;
+            [btn1 setTitleColor:kt.profileButtonTextColor forState:UIControlStateNormal];
+            btn2.backgroundColor = kt.profileButtonBackgroundColor;
+            [btn2 setTitleColor:kt.profileButtonTextColor forState:UIControlStateNormal];
+            
+            // Загрузка обложки
+            coverIV.image = nil;
+            for (UIGestureRecognizer *gr in coverIV.gestureRecognizers) [coverIV removeGestureRecognizer:gr];
+            [coverIV addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(profileAvatarTapped:)]];
+            NSString *coverUrl = self.user.avatarURLFull ?: self.user.avatarURL;
+            if (coverUrl.length > 0) {
+                [[VKImageLoader sharedLoader] loadImageWithURL:coverUrl completion:^(UIImage *img) {
+                    if (img) coverIV.image = img;
+                }];
+            }
+            
+            nameLabel.text = self.user.displayName ?: @"";
+            
+            NSString *statusText = self.user.isOnline ? @"Online" : (self.user.lastSeen ?: @"был(а) недавно");
+            statusLabel.text = statusText;
+            CGSize stSz = [statusText sizeWithFont:[UIFont systemFontOfSize:12.5]];
+            onlineDot.frame = CGRectMake(16 + ceilf(stSz.width) + 6, 239, 12, 12);
+            if (self.user.isOnline) {
+                onlineDot.image = [UIImage imageNamed:@"kate_online_green"];
+                onlineDot.hidden = NO;
+            } else {
+                onlineDot.hidden = YES;
+            }
+            
+            // Кнопки
+            NSInteger myId = [[VKAuthService sharedService] currentUserId];
+            BOOL isMyProfile = (self.user.uid == myId || self.user.uid == 0 || [self.user isCurrentUser]);
+            CGFloat width = tableView.bounds.size.width;
+            CGFloat colW = floorf(width / 3.0);
+            CGFloat gridY = isMyProfile ? 268.0 : 329.0;
+            
+            btn1.hidden = isMyProfile;
+            btn2.hidden = isMyProfile;
+            if (!isMyProfile) {
+                NSString *fTitle = self.user.isFriend ? @"В ДРУЗЬЯХ ✓" : @"ДОБАВИТЬ В ДРУЗЬЯ";
+                [btn1 setTitle:fTitle forState:UIControlStateNormal];
+                [btn1 removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+                [btn1 addTarget:self action:@selector(toggleFriendAction) forControlEvents:UIControlEventTouchUpInside];
+                
+                [btn2 setTitle:@"СООБЩЕНИЕ" forState:UIControlStateNormal];
+                [btn2 removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+                [btn2 addTarget:self action:@selector(writeMessageAction) forControlEvents:UIControlEventTouchUpInside];
+            }
+            
+            // Разделители и сетка
+            UIView *divGridTop = [cell.contentView viewWithTag:940];
+            UIView *divGridMid = [cell.contentView viewWithTag:941];
+            UIView *divGridBot = [cell.contentView viewWithTag:942];
+            divGridTop.backgroundColor = divCol;
+            divGridMid.backgroundColor = divCol;
+            divGridBot.backgroundColor = divCol;
+            
+            divGridTop.frame = CGRectMake(0, gridY, width, 0.5);
+            colWall.frame = CGRectMake(0, gridY, colW, 60.0);
+            colFriends.frame = CGRectMake(colW, gridY, colW, 60.0);
+            colGroups.frame = CGRectMake(colW * 2, gridY, width - colW * 2, 60.0);
+            
+            divGridMid.frame = CGRectMake(0, gridY + 60.0, width, 0.5);
+            CGFloat row2Y = gridY + 60.5;
+            colPhotos.frame = CGRectMake(0, row2Y, colW, 60.0);
+            colAllPhotos.frame = CGRectMake(colW, row2Y, colW, 60.0);
+            colAudios.frame = CGRectMake(colW * 2, row2Y, width - colW * 2, 60.0);
+            divGridBot.frame = CGRectMake(0, row2Y + 60.0, width, 0.5);
+            
+            // Сетка
+            void (^setupStatCol)(UIButton *, NSString *, NSString *) = ^(UIButton *b, NSString *title, NSString *val) {
+                [b setTitle:[NSString stringWithFormat:@"%@\n%@", title, val] forState:UIControlStateNormal];
+                b.titleLabel.numberOfLines = 2;
+                b.titleLabel.textAlignment = NSTextAlignmentCenter;
+                [b setTitleColor:textCol forState:UIControlStateNormal];
+                b.titleLabel.font = [UIFont systemFontOfSize:14];
+            };
+            
+            setupStatCol(colWall, @"Стена", (self.wallTotalCount > 0 ? [NSString stringWithFormat:@"%ld", (long)self.wallTotalCount] : @"0"));
+            setupStatCol(colFriends, @"Друзья", (self.user.friendsCount > 0 ? [NSString stringWithFormat:@"%ld", (long)self.user.friendsCount] : @"0"));
+            setupStatCol(colGroups, @"Группы", (self.user.groupsCount > 0 ? [NSString stringWithFormat:@"%ld", (long)self.user.groupsCount] : @"0"));
+            setupStatCol(colPhotos, @"Фотографии", (self.user.photoCount > 0 ? [NSString stringWithFormat:@"%ld", (long)self.user.photoCount] : @"0"));
+            setupStatCol(colAllPhotos, @"Все фото", (self.user.photoCount > 0 ? [NSString stringWithFormat:@"%ld", (long)self.user.photoCount] : @"0"));
+            setupStatCol(colAudios, @"Аудио", (self.user.audioCount > 0 ? [NSString stringWithFormat:@"%ld", (long)self.user.audioCount] : @"0"));
+            
+            // Детали
+            CGFloat detY = row2Y + 61.0;
+            NSArray *counts = @[
+                (self.user.followersCount > 0 ? [NSString stringWithFormat:@"%ld", (long)self.user.followersCount] : @"0"),
+                (self.user.videoCount > 0 ? [NSString stringWithFormat:@"%ld", (long)self.user.videoCount] : @"0"),
+                @"",
+                @"0",
+                @"",
+                @""
+            ];
+            for (NSInteger d = 0; d < 6; d++) {
+                CGFloat rowH = (d >= 4) ? 38.0 : 42.0;
+                UIButton *detBtn = (UIButton *)[cell.contentView viewWithTag:950 + d];
+                detBtn.frame = CGRectMake(0, detY, width, rowH);
+                detY += rowH;
+                
+                UILabel *tLbl = (UILabel *)[detBtn viewWithTag:960 + d];
+                UILabel *cLbl = (UILabel *)[detBtn viewWithTag:970 + d];
+                tLbl.textColor = textCol;
+                cLbl.textColor = subCol;
+                cLbl.text = counts[d];
+                
+                [detBtn removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
+                if (d == 0) [detBtn addTarget:self action:@selector(openFriendsList) forControlEvents:UIControlEventTouchUpInside];
+                else if (d == 1) [detBtn addTarget:self action:@selector(openVideosList) forControlEvents:UIControlEventTouchUpInside];
+                else if (d == 4) [detBtn addTarget:self action:@selector(openGroupsList) forControlEvents:UIControlEventTouchUpInside];
+                else if (d == 5) [detBtn addTarget:self action:@selector(showDetailsAction) forControlEvents:UIControlEventTouchUpInside];
+            }
+            
+            UIView *botSep = [cell.contentView viewWithTag:990];
+            botSep.frame = CGRectMake(0, detY, width, 0.5);
+            botSep.backgroundColor = kt.separatorColor;
+            
+            UIView *infoView = [cell.contentView viewWithTag:980];
+            infoView.frame = CGRectMake(16, detY + 8.0, width - 32, 110.0);
+            
+            // Факты
+            UILabel *factsLabel = (UILabel *)[cell.contentView viewWithTag:981];
+            factsLabel.textColor = subCol;
+            NSString *genderStr = self.user.sex == 2 ? @"Пол: мужской" : (self.user.sex == 1 ? @"Пол: женский" : @"Пол: не указан");
+            NSString *idStr = [NSString stringWithFormat:@"id: %ld", (long)self.user.uid];
+            NSString *seenStr = [NSString stringWithFormat:@"Был(а) в сети: %@", self.user.lastSeen ?: @"недавно"];
+            NSString *cityStr = self.user.city.length > 0 ? [NSString stringWithFormat:@"Город: %@", self.user.city] : @"";
+            factsLabel.text = [NSString stringWithFormat:@"%@\n%@\n%@\n%@", genderStr, idStr, seenStr, cityStr];
+            
+            return cell;
+        }
         
         if (isModern) {
             // Оригинальный SwiftUI Profile Header (ProfileHeaderView.swift & ProfileInfoSection.swift)
@@ -1166,11 +1696,87 @@ static NSString *pluralForm(NSInteger n, NSString *one, NSString *few, NSString 
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    
+    if ([self shouldDisplayKateHub]) {
+        if (indexPath.section == 0) {
+            [self openFullProfile];
+            return;
+        }
+        if (indexPath.section == 1) {
+            switch (indexPath.row) {
+                case 0:
+                    [self openFriendsList];
+                    break;
+                case 1:
+                    [self openFullProfileAndScrollToWall];
+                    break;
+                case 2:
+                    [self openGroupsList];
+                    break;
+                case 3:
+                    [self openPhotosList];
+                    break;
+                case 4:
+                    [self openAudiosList];
+                    break;
+                case 5:
+                    [self openVideosList];
+                    break;
+                case 6:
+                    [self openBookmarksList];
+                    break;
+                case 7:
+                    [self openRepliesList];
+                    break;
+                case 8:
+                    [self openFullProfile];
+                    break;
+                default:
+                    break;
+            }
+            return;
+        }
+    }
+    
     if (indexPath.section == 1 && indexPath.row < (NSInteger)self.wallPosts.count) {
         VKPost *post = self.wallPosts[indexPath.row];
         VKPostDetailViewController *detailVC = [[VKPostDetailViewController alloc] initWithPost:post];
         [self.navigationController pushViewController:detailVC animated:YES];
     }
+}
+
+- (void)scrollToWallAction {
+    if (self.wallPosts.count > 0) {
+        [self.tableView scrollToRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:1] atScrollPosition:UITableViewScrollPositionTop animated:YES];
+    } else {
+        [self.tableView setContentOffset:CGPointMake(0, 790.0) animated:YES];
+    }
+}
+
+- (void)openFullProfile {
+    VKProfileViewController *vc = [[VKProfileViewController alloc] initWithUser:self.user];
+    vc.isFullProfileMode = YES;
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)openFullProfileAndScrollToWall {
+    VKProfileViewController *vc = [[VKProfileViewController alloc] initWithUser:self.user];
+    vc.isFullProfileMode = YES;
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)openBookmarksList {
+    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Закладки"
+                                                    message:@"Раздел закладок будет доступен в следующем обновлении OpenVK."
+                                                   delegate:nil
+                                          cancelButtonTitle:@"OK"
+                                          otherButtonTitles:nil];
+    [alert show];
+}
+
+- (void)openRepliesList {
+    VKNotificationsViewController *vc = [[VKNotificationsViewController alloc] init];
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)openFriendsList {

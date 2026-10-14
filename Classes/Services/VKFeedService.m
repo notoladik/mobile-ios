@@ -243,7 +243,10 @@
                     NSInteger photoId = [photoItem[@"id"] integerValue] ?: [photoItem[@"pid"] integerValue];
                     NSInteger photoOwner = [photoItem[@"owner_id"] integerValue];
                     if (photoId != 0) {
-                        NSString *attStr = [NSString stringWithFormat:@"photo%ld_%ld", (long)photoOwner, (long)photoId];
+                        NSString *accessKey = photoItem[@"access_key"];
+                        NSString *attStr = (accessKey && accessKey.length > 0)
+                            ? [NSString stringWithFormat:@"photo%ld_%ld_%@", (long)photoOwner, (long)photoId, accessKey]
+                            : [NSString stringWithFormat:@"photo%ld_%ld", (long)photoOwner, (long)photoId];
                         if (completion) completion(attStr, nil);
                         return;
                     }

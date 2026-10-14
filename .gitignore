@@ -8,3 +8,6 @@ packages/
 *.deb
 *.mp4
 *.MP4
+
+*.zip
+scratch/

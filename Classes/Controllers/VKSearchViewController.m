@@ -11,6 +11,7 @@
 #import "VKCrashLogger.h"
 #import "VKAppConfig.h"
 #import "VKProfileService.h"
+#import "VKKateSettings.h"
 
 @interface VKSearchVideoGridCell : UITableViewCell
 @property (nonatomic, strong) NSArray<VKAttachment *> *videos;
@@ -647,6 +648,13 @@
 
 - (void)performSearchWithQuery:(NSString *)query {
     NSString *clean = [query stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if ([clean.lowercaseString isEqualToString:@"*#kate#"] || [clean.lowercaseString isEqualToString:@"*#kate"]) {
+        self.searchBar.text = @"";
+        self.currentQuery = @"";
+        [self.searchBar resignFirstResponder];
+        [VKKateSettings unlockWithAlertFromViewController:self];
+        return;
+    }
     if (clean.length == 0) {
         self.allVideos = @[];
         self.allPosts = @[];

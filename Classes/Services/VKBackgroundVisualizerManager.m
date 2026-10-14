@@ -125,6 +125,11 @@ static NSString *const kPrefOnlyPlaying  = @"openvk.bg_visualizer.only_playing";
     }
 }
 
+- (void)setChatBackgroundActive:(BOOL)active {
+    if (_chatBackgroundActive == active) return;
+    _chatBackgroundActive = active;
+    [self updateVisualizerState];
+}
 - (void)updateVisualizerState {
     if (!self.window) return;
     
@@ -237,6 +242,7 @@ static NSString *const kPrefOnlyPlaying  = @"openvk.bg_visualizer.only_playing";
             shouldAnimate = [[VKAudioPlayer sharedPlayer] isPlaying];
         }
         
+        shouldAnimate = shouldAnimate && !self.chatBackgroundActive && [UIApplication sharedApplication].applicationState != UIApplicationStateBackground;
         if (shouldAnimate) {
             self.activeVisualizerView.hidden = NO;
             if (self.avsView) {

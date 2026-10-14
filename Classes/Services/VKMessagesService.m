@@ -2,6 +2,7 @@
 #import "VKAPIClient.h"
 #import "VKAuthService.h"
 #import "VKFeedService.h"
+#import "VKKateSettings.h"
 
 @implementation VKMessagesService
 
@@ -206,6 +207,7 @@
     }];
     if (attachment.length > 0) {
         params[@"attachment"] = attachment;
+        params[@"attachments"] = attachment;
     }
     if (replyTo > 0) {
         params[@"reply_to"] = @(replyTo);
@@ -286,7 +288,10 @@
                     NSInteger photoId = [photoItem[@"id"] integerValue] ?: [photoItem[@"pid"] integerValue];
                     NSInteger photoOwner = [photoItem[@"owner_id"] integerValue];
                     if (photoId != 0) {
-                        NSString *attStr = [NSString stringWithFormat:@"photo%ld_%ld", (long)photoOwner, (long)photoId];
+                        NSString *accessKey = photoItem[@"access_key"];
+                        NSString *attStr = (accessKey && accessKey.length > 0)
+                            ? [NSString stringWithFormat:@"photo%ld_%ld_%@", (long)photoOwner, (long)photoId, accessKey]
+                            : [NSString stringWithFormat:@"photo%ld_%ld", (long)photoOwner, (long)photoId];
                         if (completion) completion(attStr, nil);
                         return;
                     }
@@ -296,6 +301,46 @@
             }];
         }];
     }];
+}
+
+- (void)uploadMessagePhotos:(NSArray<UIImage *> *)images
+                     peerId:(NSInteger)peerId
+                 completion:(void (^)(NSArray<NSString *> *attachmentStrings, NSError *error))completion {
+    if (!images || images.count == 0) {
+        if (completion) completion(@[], nil);
+        return;
+    }
+    
+    NSMutableArray<NSString *> *results = [NSMutableArray array];
+    __block NSInteger currentIndex = 0;
+    __block NSError *lastError = nil;
+    
+    __block void (^uploadNext)(void);
+    void (^uploadNextBlock)(void) = ^{
+        if (currentIndex >= (NSInteger)images.count) {
+            if (results.count > 0) {
+                if (completion) completion(results, nil);
+            } else {
+                if (completion) completion(nil, lastError ?: [NSError errorWithDomain:@"VKMessagesService" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"Не удалось загрузить фотографии"}]);
+            }
+            uploadNext = nil;
+            return;
+        }
+        
+        UIImage *img = images[currentIndex];
+        currentIndex++;
+        
+        [self uploadMessagePhoto:img peerId:peerId completion:^(NSString *attStr, NSError *err) {
+            if (attStr && attStr.length > 0) {
+                [results addObject:attStr];
+            } else if (err) {
+                lastError = err;
+            }
+            if (uploadNext) uploadNext();
+        }];
+    };
+    uploadNext = uploadNextBlock;
+    uploadNext();
 }
 
 - (void)pinMessageWithPeerId:(NSInteger)peerId
@@ -394,6 +439,10 @@
 - (void)markAsReadForPeerId:(NSInteger)peerId
                   messageId:(NSInteger)messageId
                  completion:(void (^)(BOOL success))completion {
+    if ([VKKateSettings isUnlocked] && [VKKateSettings isCloseUnreadEnabled]) {
+        if (completion) completion(YES);
+        return;
+    }
     
     NSMutableDictionary *params = [NSMutableDictionary dictionaryWithDictionary:@{
         @"peer_id": @(peerId)
@@ -666,6 +715,11 @@
 
 - (void)setTypingForPeerId:(NSInteger)peerId
                 completion:(void (^)(BOOL success, NSError *error))completion {
+    if ([VKKateSettings isUnlocked] && [VKKateSettings isTypingStatusHidden]) {
+        if (completion) completion(YES, nil);
+        return;
+    }
+    
     NSDictionary *params = @{
         @"peer_id": @(peerId),
         @"type": @"typing"
@@ -682,6 +736,17 @@
 - (void)markAsReadForPeerId:(NSInteger)peerId
              startMessageId:(NSInteger)startMessageId
                  completion:(void (^)(BOOL success))completion {
+    if ([VKKateSettings isUnlocked] && [VKKateSettings isCloseUnreadEnabled]) {
+        if (completion) completion(YES);
+        return;
+    }
+    
+    [self forceMarkAsReadForPeerId:peerId startMessageId:startMessageId completion:completion];
+}
+
+- (void)forceMarkAsReadForPeerId:(NSInteger)peerId
+                  startMessageId:(NSInteger)startMessageId
+                      completion:(void (^)(BOOL success))completion {
     NSMutableDictionary *params = [NSMutableDictionary dictionaryWithObject:@(peerId) forKey:@"peer_id"];
     if (startMessageId > 0) {
         params[@"start_message_id"] = @(startMessageId);

@@ -3,7 +3,9 @@
 typedef NS_ENUM(NSInteger, VKThemeType) {
     VKThemeTypeModernSwift = 0,    // Эпоха Modern SwiftUI / iOS 16-18 (виджетные карточки 14pt, SF rounded, мягкие тени)
     VKThemeTypeClassicUIKit = 1,   // Эпоха iOS 7-10 Flat (культовый синий навбар VK #4A76A8, сплошная плоская лента)
-    VKThemeTypeiOS6Legacy = 2      // Эпоха iOS 5-6 Скевоморфизм (глянец, льняной фон, квадратные аватары, рельеф)
+    VKThemeTypeiOS6Legacy = 2,     // Эпоха iOS 5-6 Скевоморфизм (глянец, льняной фон, квадратные аватары, рельеф)
+    VKThemeTypeKateMobile = 3,      // Стиль Kate Mobile (Индиго навбар #1976D2, акцент #2196F3, карточки #E5EAF1)
+    VKThemeTypeAndroid = 4        // Независимый Android / Material, без секретного режима
 };
 
 extern NSString *const VKThemeDidChangeNotification;
@@ -27,6 +29,7 @@ extern NSString *const VKThemeDidChangeNotification;
 - (UIColor *)navBarTitleColor;
 - (UIColor *)navBarTintColor;
 - (UIColor *)tabBarTintColor;
+- (UIColor *)primaryTextColor;
 - (UIColor *)secondaryTextColor;
 - (UIColor *)separatorColor;
 
@@ -39,6 +42,9 @@ extern NSString *const VKThemeDidChangeNotification;
 - (BOOL)isSkeuomorphic;
 - (BOOL)isClassicFlat;
 - (BOOL)isModern;
+- (BOOL)isKateTheme;
+- (BOOL)isAndroidTheme;
+- (BOOL)isDarkTheme;
 
 // Шрифты и тени
 - (UIFont *)titleFontOfSize:(CGFloat)size;

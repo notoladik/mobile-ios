@@ -2,4 +2,6 @@
 
 @interface VKFeedViewController : UITableViewController
 
+- (void)refreshFeed;
+
 @end

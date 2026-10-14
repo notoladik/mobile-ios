@@ -1,8 +1,12 @@
 #import "VKAppearanceViewController.h"
 #import "VKThemeManager.h"
+#import "VKClientDesign.h"
+#import "VKClientDesignSettingsViewController.h"
 #import "VKSideMenuManager.h"
 #import "VKBackgroundVisualizerManager.h"
 #import "VKPresetsListViewController.h"
+#import "VKKateSettings.h"
+#import "VKChatAppearanceViewController.h"
 
 @interface VKAppearanceViewController () <UIActionSheetDelegate>
 @end
@@ -36,11 +40,20 @@
 
 #pragma mark - Table View Data Source
 
+- (NSArray *)availableThemes {
+    return @[@(VKThemeTypeModernSwift), @(VKThemeTypeClassicUIKit), @(VKThemeTypeiOS6Legacy), @(VKThemeTypeAndroid), @(VKThemeTypeKateMobile)];
+}
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self applyThemeStyle];
+}
+- (void)dealloc { [[NSNotificationCenter defaultCenter] removeObserver:self]; }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 4;
+    return 6;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    if (section == 5) return [VKClientDesign isAndroidClientDesign] ? @"Настройки выбранной темы" : nil;
     if (section == 0) {
         return @"Тема оформления интерфейса";
     } else if (section == 1) {
@@ -48,24 +61,28 @@
     } else if (section == 2) {
         return @"Аудиоплеер";
     } else {
-        return @"Фоновая визуализация (Fun)";
+        return section == 4 ? @"Обои чатов" : @"Фоновая визуализация (Fun)";
     }
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    if (section == 5) return [VKClientDesign isAndroidClientDesign] ? @"Оформление не включает секретные функции Kate. Настройки Android и Kate хранятся отдельно." : nil;
     if (section == 0) {
-        return @"Выбранная тема меняет стиль карточек, навигационной панели, скруглений и цвета элементов.";
+        return @"Kate Mobile: верхние вкладки и меню профиля по образцу Android-клиента. Android / Material: отдельный плоский стиль. Обе темы доступны без разблокировки.";
     } else if (section == 1) {
         return @"При включении бокового меню кнопка ≡ в навигационной панели открывает выдвижную панель со всеми разделами ВКонтакте.";
     } else if (section == 2) {
         return @"Включение режима визуализатора активирует динамические эффекты и спектроанализатор в плеере. При выключении отображается оригинальная обложка VK.";
     } else {
+        if (section == 4) return @"Общий фон для чатов. Собственный фон диалога меняется из его меню. Доступно во всех темах, без секретного режима.";
         return @"Живая визуализация на фоне всего клиента ВКонтакте. Динамически танцует под ритм музыки либо мягко переливается в покое, не мешая нажатиям и прокрутке.";
     }
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (section == 0) return 3;
+    if (section == 5) return [VKClientDesign isAndroidClientDesign] ? 1 : 0;
+    if (section == 0) return [self availableThemes].count;
+    if (section == 4) return 1;
     if (section == 1) return 1;
     if (section == 2) {
         BOOL visOn = [[NSUserDefaults standardUserDefaults] objectForKey:@"openvk.audio.visualizer.enabled"] ? [[NSUserDefaults standardUserDefaults] boolForKey:@"openvk.audio.visualizer.enabled"] : YES;
@@ -79,6 +96,25 @@
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.section == 5) {
+        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+        cell.textLabel.text = [[VKThemeManager sharedManager] isKateTheme] ? @"Настройки Kate Mobile" : @"Настройки Android / Material";
+        cell.detailTextLabel.text = @"Аватары, размер текста и оформление";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
+        cell.textLabel.textColor = [VKThemeManager sharedManager].primaryTextColor;
+        cell.detailTextLabel.textColor = [VKThemeManager sharedManager].secondaryTextColor;
+        cell.backgroundColor = [VKThemeManager sharedManager].cardBackgroundColor;
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        return cell;
+    }
+    if (indexPath.section == 4) {
+        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+        cell.textLabel.text = @"Обои и визуализация в чатах";
+        cell.detailTextLabel.text = @"Общий фон и отдельные настройки диалогов";
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        return cell;
+    }
     if (indexPath.section == 0) {
         static NSString *CellId = @"VKAppearanceThemeCell";
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:CellId];
@@ -89,11 +125,12 @@
             cell.detailTextLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
         }
         
+        VKThemeType theme = (VKThemeType)[[self availableThemes][indexPath.row] integerValue];
         VKThemeType current = [[VKThemeManager sharedManager] currentTheme];
-        cell.accessoryType = (current == indexPath.row) ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
+        cell.accessoryType = (current == theme) ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
         
-        cell.textLabel.text = [[VKThemeManager sharedManager] nameForTheme:(VKThemeType)indexPath.row];
-        cell.detailTextLabel.text = [[VKThemeManager sharedManager] eraDescriptionForTheme:(VKThemeType)indexPath.row];
+        cell.textLabel.text = [[VKThemeManager sharedManager] nameForTheme:theme];
+        cell.detailTextLabel.text = [[VKThemeManager sharedManager] eraDescriptionForTheme:theme];
         cell.detailTextLabel.numberOfLines = 2;
         return cell;
     } else if (indexPath.section == 1) {
@@ -254,8 +291,12 @@
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     
     if (indexPath.section == 0) {
-        [[VKThemeManager sharedManager] applyTheme:(VKThemeType)indexPath.row];
+        [[VKThemeManager sharedManager] applyTheme:(VKThemeType)[[self availableThemes][indexPath.row] integerValue]];
         [self.tableView reloadData];
+    } else if (indexPath.section == 5) {
+        [self.navigationController pushViewController:[[VKClientDesignSettingsViewController alloc] initWithTheme:[VKThemeManager sharedManager].currentTheme] animated:YES];
+    } else if (indexPath.section == 4) {
+        [self.navigationController pushViewController:[[VKChatAppearanceViewController alloc] initWithPeerId:0] animated:YES];
     } else if (indexPath.section == 2) {
         if (indexPath.row == 1) {
             UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:@"Движок визуализатора в плеере"

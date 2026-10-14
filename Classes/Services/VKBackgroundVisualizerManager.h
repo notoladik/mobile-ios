@@ -15,6 +15,7 @@ typedef NS_ENUM(NSInteger, VKBackgroundVisualizerLayerMode) {
 };
 
 @interface VKBackgroundVisualizerManager : NSObject
+@property (nonatomic, assign) BOOL chatBackgroundActive;
 
 @property (nonatomic, assign) BOOL isEnabled;
 @property (nonatomic, assign) VKBackgroundVisualizerStyle style;

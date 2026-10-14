@@ -1,4 +1,6 @@
 #import "VKThemeManager.h"
+#import "VKKateTheme.h"
+#import "VKClientDesign.h"
 
 NSString *const VKThemeDidChangeNotification = @"VKThemeDidChangeNotification";
 static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
@@ -18,7 +20,7 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
     self = [super init];
     if (self) {
         NSInteger saved = [[NSUserDefaults standardUserDefaults] integerForKey:kOpenVKThemeKey];
-        if (saved >= 0 && saved <= 2) {
+        if (saved >= 0 && saved <= VKThemeTypeAndroid) {
             _currentTheme = (VKThemeType)saved;
         } else {
             _currentTheme = VKThemeTypeModernSwift;
@@ -32,6 +34,8 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
         case VKThemeTypeModernSwift: return @"Swift";
         case VKThemeTypeClassicUIKit: return @"UIKit";
         case VKThemeTypeiOS6Legacy: return @"iOS 6";
+        case VKThemeTypeKateMobile: return @"Kate Mobile";
+        case VKThemeTypeAndroid: return @"Android / Material";
     }
 }
 
@@ -40,10 +44,13 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
         case VKThemeTypeModernSwift: return @"жесть навайбкожено";
         case VKThemeTypeClassicUIKit: return @"Артёмий Лебедев.";
         case VKThemeTypeiOS6Legacy: return @"Стиф жопс.";
+        case VKThemeTypeKateMobile: return [NSString stringWithFormat:@"Верхние вкладки · %@", [[VKKateTheme currentTheme] name]];
+        case VKThemeTypeAndroid: return @"Плоская панель, круглые аватары и компактные облачка; без режима Kate";
     }
 }
 
 - (void)applyTheme:(VKThemeType)type {
+    if (type < VKThemeTypeModernSwift || type > VKThemeTypeAndroid) type = VKThemeTypeClassicUIKit;
     _currentTheme = type;
     [[NSUserDefaults standardUserDefaults] setInteger:type forKey:kOpenVKThemeKey];
     [[NSUserDefaults standardUserDefaults] synchronize];
@@ -80,6 +87,16 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
             [[UITabBar appearance] setBarTintColor:[UIColor colorWithWhite:0.98 alpha:1.0]];
         }
         [[UITabBar appearance] setTintColor:[UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]];
+    } else if (type == VKThemeTypeAndroid) {
+        [[UIApplication sharedApplication] setStatusBarStyle:(isIOS7 ? UIStatusBarStyleLightContent : UIStatusBarStyleBlackOpaque) animated:NO];
+        [[UINavigationBar appearance] setBackgroundImage:[self navBarBackgroundImageForHeight:44] forBarMetrics:UIBarMetricsDefault];
+        [[UINavigationBar appearance] setTintColor:[UIColor whiteColor]];
+        if (hasBarTintColor) [[UINavigationBar appearance] setBarTintColor:[self navBarBackgroundColor]];
+        if (isIOS7) [[UINavigationBar appearance] setTranslucent:NO];
+        [[UINavigationBar appearance] setTitleTextAttributes:@{NSForegroundColorAttributeName:[UIColor whiteColor], NSFontAttributeName:[UIFont systemFontOfSize:18]}];
+        [[UITabBar appearance] setBackgroundImage:nil];
+        if (hasBarTintColor) [[UITabBar appearance] setBarTintColor:[UIColor whiteColor]];
+        [[UITabBar appearance] setTintColor:[self accentColor]];
     } else if (type == VKThemeTypeiOS6Legacy) {
         if (isIOS7) {
             [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleLightContent animated:NO];
@@ -102,6 +119,36 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
         }];
         [[UITabBar appearance] setBackgroundImage:[self tabBarBackgroundImage]];
         [[UITabBar appearance] setTintColor:[UIColor colorWithRed:120.0/255.0 green:165.0/255.0 blue:235.0/255.0 alpha:1.0]];
+    } else if (type == VKThemeTypeKateMobile) {
+        VKKateTheme *kt = [VKKateTheme currentTheme];
+        if (isIOS7) {
+            [[UIApplication sharedApplication] setStatusBarStyle:(kt.isDark ? UIStatusBarStyleLightContent : UIStatusBarStyleDefault) animated:NO];
+        } else {
+            [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleBlackOpaque animated:NO];
+        }
+        [[UINavigationBar appearance] setBarStyle:(kt.isDark ? UIBarStyleBlack : UIBarStyleDefault)];
+        [[UINavigationBar appearance] setBackgroundImage:nil forBarMetrics:UIBarMetricsDefault];
+        if (hasBarTintColor) {
+            [[UINavigationBar appearance] setBarTintColor:kt.headerColor];
+            [[UINavigationBar appearance] setTintColor:kt.headerTitleColor];
+        } else {
+            [[UINavigationBar appearance] setTintColor:kt.headerColor];
+        }
+        if ([[UINavigationBar appearance] respondsToSelector:@selector(setTranslucent:)]) {
+            [[UINavigationBar appearance] setTranslucent:NO];
+        }
+        [[UINavigationBar appearance] setTitleTextAttributes:@{
+            NSForegroundColorAttributeName: kt.headerTitleColor,
+            NSFontAttributeName: [UIFont boldSystemFontOfSize:17]
+        }];
+        if ([UIBarButtonItem respondsToSelector:@selector(appearanceWhenContainedIn:)]) {
+            [[UIBarButtonItem appearanceWhenContainedIn:[UINavigationBar class], nil] setTintColor:kt.headerTitleColor];
+        }
+        [[UITabBar appearance] setBackgroundImage:nil];
+        if (hasBarTintColor) {
+            [[UITabBar appearance] setBarTintColor:(kt.isDark ? kt.backgroundColor : [UIColor colorWithWhite:0.98 alpha:1.0])];
+        }
+        [[UITabBar appearance] setTintColor:kt.headerColor];
     } else {
         // Modern Swift
         [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleDefault animated:NO];
@@ -136,17 +183,21 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
 
 - (UIColor *)accentColor {
     switch (self.currentTheme) {
+        case VKThemeTypeAndroid: return [UIColor colorWithRed:33.0/255 green:150.0/255 blue:243.0/255 alpha:1];
         case VKThemeTypeModernSwift:
             return [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
         case VKThemeTypeClassicUIKit:
             return [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
         case VKThemeTypeiOS6Legacy:
             return [UIColor colorWithRed:43.0/255.0 green:88.0/255.0 blue:122.0/255.0 alpha:1.0]; // #2B587A
+        case VKThemeTypeKateMobile:
+            return [[VKKateTheme currentTheme] tabIndicatorColor];
     }
 }
 
 - (UIColor *)backgroundColor {
     switch (self.currentTheme) {
+        case VKThemeTypeAndroid: return [UIColor colorWithWhite:0.95 alpha:1];
         case VKThemeTypeModernSwift:
             return [UIColor colorWithRed:240.0/255.0 green:242.0/255.0 blue:245.0/255.0 alpha:1.0];
         case VKThemeTypeClassicUIKit:
@@ -154,124 +205,184 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
         case VKThemeTypeiOS6Legacy:
             // Аутентичный полосатый льняной фон!
             return [UIColor colorWithPatternImage:[self stripedLinenPatternImage]];
+        case VKThemeTypeKateMobile:
+            return [[VKKateTheme currentTheme] backgroundColor];
     }
 }
 
 - (UIColor *)cardBackgroundColor {
+    if ([self isAndroidTheme]) return [UIColor whiteColor];
+    if (self.currentTheme == VKThemeTypeKateMobile) {
+        return [[VKKateTheme currentTheme] cardBackgroundColor];
+    }
     return [UIColor whiteColor];
 }
 
 - (UIColor *)cardBorderColor {
     switch (self.currentTheme) {
+        case VKThemeTypeAndroid: return [UIColor colorWithWhite:0.87 alpha:1];
         case VKThemeTypeModernSwift:
             return [UIColor clearColor];
         case VKThemeTypeClassicUIKit:
             return [UIColor colorWithRed:225.0/255.0 green:227.0/255.0 blue:232.0/255.0 alpha:1.0];
         case VKThemeTypeiOS6Legacy:
             return [UIColor colorWithRed:185.0/255.0 green:190.0/255.0 blue:198.0/255.0 alpha:1.0];
+        case VKThemeTypeKateMobile:
+            return [[VKKateTheme currentTheme] cardBorderColor];
     }
 }
 
 - (UIColor *)navBarBackgroundColor {
     switch (self.currentTheme) {
+        case VKThemeTypeAndroid: return [UIColor colorWithRed:33.0/255 green:150.0/255 blue:243.0/255 alpha:1];
         case VKThemeTypeModernSwift:
             return [UIColor whiteColor];
         case VKThemeTypeClassicUIKit:
             return [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
         case VKThemeTypeiOS6Legacy:
             return [UIColor colorWithRed:55.0/255.0 green:80.0/255.0 blue:125.0/255.0 alpha:1.0];
+        case VKThemeTypeKateMobile:
+            return [[VKKateTheme currentTheme] headerColor];
     }
 }
 
 - (UIColor *)navBarTitleColor {
     switch (self.currentTheme) {
+        case VKThemeTypeAndroid: return [UIColor whiteColor];
         case VKThemeTypeModernSwift:
             return [UIColor colorWithRed:20.0/255.0 green:20.0/255.0 blue:20.0/255.0 alpha:1.0];
         case VKThemeTypeClassicUIKit:
             return [UIColor whiteColor];
         case VKThemeTypeiOS6Legacy:
             return [UIColor whiteColor];
+        case VKThemeTypeKateMobile:
+            return [[VKKateTheme currentTheme] headerTitleColor];
     }
 }
 
 - (UIColor *)navBarTintColor {
     switch (self.currentTheme) {
+        case VKThemeTypeAndroid: return [UIColor whiteColor];
         case VKThemeTypeModernSwift:
             return [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
         case VKThemeTypeClassicUIKit:
             return [UIColor whiteColor];
         case VKThemeTypeiOS6Legacy:
             return [UIColor whiteColor];
+        case VKThemeTypeKateMobile:
+            return [[VKKateTheme currentTheme] headerTitleColor];
     }
 }
 
 - (UIColor *)tabBarTintColor {
     switch (self.currentTheme) {
+        case VKThemeTypeAndroid: return [UIColor colorWithRed:33.0/255 green:150.0/255 blue:243.0/255 alpha:1];
         case VKThemeTypeModernSwift:
             return [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
         case VKThemeTypeClassicUIKit:
             return [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
         case VKThemeTypeiOS6Legacy:
             return [UIColor colorWithRed:120.0/255.0 green:165.0/255.0 blue:235.0/255.0 alpha:1.0];
+        case VKThemeTypeKateMobile:
+            return [[VKKateTheme currentTheme] headerColor];
     }
+}
+
+- (UIColor *)primaryTextColor {
+    if ([self isKateTheme]) return [VKKateTheme currentTheme].primaryTextColor;
+    return [self isDarkTheme] ? [UIColor colorWithWhite:0.92 alpha:1.0] : [UIColor colorWithWhite:0.12 alpha:1.0];
 }
 
 - (UIColor *)secondaryTextColor {
     switch (self.currentTheme) {
+        case VKThemeTypeAndroid: return [UIColor colorWithWhite:0.46 alpha:1];
         case VKThemeTypeModernSwift:
             return [UIColor colorWithRed:128.0/255.0 green:134.0/255.0 blue:144.0/255.0 alpha:1.0];
         case VKThemeTypeClassicUIKit:
             return [UIColor colorWithRed:140.0/255.0 green:145.0/255.0 blue:155.0/255.0 alpha:1.0];
         case VKThemeTypeiOS6Legacy:
             return [UIColor colorWithRed:135.0/255.0 green:140.0/255.0 blue:150.0/255.0 alpha:1.0];
+        case VKThemeTypeKateMobile:
+            return [[VKKateTheme currentTheme] secondaryTextColor];
     }
 }
 
 - (UIColor *)separatorColor {
+    if ([self isAndroidTheme]) return [UIColor colorWithWhite:0.87 alpha:1];
+    if (self.currentTheme == VKThemeTypeKateMobile) {
+        return [[VKKateTheme currentTheme] separatorColor];
+    }
     return [UIColor colorWithRed:220.0/255.0 green:223.0/255.0 blue:228.0/255.0 alpha:1.0];
 }
 
 - (CGFloat)cardCornerRadius {
     switch (self.currentTheme) {
+        case VKThemeTypeAndroid: return 3.0;
         case VKThemeTypeModernSwift: return 14.0;
         case VKThemeTypeClassicUIKit: return 0.0;
         case VKThemeTypeiOS6Legacy: return 0.0;
+        case VKThemeTypeKateMobile: return 4.0;
     }
 }
 
 - (CGFloat)cardHorizontalMargin {
     switch (self.currentTheme) {
+        case VKThemeTypeAndroid: return 8.0;
         case VKThemeTypeModernSwift: return 10.0;
         case VKThemeTypeClassicUIKit: return 0.0;
         case VKThemeTypeiOS6Legacy: return 0.0;
+        case VKThemeTypeKateMobile: return 6.0;
     }
 }
 
 - (CGFloat)avatarCornerRadiusForSize:(CGFloat)size {
     switch (self.currentTheme) {
+        case VKThemeTypeAndroid: return [VKClientDesign roundAvatars] ? size / 2.0 : 4.0;
         case VKThemeTypeModernSwift: return size / 2.0;
         case VKThemeTypeClassicUIKit: return size / 2.0;
         case VKThemeTypeiOS6Legacy: return 4.0;
+        case VKThemeTypeKateMobile: return [VKClientDesign roundAvatars] ? size / 2.0 : 4.0;
     }
 }
 
 - (CGFloat)avatarBorderWidth {
     switch (self.currentTheme) {
+        case VKThemeTypeAndroid: return 0.0;
         case VKThemeTypeModernSwift: return 0.0;
         case VKThemeTypeClassicUIKit: return 0.0;
         case VKThemeTypeiOS6Legacy: return 0.5;
+        case VKThemeTypeKateMobile: return [VKClientDesign roundAvatars] ? 0.0 : 0.5;
     }
 }
 
 - (UIColor *)avatarBorderColor {
+    if ([self isAndroidTheme]) return [UIColor clearColor];
     return [UIColor colorWithWhite:0.0 alpha:0.2];
 }
 
 - (BOOL)isSkeuomorphic { return self.currentTheme == VKThemeTypeiOS6Legacy; }
-- (BOOL)isClassicFlat { return self.currentTheme == VKThemeTypeClassicUIKit; }
+- (BOOL)isClassicFlat { return self.currentTheme == VKThemeTypeClassicUIKit || self.currentTheme == VKThemeTypeAndroid; }
 - (BOOL)isModern { return self.currentTheme == VKThemeTypeModernSwift; }
+- (BOOL)isKateTheme { return self.currentTheme == VKThemeTypeKateMobile; }
+- (BOOL)isAndroidTheme { return self.currentTheme == VKThemeTypeAndroid; }
+- (BOOL)isDarkTheme {
+    if (self.isAndroidTheme) return NO;
+    if (self.currentTheme == VKThemeTypeKateMobile) {
+        return [[VKKateTheme currentTheme] isDark];
+    }
+    Class traitClass = NSClassFromString(@"UITraitCollection");
+    if (traitClass && [[UIScreen mainScreen] respondsToSelector:@selector(traitCollection)]) {
+        id trait = [[UIScreen mainScreen] valueForKey:@"traitCollection"];
+        if (trait && [trait respondsToSelector:@selector(userInterfaceStyle)]) {
+            NSNumber *style = [trait valueForKey:@"userInterfaceStyle"];
+            return [style integerValue] == 2; // 2 = UIUserInterfaceStyleDark
+        }
+    }
+    return NO;
+}
 
 - (UIFont *)titleFontOfSize:(CGFloat)size {
+    if (self.isAndroidTheme) return [UIFont systemFontOfSize:size];
     return [UIFont boldSystemFontOfSize:size];
 }
 
@@ -320,6 +431,21 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
 }
 
 - (UIImage *)navBarBackgroundImageForHeight:(CGFloat)height {
+    if ([self isKateTheme]) {
+        UIGraphicsBeginImageContextWithOptions(CGSizeMake(1, 1), YES, 1.0);
+        [self.navBarBackgroundColor setFill]; UIRectFill(CGRectMake(0, 0, 1, 1));
+        UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+        return image;
+    }
+    if ([self isAndroidTheme]) {
+        UIGraphicsBeginImageContextWithOptions(CGSizeMake(1, 1), YES, 1.0);
+        [[self navBarBackgroundColor] setFill];
+        UIRectFill(CGRectMake(0, 0, 1, 1));
+        UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+        return [image resizableImageWithCapInsets:UIEdgeInsetsZero];
+    }
     if (height <= 0) height = 64.0;
     CGSize size = CGSizeMake(320, height);
     UIGraphicsBeginImageContextWithOptions(size, YES, 0.0);
@@ -561,6 +687,27 @@ static NSString *const kOpenVKThemeKey = @"openvk.app_theme";
 }
 
 - (UIBarButtonItem *)barButtonItemWithTitle:(NSString *)title target:(id)target action:(SEL)action isBack:(BOOL)isBack {
+    if ([self isAndroidTheme] || [self isKateTheme]) {
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+        button.frame = CGRectMake(0, 0, isBack ? 44 : MAX(44, [title sizeWithFont:[UIFont systemFontOfSize:15]].width + 12), 44);
+        if (isBack) {
+            UIGraphicsBeginImageContextWithOptions(CGSizeMake(24, 24), NO, 0);
+            UIBezierPath *path = [UIBezierPath bezierPath];
+            [path moveToPoint:CGPointMake(21, 12)]; [path addLineToPoint:CGPointMake(4, 12)];
+            [path moveToPoint:CGPointMake(11, 5)]; [path addLineToPoint:CGPointMake(4, 12)]; [path addLineToPoint:CGPointMake(11, 19)];
+            path.lineWidth = 2;
+            [self.navBarTintColor setStroke]; [path stroke];
+            [button setImage:UIGraphicsGetImageFromCurrentImageContext() forState:UIControlStateNormal];
+            UIGraphicsEndImageContext();
+        } else {
+            [button setTitle:title forState:UIControlStateNormal];
+            [button setTitleColor:self.navBarTintColor forState:UIControlStateNormal];
+            button.titleLabel.font = [UIFont systemFontOfSize:15];
+        }
+        button.accessibilityLabel = title;
+        [button addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
+        return [[UIBarButtonItem alloc] initWithCustomView:button];
+    }
     if (self.isSkeuomorphic) {
         UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
         CGSize titleSize = [title sizeWithFont:[UIFont boldSystemFontOfSize:12]];

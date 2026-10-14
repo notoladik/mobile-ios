@@ -11,8 +11,12 @@
 #import "VKSideMenuManager.h"
 #import "VKCrashLogger.h"
 #import "VKAppConfig.h"
+#import "VKKateSettings.h"
+#import "VKKateSettingsViewController.h"
 
 @interface VKSettingsViewController () <UIActionSheetDelegate>
+@property (nonatomic, assign) NSInteger aboutTapCount;
+@property (nonatomic, strong) NSTimer *tapResetTimer;
 @end
 
 @implementation VKSettingsViewController
@@ -81,7 +85,7 @@
     if (section == 0) {
         return [[VKAuthService sharedService] accounts].count + 1; // Все аккаунты + "+ Добавить аккаунт"
     } else if (section == 1) {
-        return 9; // Лента, Устройства, Аккаунт, Уведомления, Конфиденциальность, Данные и память, Внешний вид, Энергосбережение, Язык
+        return [VKKateSettings isUnlocked] ? 10 : 9; // Лента... Язык + (опционально) Kate Mobile
     } else if (section == 2) {
         return 3; // О приложении, Другие (Тестеры и донатеры), Лог диагностики и сбоев
     } else {
@@ -171,6 +175,10 @@
             case 6: cell.textLabel.text = @"🎨  Внешний вид"; break;
             case 7: cell.textLabel.text = @"🔋  Энергосбережение"; break;
             case 8: cell.textLabel.text = @"🌐  Язык"; break;
+            case 9:
+                cell.textLabel.text = @"🐱  Режим Kate Mobile";
+                cell.detailTextLabel.text = [VKKateSettings isOfflineModeEnabled] ? @"Оффлайн" : @"В сети";
+                break;
         }
         return cell;
     } else if (indexPath.section == 2) {
@@ -230,6 +238,10 @@
             // Внешний вид
             VKAppearanceViewController *appearanceVC = [[VKAppearanceViewController alloc] init];
             [self.navigationController pushViewController:appearanceVC animated:YES];
+        } else if (indexPath.row == 9) {
+            // Секретный режим Kate Mobile
+            VKKateSettingsViewController *kateVC = [[VKKateSettingsViewController alloc] init];
+            [self.navigationController pushViewController:kateVC animated:YES];
         } else {
             UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"В разработке"
                                                             message:@"Раздел находится в разработке и будет доступен в следующих версиях."
@@ -240,14 +252,16 @@
         }
     } else if (indexPath.section == 2) {
         if (indexPath.row == 0) {
-            // О приложении
-            NSString *aboutMsg = [NSString stringWithFormat:@"OpenVK for iOS (Legacy UIKit Edition)\nВерсия 1.0\n\nРазработчик оригинала: Ника Фалалеева (@nikanikoo)\nCEO OpenVK: Владимир Баринов (@Veselcraft)\n\nСайт: openvk.org\nЛицензия: AGPL-3.0"];
-            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"О приложении"
-                                                            message:aboutMsg
-                                                           delegate:nil
-                                                  cancelButtonTitle:@"OK"
-                                                  otherButtonTitles:nil];
-            [alert show];
+            // О приложении: пасхалка 7 тапов для Kate Mobile
+            [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showAboutAlert) object:nil];
+            self.aboutTapCount++;
+            if (self.aboutTapCount >= 7) {
+                self.aboutTapCount = 0;
+                [VKKateSettings unlockWithAlertFromViewController:self];
+                [self.tableView reloadData];
+            } else {
+                [self performSelector:@selector(showAboutAlert) withObject:nil afterDelay:0.35];
+            }
         } else if (indexPath.row == 1) {
             // Другие (Тестеры и донатеры)
             VKSupportersViewController *supVC = [[VKSupportersViewController alloc] initWithStyle:UITableViewStyleGrouped];
@@ -295,6 +309,17 @@
     [logVC.view addSubview:tv];
     
     [self.navigationController pushViewController:logVC animated:YES];
+}
+
+- (void)showAboutAlert {
+    self.aboutTapCount = 0;
+    NSString *aboutMsg = [NSString stringWithFormat:@"OpenVK for iOS (Legacy UIKit Edition)\nВерсия 1.0\n\nРазработчик оригинала: Ника Фалалеева (@nikanikoo)\nCEO OpenVK: Владимир Баринов (@Veselcraft)\n\nСайт: openvk.org\nЛицензия: AGPL-3.0"];
+    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"О приложении"
+                                                    message:aboutMsg
+                                                   delegate:nil
+                                          cancelButtonTitle:@"OK"
+                                          otherButtonTitles:nil];
+    [alert show];
 }
 
 @end

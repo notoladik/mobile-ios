@@ -2,4 +2,6 @@
 
 @interface VKMessagesViewController : UITableViewController
 
+- (void)loadDialogs;
+
 @end

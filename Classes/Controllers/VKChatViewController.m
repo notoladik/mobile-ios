@@ -11,6 +11,8 @@
 #import "VKImageLoader.h"
 #import "VKSupportersService.h"
 #import "VKThemeManager.h"
+#import "VKClientDesign.h"
+#import "VKClientDesignGeometry.h"
 #import "VKCrashLogger.h"
 #import "VKAPIClient.h"
 #import "VKAttachment.h"
@@ -25,6 +27,14 @@
 #import "VKVideoPlayerViewController.h"
 #import "VKGifViewerViewController.h"
 #import "VKShareDialogPickerViewController.h"
+#import "VKTextParser.h"
+#import "VKPhotoPickerViewController.h"
+#import "VKKateSettings.h"
+#import "VKChatAppearance.h"
+#import "VKChatBackgroundView.h"
+#import "VKChatAppearanceViewController.h"
+#import "VKBackgroundVisualizerManager.h"
+#import "VKKateTheme.h"
 #import <QuartzCore/QuartzCore.h>
 
 @interface VKChatUserButton : UIButton
@@ -136,10 +146,12 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     return img;
 }
 
-@interface VKChatViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIActionSheetDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIAlertViewDelegate, UIGestureRecognizerDelegate, UISearchBarDelegate>
+@interface VKChatViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, UIActionSheetDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIAlertViewDelegate, UIGestureRecognizerDelegate, UISearchBarDelegate, VKPhotoPickerDelegate>
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UIView *inputContainerView;
 @property (nonatomic, strong) UIButton *attachButton;
+@property (nonatomic, strong) VKChatBackgroundView *chatBackground;
+@property (nonatomic, assign) BOOL chatAppearanceVisible;
 @property (nonatomic, strong) UITextField *messageTextField;
 @property (nonatomic, strong) UIButton *sendButton;
 
@@ -189,12 +201,13 @@ static UIImage *VKCheckboxImage(BOOL checked) {
 @property (nonatomic, strong) UIButton *editingCancelButton;
 @property (nonatomic, strong) VKMessage *editingMessage;
 
-// Прикрепленное изображение перед отправкой
+// Прикрепленные изображения перед отправкой (множественные фото + альбомы)
 @property (nonatomic, strong) UIView *attachedPhotoBarView;
-@property (nonatomic, strong) UIImageView *attachedPhotoThumbView;
+@property (nonatomic, strong) UIScrollView *attachedPhotosScrollView;
+@property (nonatomic, strong) UILabel *attachedPhotosCountLabel;
 @property (nonatomic, strong) UIButton *attachedPhotoCancelButton;
-@property (nonatomic, strong) UIImage *pendingImageToSend;
-@property (nonatomic, copy) NSString *pendingAttachmentString;
+@property (nonatomic, strong) NSMutableArray<UIImage *> *pendingLocalImages;
+@property (nonatomic, strong) NSMutableArray<NSDictionary *> *pendingServerAttachments;
 
 // Контекстное меню сообщения
 @property (nonatomic, strong) VKMessage *selectedMessageForAction;
@@ -229,6 +242,8 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         _selectedMessageIds = [NSMutableSet set];
         _usersCache = [NSMutableDictionary dictionary];
         _pendingUserFetches = [NSMutableDictionary dictionary];
+        _pendingLocalImages = [NSMutableArray array];
+        _pendingServerAttachments = [NSMutableArray array];
         if (peerUser && peerUser.uid != 0) {
             _usersCache[@(peerUser.uid)] = peerUser;
         }
@@ -460,15 +475,81 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     }
     
     [self loadHistory];
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(chatAppearanceChanged:) name:VKChatAppearanceDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(updateRightBarButtonItems) name:VKKateSettingsDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(chatThemeChanged) name:VKThemeDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(chatThemeChanged) name:VKClientDesignDidChangeNotification object:nil];
+    [self applyChatBackground];
+    [self applyClientDesignControls];
+}
+
+- (void)applyChatBackground {
+    if (!self.chatBackground) {
+        self.chatBackground = [[VKChatBackgroundView alloc] initWithFrame:self.tableView.bounds];
+        self.chatBackground.peerId = self.peerId;
+    }
+    [self.chatBackground refreshAppearance];
+    self.tableView.backgroundView = self.chatBackground.hasCustomBackground ? self.chatBackground : nil;
+    self.tableView.backgroundColor = self.chatBackground.hasCustomBackground ? [UIColor clearColor] : [[VKThemeManager sharedManager] backgroundColor];
+    self.chatBackground.active = self.chatAppearanceVisible;
+    if (self.chatAppearanceVisible) [VKBackgroundVisualizerManager sharedManager].chatBackgroundActive = self.chatBackground.hasCustomBackground;
+}
+- (void)chatThemeChanged {
+    [self applyChatBackground];
+    [self applyClientDesignControls];
+    [self updateLayoutAnimated:NO];
+    [self setupNavigationHeader];
+    [self updateRightBarButtonItems];
+    [self.tableView reloadData];
+}
+- (BOOL)usesThemeChatAvatars { return [VKClientDesign isAndroidClientDesign] && [VKClientDesign chatAvatars]; }
+- (void)applyClientDesignControls {
+    if (![VKClientDesign isAndroidClientDesign]) return;
+    VKThemeManager *tm = [VKThemeManager sharedManager];
+    self.inputContainerView.backgroundColor = tm.cardBackgroundColor;
+    self.messageTextField.backgroundColor = [tm isDarkTheme] ? [UIColor colorWithWhite:0.13 alpha:1.0] : [UIColor whiteColor];
+    self.messageTextField.textColor = tm.primaryTextColor;
+    self.messageTextField.font = [UIFont systemFontOfSize:[VKClientDesign messageFontSize]];
+    self.messageTextField.layer.cornerRadius = 2.0;
+    self.messageTextField.layer.borderColor = tm.separatorColor.CGColor;
+    [self.attachButton setTitleColor:tm.accentColor forState:UIControlStateNormal];
+    self.attachButton.layer.cornerRadius = 0;
+    self.attachButton.layer.borderWidth = 0;
+    self.attachButton.backgroundColor = [UIColor clearColor];
+    [self.sendButton setImage:nil forState:UIControlStateNormal];
+    [self.sendButton setTitle:@"→" forState:UIControlStateNormal];
+    self.sendButton.titleLabel.font = [UIFont systemFontOfSize:25];
+    [self.sendButton setTitleColor:tm.accentColor forState:UIControlStateNormal];
+    self.sendButton.backgroundColor = [UIColor clearColor];
+    self.sendButton.accessibilityLabel = @"Отправить сообщение";
+    self.attachButton.accessibilityLabel = @"Прикрепить вложение";
+}
+- (void)chatAppearanceChanged:(NSNotification *)notification {
+    NSInteger changedPeer = [notification.userInfo[@"peerId"] integerValue];
+    if (changedPeer != 0 && changedPeer != self.peerId) return;
+    [self applyChatBackground];
+    [self.tableView reloadData];
+}
+- (void)openChatAppearance {
+    [self.navigationController pushViewController:[[VKChatAppearanceViewController alloc] initWithPeerId:self.peerId] animated:YES];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    self.chatAppearanceVisible = YES;
+    self.chatBackground.active = YES;
+    [VKBackgroundVisualizerManager sharedManager].chatBackgroundActive = self.chatBackground.hasCustomBackground;
     [self setupNavigationHeader];
+    [self applyChatBackground];
+    [self updateRightBarButtonItems];
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
+    self.chatAppearanceVisible = NO;
+    self.chatBackground.active = NO;
+    [VKBackgroundVisualizerManager sharedManager].chatBackgroundActive = NO;
     if (self.isSelectionMode) {
         [self exitSelectionMode];
     }
@@ -477,8 +558,8 @@ static UIImage *VKCheckboxImage(BOOL checked) {
 #pragma mark - Navigation Header & Banner
 
 - (void)setupNavigationHeader {
-    CGFloat maxW = self.view.bounds.size.width - 120.0;
-    if (maxW < 140) maxW = 140;
+    CGFloat maxW = self.view.bounds.size.width - ([VKClientDesign isAndroidClientDesign] ? 160.0 : 120.0);
+    if (maxW < 100) maxW = 100;
     
     UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, maxW, 36)];
     headerView.userInteractionEnabled = YES;
@@ -510,7 +591,9 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         statusLabel.text = self.peerUser.isOnline ? @"в сети" : (self.peerUser.lastSeen ?: @"был(а) недавно");
     }
     statusLabel.font = [UIFont systemFontOfSize:11];
-    if ([[VKThemeManager sharedManager] isSkeuomorphic]) {
+    if ([[VKThemeManager sharedManager] isKateTheme]) {
+        statusLabel.textColor = [VKKateTheme currentTheme].headerSubtitleColor;
+    } else if ([[VKThemeManager sharedManager] isSkeuomorphic]) {
         statusLabel.textColor = [UIColor colorWithRed:180.0/255.0 green:210.0/255.0 blue:245.0/255.0 alpha:1.0];
     } else if ([[VKThemeManager sharedManager] isModern] && self.peerUser.isOnline && self.peerId <= 2000000000) {
         statusLabel.textColor = [[VKThemeManager sharedManager] accentColor];
@@ -526,7 +609,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     
     self.navigationItem.titleView = headerView;
     self.navigationItem.leftBarButtonItem = [[VKThemeManager sharedManager] barButtonItemWithTitle:@"Назад" target:self action:@selector(goBackAction) isBack:YES];
-    
+
     [self updateRightBarButtonItems];
     if (self.peerUser && self.peerUser.avatarURL.length > 0 && self.peerId <= 2000000000) {
         [self updateHeaderAvatarWithURL:self.peerUser.avatarURL];
@@ -540,18 +623,108 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         return;
     }
     
-    UIBarButtonItem *searchItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSearch target:self action:@selector(toggleSearchMode)];
+    NSMutableArray *items = [NSMutableArray array];
+    UIBarButtonItem *appearanceItem = [[UIBarButtonItem alloc] initWithTitle:@"Обои" style:UIBarButtonItemStylePlain target:self action:@selector(openChatAppearance)];
+    appearanceItem.accessibilityLabel = @"Обои этого чата";
+    if (![VKClientDesign isAndroidClientDesign]) [items addObject:appearanceItem];
+    
+    if ([VKClientDesign isAndroidClientDesign]) {
+        UIButton *overflowBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        overflowBtn.frame = CGRectMake(0, 0, 44, 44);
+        [overflowBtn setImage:[VKClientDesign iconNamed:@"kate_overflow" color:[VKThemeManager sharedManager].navBarTintColor] forState:UIControlStateNormal];
+        overflowBtn.accessibilityLabel = @"Меню диалога";
+        [overflowBtn addTarget:self action:@selector(kateChatOverflowAction) forControlEvents:UIControlEventTouchUpInside];
+        [items addObject:[[UIBarButtonItem alloc] initWithCustomView:overflowBtn]];
+        UIButton *settingsBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        settingsBtn.frame = CGRectMake(0, 0, 44, 44);
+        [settingsBtn setImage:[VKClientDesign iconNamed:@"kate_chat_settings" color:[VKThemeManager sharedManager].navBarTintColor] forState:UIControlStateNormal];
+        settingsBtn.accessibilityLabel = @"Информация о диалоге";
+        [settingsBtn addTarget:self action:@selector(kateChatSettingsAction) forControlEvents:UIControlEventTouchUpInside];
+        [items addObject:[[UIBarButtonItem alloc] initWithCustomView:settingsBtn]];
+        self.navigationItem.rightBarButtonItems = items;
+        return;
+    }
     
     if (self.peerId > 2000000000) {
         UIImage *settingsImg = [UIImage imageNamed:@"chat_settings"];
         UIBarButtonItem *settingsItem = [[UIBarButtonItem alloc] initWithImage:settingsImg style:UIBarButtonItemStylePlain target:self action:@selector(openChatSettings)];
-        self.navigationItem.rightBarButtonItems = @[settingsItem, searchItem];
+        [items addObject:settingsItem];
     } else if (self.navAvatarContainer) {
         UIBarButtonItem *avatarItem = [[UIBarButtonItem alloc] initWithCustomView:self.navAvatarContainer];
-        self.navigationItem.rightBarButtonItems = @[avatarItem, searchItem];
-    } else {
-        self.navigationItem.rightBarButtonItems = @[searchItem];
+        [items addObject:avatarItem];
     }
+    
+    UIBarButtonItem *searchItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSearch target:self action:@selector(toggleSearchMode)];
+    [items addObject:searchItem];
+    
+    if ([VKKateSettings isUnlocked] && [VKKateSettings isCloseUnreadEnabled]) {
+        UIBarButtonItem *markReadItem = [[UIBarButtonItem alloc] initWithTitle:@"✓✓" style:UIBarButtonItemStylePlain target:self action:@selector(manualMarkAllAsRead)];
+        [items addObject:markReadItem];
+    }
+    
+    self.navigationItem.rightBarButtonItems = items;
+}
+
+- (void)kateChatSettingsAction {
+    if (self.peerId > 2000000000) {
+        [self openChatSettings];
+    } else {
+        [self headerTapped];
+    }
+}
+
+- (void)kateRefreshAction {
+    [self loadHistory];
+}
+
+- (void)kateChatOverflowAction {
+    UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil
+                                                       delegate:self
+                                              cancelButtonTitle:@"Отмена"
+                                         destructiveButtonTitle:nil
+                                              otherButtonTitles:@"Поиск сообщений", @"Материалы диалога", @"Очистить историю", @"Пометить прочитанными", @"Обои и визуализация", @"Обновить", nil];
+    sheet.tag = 7701;
+    [sheet showInView:self.view];
+}
+
+- (void)confirmClearChatHistory {
+    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Очистить историю?"
+                                                    message:@"Вы уверены, что хотите удалить всю переписку в этом диалоге?"
+                                                   delegate:self
+                                          cancelButtonTitle:@"Отмена"
+                                          otherButtonTitles:@"Очистить", nil];
+    alert.tag = 7702;
+    [alert show];
+}
+
+- (void)clearChatHistoryConfirmed {
+    NSDictionary *params = (self.peerId > 2000000000) ? @{@"chat_id": @(self.peerId - 2000000000)} : @{@"user_id": @(self.peerId)};
+    [[VKAPIClient sharedClient] callMethod:@"messages.deleteHistory" parameters:params completionHandler:^(id response, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!error) {
+                [self.messages removeAllObjects];
+                [self.tableView reloadData];
+                self.pinnedMessage = nil;
+                [self updateLayoutAnimated:YES];
+            } else {
+                UIAlertView *errAlert = [[UIAlertView alloc] initWithTitle:@"Ошибка" message:error.localizedDescription delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                [errAlert show];
+            }
+        });
+    }];
+}
+
+- (void)manualMarkAllAsRead {
+    [[VKMessagesService sharedService] forceMarkAsReadForPeerId:self.peerId startMessageId:0 completion:^(BOOL success) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            for (VKMessage *m in self.messages) {
+                m.isRead = YES;
+            }
+            [self.tableView reloadData];
+            UIAlertView *al = [[UIAlertView alloc] initWithTitle:@"Прочитано" message:@"Сообщения в диалоге помечены прочитанными." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+            [al show];
+        });
+    }];
 }
 
 - (void)updateHeaderAvatarWithURL:(NSString *)url {
@@ -1002,11 +1175,14 @@ static UIImage *VKCheckboxImage(BOOL checked) {
 
 - (void)setupPinnedBannerView {
     CGFloat width = self.view.bounds.size.width;
+    BOOL isKate = [[VKThemeManager sharedManager] isKateTheme];
     BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
     
     self.pinnedBannerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 40.0)];
     self.pinnedBannerView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    if (isSkeuomorph) {
+    if (isKate) {
+        self.pinnedBannerView.backgroundColor = [[VKKateTheme currentTheme] pinnedBannerBackgroundColor];
+    } else if (isSkeuomorph) {
         self.pinnedBannerView.backgroundColor = [UIColor colorWithRed:240.0/255.0 green:242.0/255.0 blue:246.0/255.0 alpha:0.97];
     } else {
         self.pinnedBannerView.backgroundColor = [UIColor colorWithRed:248.0/255.0 green:249.0/255.0 blue:251.0/255.0 alpha:0.97];
@@ -1018,7 +1194,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     [self.pinnedBannerView addGestureRecognizer:tap];
     
     UIView *accentLine = [[UIView alloc] initWithFrame:CGRectMake(10, 6, 2.5, 28)];
-    accentLine.backgroundColor = [[VKThemeManager sharedManager] accentColor];
+    accentLine.backgroundColor = isKate ? [[VKKateTheme currentTheme] pinnedAccentColor] : [[VKThemeManager sharedManager] accentColor];
     accentLine.layer.cornerRadius = 1.25;
     accentLine.clipsToBounds = YES;
     [self.pinnedBannerView addSubview:accentLine];
@@ -1026,7 +1202,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     self.pinnedSenderLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 4, width - 64, 15)];
     self.pinnedSenderLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     self.pinnedSenderLabel.font = [UIFont boldSystemFontOfSize:11.5];
-    self.pinnedSenderLabel.textColor = [[VKThemeManager sharedManager] accentColor];
+    self.pinnedSenderLabel.textColor = isKate ? [[VKKateTheme currentTheme] primaryTextColor] : [[VKThemeManager sharedManager] accentColor];
     self.pinnedSenderLabel.backgroundColor = [UIColor clearColor];
     self.pinnedSenderLabel.text = @"Закрепленное сообщение";
     [self.pinnedBannerView addSubview:self.pinnedSenderLabel];
@@ -1034,7 +1210,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     self.pinnedTextLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 20, width - 64, 15)];
     self.pinnedTextLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     self.pinnedTextLabel.font = [UIFont systemFontOfSize:11.5];
-    self.pinnedTextLabel.textColor = [UIColor colorWithWhite:0.3 alpha:1.0];
+    self.pinnedTextLabel.textColor = isKate ? [[VKKateTheme currentTheme] secondaryTextColor] : [UIColor colorWithWhite:0.3 alpha:1.0];
     self.pinnedTextLabel.backgroundColor = [UIColor clearColor];
     [self.pinnedBannerView addSubview:self.pinnedTextLabel];
     
@@ -1042,14 +1218,14 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     self.pinnedCloseButton.frame = CGRectMake(width - 36, 4, 32, 32);
     self.pinnedCloseButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [self.pinnedCloseButton setTitle:@"✕" forState:UIControlStateNormal];
-    [self.pinnedCloseButton setTitleColor:[UIColor colorWithWhite:0.55 alpha:1.0] forState:UIControlStateNormal];
+    [self.pinnedCloseButton setTitleColor:isKate ? [[VKKateTheme currentTheme] secondaryTextColor] : [UIColor colorWithWhite:0.55 alpha:1.0] forState:UIControlStateNormal];
     self.pinnedCloseButton.titleLabel.font = [UIFont systemFontOfSize:14];
     [self.pinnedCloseButton addTarget:self action:@selector(unpinBannerAction) forControlEvents:UIControlEventTouchUpInside];
     [self.pinnedBannerView addSubview:self.pinnedCloseButton];
     
     UIView *botSep = [[UIView alloc] initWithFrame:CGRectMake(0, 39.5, width, 0.5)];
     botSep.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
-    botSep.backgroundColor = isSkeuomorph ? [UIColor colorWithWhite:0.75 alpha:1.0] : [UIColor colorWithRed:220.0/255.0 green:222.0/255.0 blue:226.0/255.0 alpha:1.0];
+    botSep.backgroundColor = isKate ? [[VKKateTheme currentTheme] separatorColor] : (isSkeuomorph ? [UIColor colorWithWhite:0.75 alpha:1.0] : [UIColor colorWithRed:220.0/255.0 green:222.0/255.0 blue:226.0/255.0 alpha:1.0]);
     [self.pinnedBannerView addSubview:botSep];
     
     [self.view addSubview:self.pinnedBannerView];
@@ -1105,7 +1281,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     CGFloat width = self.view.bounds.size.width;
     BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
     
-    self.attachedPhotoBarView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 48.0)];
+    self.attachedPhotoBarView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, 52.0)];
     self.attachedPhotoBarView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     self.attachedPhotoBarView.backgroundColor = isSkeuomorph ? [UIColor colorWithRed:235.0/255.0 green:238.0/255.0 blue:242.0/255.0 alpha:1.0] : [UIColor colorWithRed:245.0/255.0 green:246.0/255.0 blue:249.0/255.0 alpha:1.0];
     self.attachedPhotoBarView.hidden = YES;
@@ -1115,31 +1291,123 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     topSep.backgroundColor = isSkeuomorph ? [UIColor colorWithWhite:0.75 alpha:1.0] : [UIColor colorWithRed:220.0/255.0 green:222.0/255.0 blue:226.0/255.0 alpha:1.0];
     [self.attachedPhotoBarView addSubview:topSep];
     
-    self.attachedPhotoThumbView = [[UIImageView alloc] initWithFrame:CGRectMake(10, 4, 40, 40)];
-    self.attachedPhotoThumbView.contentMode = UIViewContentModeScaleAspectFill;
-    self.attachedPhotoThumbView.layer.cornerRadius = 4.0;
-    self.attachedPhotoThumbView.clipsToBounds = YES;
-    self.attachedPhotoThumbView.backgroundColor = [UIColor colorWithWhite:0.85 alpha:1.0];
-    [self.attachedPhotoBarView addSubview:self.attachedPhotoThumbView];
-    
-    UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(58, 14, width - 100, 20)];
-    lbl.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    lbl.font = [UIFont systemFontOfSize:13];
-    lbl.textColor = [UIColor colorWithWhite:0.3 alpha:1.0];
-    lbl.text = @"Прикрепленное фото";
-    lbl.backgroundColor = [UIColor clearColor];
-    [self.attachedPhotoBarView addSubview:lbl];
+    self.attachedPhotosScrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(10, 5, width - 52, 42.0)];
+    self.attachedPhotosScrollView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    self.attachedPhotosScrollView.showsHorizontalScrollIndicator = NO;
+    self.attachedPhotosScrollView.alwaysBounceHorizontal = YES;
+    [self.attachedPhotoBarView addSubview:self.attachedPhotosScrollView];
     
     self.attachedPhotoCancelButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.attachedPhotoCancelButton.frame = CGRectMake(width - 34, 9, 30, 30);
+    self.attachedPhotoCancelButton.frame = CGRectMake(width - 38, 7, 34, 34);
     self.attachedPhotoCancelButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [self.attachedPhotoCancelButton setTitle:@"✕" forState:UIControlStateNormal];
     [self.attachedPhotoCancelButton setTitleColor:[UIColor colorWithWhite:0.55 alpha:1.0] forState:UIControlStateNormal];
-    self.attachedPhotoCancelButton.titleLabel.font = [UIFont systemFontOfSize:14];
+    self.attachedPhotoCancelButton.titleLabel.font = [UIFont boldSystemFontOfSize:16];
     [self.attachedPhotoCancelButton addTarget:self action:@selector(cancelAttachedPhotoAction) forControlEvents:UIControlEventTouchUpInside];
     [self.attachedPhotoBarView addSubview:self.attachedPhotoCancelButton];
     
     [self.inputContainerView addSubview:self.attachedPhotoBarView];
+}
+
+- (void)refreshAttachedPhotosBar {
+    for (UIView *v in self.attachedPhotosScrollView.subviews) {
+        [v removeFromSuperview];
+    }
+    
+    CGFloat curX = 0.0;
+    CGFloat itemSize = 40.0;
+    CGFloat gap = 8.0;
+    NSInteger globalIdx = 0;
+    
+    // 1. Local images
+    for (NSInteger i = 0; i < (NSInteger)self.pendingLocalImages.count; i++) {
+        UIImage *img = self.pendingLocalImages[i];
+        UIView *thumbContainer = [[UIView alloc] initWithFrame:CGRectMake(curX, 1, itemSize, itemSize)];
+        thumbContainer.clipsToBounds = NO;
+        
+        UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, itemSize, itemSize)];
+        iv.contentMode = UIViewContentModeScaleAspectFill;
+        iv.layer.cornerRadius = 4.0;
+        iv.clipsToBounds = YES;
+        iv.image = img;
+        [thumbContainer addSubview:iv];
+        
+        // Remove button
+        UIButton *delBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        delBtn.frame = CGRectMake(itemSize - 14, -4, 18, 18);
+        delBtn.backgroundColor = [UIColor colorWithRed:230.0/255.0 green:50.0/255.0 blue:50.0/255.0 alpha:0.9];
+        delBtn.layer.cornerRadius = 9.0;
+        delBtn.layer.borderWidth = 1.0;
+        delBtn.layer.borderColor = [UIColor whiteColor].CGColor;
+        delBtn.clipsToBounds = YES;
+        [delBtn setTitle:@"✕" forState:UIControlStateNormal];
+        delBtn.titleLabel.font = [UIFont boldSystemFontOfSize:10];
+        delBtn.tag = 1000 + i;
+        [delBtn addTarget:self action:@selector(removeLocalImageTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [thumbContainer addSubview:delBtn];
+        
+        [self.attachedPhotosScrollView addSubview:thumbContainer];
+        curX += itemSize + gap;
+        globalIdx++;
+    }
+    
+    // 2. Server attachments from albums
+    for (NSInteger i = 0; i < (NSInteger)self.pendingServerAttachments.count; i++) {
+        NSDictionary *att = self.pendingServerAttachments[i];
+        UIView *thumbContainer = [[UIView alloc] initWithFrame:CGRectMake(curX, 1, itemSize, itemSize)];
+        thumbContainer.clipsToBounds = NO;
+        
+        UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, itemSize, itemSize)];
+        iv.contentMode = UIViewContentModeScaleAspectFill;
+        iv.layer.cornerRadius = 4.0;
+        iv.clipsToBounds = YES;
+        iv.backgroundColor = [UIColor colorWithWhite:0.9 alpha:1.0];
+        
+        NSString *url = att[@"thumbURL"];
+        if (url && url.length > 0) {
+            [[VKImageLoader sharedLoader] loadImageWithURL:url completion:^(UIImage *loaded) {
+                if (loaded) iv.image = loaded;
+            }];
+        }
+        [thumbContainer addSubview:iv];
+        
+        UIButton *delBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        delBtn.frame = CGRectMake(itemSize - 14, -4, 18, 18);
+        delBtn.backgroundColor = [UIColor colorWithRed:230.0/255.0 green:50.0/255.0 blue:50.0/255.0 alpha:0.9];
+        delBtn.layer.cornerRadius = 9.0;
+        delBtn.layer.borderWidth = 1.0;
+        delBtn.layer.borderColor = [UIColor whiteColor].CGColor;
+        delBtn.clipsToBounds = YES;
+        [delBtn setTitle:@"✕" forState:UIControlStateNormal];
+        delBtn.titleLabel.font = [UIFont boldSystemFontOfSize:10];
+        delBtn.tag = 2000 + i;
+        [delBtn addTarget:self action:@selector(removeServerAttachmentTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [thumbContainer addSubview:delBtn];
+        
+        [self.attachedPhotosScrollView addSubview:thumbContainer];
+        curX += itemSize + gap;
+        globalIdx++;
+    }
+    
+    self.attachedPhotosScrollView.contentSize = CGSizeMake(curX + 10.0, 42.0);
+}
+
+- (void)removeLocalImageTapped:(UIButton *)sender {
+    NSInteger idx = sender.tag - 1000;
+    if (idx >= 0 && idx < (NSInteger)self.pendingLocalImages.count) {
+        [self.pendingLocalImages removeObjectAtIndex:idx];
+        [self refreshAttachedPhotosBar];
+        [self updateLayoutAnimated:YES];
+    }
+}
+
+- (void)removeServerAttachmentTapped:(UIButton *)sender {
+    NSInteger idx = sender.tag - 2000;
+    if (idx >= 0 && idx < (NSInteger)self.pendingServerAttachments.count) {
+        [self.pendingServerAttachments removeObjectAtIndex:idx];
+        [self refreshAttachedPhotosBar];
+        [self updateLayoutAnimated:YES];
+    }
 }
 
 - (void)setupEditingBarView {
@@ -1241,8 +1509,9 @@ static UIImage *VKCheckboxImage(BOOL checked) {
 }
 
 - (void)cancelAttachedPhotoAction {
-    self.pendingImageToSend = nil;
-    self.attachedPhotoThumbView.image = nil;
+    [self.pendingLocalImages removeAllObjects];
+    [self.pendingServerAttachments removeAllObjects];
+    [self refreshAttachedPhotosBar];
     [self updateLayoutAnimated:YES];
 }
 
@@ -1309,8 +1578,8 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     BOOL hasReply = (self.replyingMessage != nil || self.forwardingMessages.count > 0);
     CGFloat replyH = hasReply ? 38.0 : 0.0;
     
-    BOOL hasPhoto = (self.pendingImageToSend != nil);
-    CGFloat photoH = hasPhoto ? 48.0 : 0.0;
+    BOOL hasPhoto = (self.pendingLocalImages.count > 0 || self.pendingServerAttachments.count > 0);
+    CGFloat photoH = hasPhoto ? 52.0 : 0.0;
     
     BOOL hasEdit = (self.editingMessage != nil);
     CGFloat editH = hasEdit ? 38.0 : 0.0;
@@ -1331,7 +1600,11 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         if (hasPin) {
             VKUser *u = [self senderUserForMessage:self.pinnedMessage];
             NSString *authorStr = u ? u.displayName : (self.pinnedMessage.fromId > 0 ? [NSString stringWithFormat:@"id%ld", (long)self.pinnedMessage.fromId] : @"Сообщение");
-            self.pinnedSenderLabel.text = [NSString stringWithFormat:@"Закрепленное сообщение · %@", authorStr];
+            if ([[VKThemeManager sharedManager] isKateTheme]) {
+                self.pinnedSenderLabel.text = [NSString stringWithFormat:@"📌 Закрепленное сообщение (%@)", authorStr];
+            } else {
+                self.pinnedSenderLabel.text = [NSString stringWithFormat:@"Закрепленное сообщение · %@", authorStr];
+            }
             self.pinnedTextLabel.text = [self previewTextForMessage:self.pinnedMessage];
         }
         
@@ -1386,9 +1659,15 @@ static UIImage *VKCheckboxImage(BOOL checked) {
             }
             
             // Controls inside input container
-            self.attachButton.frame = CGRectMake(8, currentY + 7, 34, 34);
-            self.messageTextField.frame = CGRectMake(48, currentY + 7, width - 110, 34);
-            self.sendButton.frame = CGRectMake(width - 58, currentY + 7, 52, 34);
+            if ([VKClientDesign isAndroidClientDesign]) {
+                self.attachButton.frame = CGRectMake(0, currentY + 2, 44, 44);
+                self.messageTextField.frame = CGRectMake(44, currentY + 7, width - 104, 34);
+                self.sendButton.frame = CGRectMake(width - 58, currentY + 2, 58, 44);
+            } else {
+                self.attachButton.frame = CGRectMake(8, currentY + 7, 34, 34);
+                self.messageTextField.frame = CGRectMake(48, currentY + 7, width - 110, 34);
+                self.sendButton.frame = CGRectMake(width - 58, currentY + 7, 52, 34);
+            }
         }
     };
     
@@ -1524,14 +1803,14 @@ static UIImage *VKCheckboxImage(BOOL checked) {
                                                        delegate:self
                                               cancelButtonTitle:@"Отмена"
                                          destructiveButtonTitle:nil
-                                              otherButtonTitles:@"Сделать снимок", @"Выбрать из галереи", nil];
+                                              otherButtonTitles:@"Сделать снимок", @"Выбрать из галереи", @"Выбрать из альбомов VK", nil];
     sheet.tag = 5001;
     [sheet showInView:self.view];
 }
 
 - (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
     if (actionSheet.tag == 5001) {
-        // Фотокамера / Галерея
+        // Фотокамера / Галерея / Альбомы VK
         if (buttonIndex == 0) {
             if ([UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeCamera]) {
                 UIImagePickerController *picker = [[UIImagePickerController alloc] init];
@@ -1547,6 +1826,11 @@ static UIImage *VKCheckboxImage(BOOL checked) {
             picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
             picker.delegate = self;
             [self presentViewController:picker animated:YES completion:nil];
+        } else if (buttonIndex == 2) {
+            VKPhotoPickerViewController *picker = [[VKPhotoPickerViewController alloc] initWithUserId:0];
+            picker.delegate = self;
+            UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:picker];
+            [self presentViewController:nav animated:YES completion:nil];
         }
     } else if (actionSheet.tag == 5002) {
         // Меню покинутой беседы
@@ -1786,12 +2070,30 @@ static UIImage *VKCheckboxImage(BOOL checked) {
             VKChatAttachmentsViewController *attVC = [[VKChatAttachmentsViewController alloc] initWithPeerId:self.peerId chatTitle:self.chatTitle];
             [self.navigationController pushViewController:attVC animated:YES];
         }
+    } else if (actionSheet.tag == 7701) {
+        if (buttonIndex == actionSheet.cancelButtonIndex) return;
+        if (buttonIndex == 0) {
+            [self toggleSearchMode];
+        } else if (buttonIndex == 1) {
+            VKChatAttachmentsViewController *attVC = [[VKChatAttachmentsViewController alloc] initWithPeerId:self.peerId chatTitle:self.chatTitle];
+            [self.navigationController pushViewController:attVC animated:YES];
+        } else if (buttonIndex == 2) {
+            [self confirmClearChatHistory];
+        } else if (buttonIndex == 3) {
+            [self manualMarkAllAsRead];
+        } else if (buttonIndex == 4) {
+            [self openChatAppearance];
+        } else if (buttonIndex == 5) {
+            [self kateRefreshAction];
+        }
     }
 }
 
 - (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex {
     if (alertView.tag == 7001 && buttonIndex == 1) {
         [self leaveChatAction];
+    } else if (alertView.tag == 7702 && buttonIndex == 1) {
+        [self clearChatHistoryConfirmed];
     }
 }
 
@@ -1801,8 +2103,8 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     UIImage *chosenImage = info[UIImagePickerControllerEditedImage] ?: info[UIImagePickerControllerOriginalImage];
     [picker dismissViewControllerAnimated:YES completion:^{
         if (chosenImage) {
-            self.pendingImageToSend = chosenImage;
-            self.attachedPhotoThumbView.image = chosenImage;
+            [self.pendingLocalImages addObject:chosenImage];
+            [self refreshAttachedPhotosBar];
             [self updateLayoutAnimated:YES];
         }
     }];
@@ -1810,6 +2112,16 @@ static UIImage *VKCheckboxImage(BOOL checked) {
 
 - (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
     [picker dismissViewControllerAnimated:YES completion:nil];
+}
+
+#pragma mark - VKPhotoPickerDelegate
+
+- (void)photoPicker:(VKPhotoPickerViewController *)picker didSelectAttachments:(NSArray<NSDictionary *> *)attachments {
+    if (attachments.count > 0) {
+        [self.pendingServerAttachments addObjectsFromArray:attachments];
+        [self refreshAttachedPhotosBar];
+        [self updateLayoutAnimated:YES];
+    }
 }
 
 - (void)goBackAction {
@@ -1929,9 +2241,10 @@ static UIImage *VKCheckboxImage(BOOL checked) {
 
 - (void)textFieldDidChange:(UITextField *)tf {
     BOOL hasText = [tf.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length > 0;
+    BOOL hasAttachments = (self.pendingLocalImages.count > 0 || self.pendingServerAttachments.count > 0 || self.forwardingMessages.count > 0);
     if ([[VKThemeManager sharedManager] isModern]) {
         [UIView animateWithDuration:0.15 animations:^{
-            self.sendButton.alpha = (hasText || self.pendingImageToSend || self.forwardingMessages.count > 0) ? 1.0 : 0.4;
+            self.sendButton.alpha = (hasText || hasAttachments) ? 1.0 : 0.4;
         }];
     }
 }
@@ -2087,7 +2400,8 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         return;
     }
     
-    if (text.length == 0 && !self.pendingImageToSend && self.forwardingMessages.count == 0) return;
+    BOOL hasAttachments = (self.pendingLocalImages.count > 0 || self.pendingServerAttachments.count > 0);
+    if (text.length == 0 && !hasAttachments && self.forwardingMessages.count == 0) return;
     
     self.sendButton.userInteractionEnabled = NO;
     [VKCrashLogger log:@"[VKChatViewController] Sending message to peerId=%ld", (long)self.peerId];
@@ -2105,36 +2419,69 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         fwdStr = [ids componentsJoinedByString:@","];
     }
     
-    if (self.pendingImageToSend) {
-        UIImage *imgToSend = self.pendingImageToSend;
-        [[VKMessagesService sharedService] uploadMessagePhoto:imgToSend peerId:self.peerId completion:^(NSString *attachmentString, NSError *uploadError) {
-            if (uploadError || !attachmentString) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    self.sendButton.userInteractionEnabled = YES;
-                    UIAlertView *err = [[UIAlertView alloc] initWithTitle:@"Ошибка загрузки фото" message:uploadError.localizedDescription ?: @"Не удалось загрузить изображение" delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
-                    [err show];
-                });
-                return;
+    if (hasAttachments) {
+        NSMutableArray<NSString *> *existingAttStrings = [NSMutableArray array];
+        for (NSDictionary *att in self.pendingServerAttachments) {
+            NSString *s = att[@"attachmentString"];
+            if (s && s.length > 0) {
+                [existingAttStrings addObject:s];
             }
-            
-            [[VKMessagesService sharedService] sendMessageToPeerId:self.peerId text:text attachment:attachmentString replyTo:replyTo forwardMsgs:fwdStr completion:^(BOOL success, NSInteger messageId, NSError *sendError) {
+        }
+        
+        void (^sendAllWithAttachments)(NSArray<NSString *> *) = ^(NSArray<NSString *> *allAttStrings) {
+            NSString *combined = [allAttStrings componentsJoinedByString:@","];
+            [[VKMessagesService sharedService] sendMessageToPeerId:self.peerId
+                                                              text:text
+                                                        attachment:combined
+                                                           replyTo:replyTo
+                                                       forwardMsgs:fwdStr
+                                                        completion:^(BOOL success, NSInteger messageId, NSError *sendError) {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     self.sendButton.userInteractionEnabled = YES;
                     if (success) {
+                        [[VKMessagesService sharedService] forceMarkAsReadForPeerId:self.peerId startMessageId:0 completion:nil];
                         self.messageTextField.text = @"";
-                        self.pendingImageToSend = nil;
-                        self.attachedPhotoThumbView.image = nil;
+                        [self.pendingLocalImages removeAllObjects];
+                        [self.pendingServerAttachments removeAllObjects];
+                        [self refreshAttachedPhotosBar];
                         self.replyingMessage = nil;
                         self.forwardingMessages = nil;
                         [self updateLayoutAnimated:YES];
                         [self loadHistory];
                     } else {
-                        UIAlertView *err = [[UIAlertView alloc] initWithTitle:@"Не удалось отправить" message:sendError.localizedDescription delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+                        UIAlertView *err = [[UIAlertView alloc] initWithTitle:@"Не удалось отправить"
+                                                                      message:sendError.localizedDescription ?: @"Ошибка отправки"
+                                                                     delegate:nil
+                                                            cancelButtonTitle:@"OK"
+                                                            otherButtonTitles:nil];
                         [err show];
                     }
                 });
             }];
-        }];
+        };
+        
+        if (self.pendingLocalImages.count > 0) {
+            [[VKMessagesService sharedService] uploadMessagePhotos:self.pendingLocalImages peerId:self.peerId completion:^(NSArray<NSString *> *uploadedStrings, NSError *uploadError) {
+                if (uploadError || uploadedStrings.count == 0) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        self.sendButton.userInteractionEnabled = YES;
+                        UIAlertView *err = [[UIAlertView alloc] initWithTitle:@"Ошибка загрузки фото"
+                                                                      message:uploadError.localizedDescription ?: @"Не удалось загрузить изображение"
+                                                                     delegate:nil
+                                                            cancelButtonTitle:@"OK"
+                                                            otherButtonTitles:nil];
+                        [err show];
+                    });
+                    return;
+                }
+                
+                NSMutableArray<NSString *> *allAtts = [NSMutableArray arrayWithArray:uploadedStrings];
+                [allAtts addObjectsFromArray:existingAttStrings];
+                sendAllWithAttachments(allAtts);
+            }];
+        } else {
+            sendAllWithAttachments(existingAttStrings);
+        }
     } else {
         NSString *sentText = text;
         [self sendOptimisticMessageWithText:sentText stickerId:0];
@@ -2147,6 +2494,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 self.sendButton.userInteractionEnabled = YES;
                 if (success) {
+                    [[VKMessagesService sharedService] forceMarkAsReadForPeerId:self.peerId startMessageId:0 completion:nil];
                     [self loadHistory];
                 } else if (error) {
                     for (NSInteger i = (NSInteger)self.messages.count - 1; i >= 0; i--) {
@@ -2201,7 +2549,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
 
 - (NSString *)previewTextForMessage:(VKMessage *)msg {
     if (!msg) return @"";
-    if (msg.text.length > 0) return msg.text;
+    if (msg.text.length > 0) return [VKTextParser cleanTextForDisplay:msg.text];
     
     if (msg.attachments.count > 0) {
         VKAttachment *first = msg.attachments[0];
@@ -2233,7 +2581,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
 
 - (NSString *)textForMessage:(VKMessage *)msg {
     if (!msg) return @"";
-    return msg.text ?: @"";
+    return [VKTextParser cleanTextForDisplay:msg.text] ?: @"";
 }
 
 - (NSArray<VKAttachment *> *)photoAttachmentsInMessage:(VKMessage *)msg {
@@ -2317,23 +2665,26 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     CGFloat authorHeaderH = showAuthor ? 18.0 : 0.0;
     
     CGFloat selOffset = self.isSelectionMode ? 32.0 : 0.0;
-    CGFloat maxTextW = width - (isGroupChat && !msg.isOutgoing ? 46.0 : 10.0) - 50.0 - selOffset;
+    BOOL isKate = [[VKThemeManager sharedManager] isKateTheme];
+    BOOL groupAvatar = isGroupChat && !msg.isOutgoing && (![VKClientDesign isAndroidClientDesign] || [VKClientDesign chatAvatars]);
+    CGFloat maxTextW = VKClientMessageTextWidth(width, [self usesThemeChatAvatars], groupAvatar, self.isSelectionMode);
     CGFloat attContentW = MAX(200.0, maxTextW - 20.0);
     CGFloat attH = [self heightForAttachmentsInMessage:msg contentWidth:attContentW];
     BOOL hasReply = (msg.replyMessage != nil || (msg.fwdMessages && msg.fwdMessages.count > 0));
-    CGFloat replyExtraH = hasReply ? 34.0 : 0.0;
+    CGFloat replyExtraH = hasReply ? (isKate ? 42.0 : 34.0) : 0.0;
     CGFloat extraH = (attH > 0 ? attH + 8.0 : 0.0) + authorHeaderH + replyExtraH;
     
     NSString *displayText = [self textForMessage:msg];
     CGFloat textH = 0.0;
     if (displayText.length > 0) {
-        CGSize size = [displayText sizeWithFont:[UIFont systemFontOfSize:15] constrainedToSize:CGSizeMake(maxTextW, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
+        CGSize size = [displayText sizeWithFont:[UIFont systemFontOfSize:[VKClientDesign messageFontSize]] constrainedToSize:CGSizeMake(maxTextW, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
         textH = ceilf(size.height);
     }
     
-    CGFloat bubbleH = textH + 22.0 + extraH;
+    CGFloat bubbleH = textH + (isKate ? 26.0 : 22.0) + extraH;
     CGFloat gap = (isModern && joinsNext) ? 3.0 : 6.0;
-    return MAX(38.0 + extraH, bubbleH + gap);
+    CGFloat minH = isKate ? 58.0 : (38.0 + extraH);
+    return MAX(minH, bubbleH + gap);
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -2373,6 +2724,25 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         authorAvatar.hidden = YES;
         [authorAvatar addTarget:self action:@selector(userButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
         [cell.contentView addSubview:authorAvatar];
+        
+        UIImageView *authorOnlineDot = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 10, 10)];
+        authorOnlineDot.tag = 1027;
+        authorOnlineDot.image = [UIImage imageNamed:@"kate_online_green"];
+        authorOnlineDot.hidden = YES;
+        [cell.contentView addSubview:authorOnlineDot];
+        
+        VKChatUserButton *outgoingAvatar = [VKChatUserButton buttonWithType:UIButtonTypeCustom];
+        outgoingAvatar.tag = 1025;
+        outgoingAvatar.clipsToBounds = YES;
+        outgoingAvatar.hidden = YES;
+        [outgoingAvatar addTarget:self action:@selector(userButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [cell.contentView addSubview:outgoingAvatar];
+        
+        UIImageView *outgoingOnlineDot = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 10, 10)];
+        outgoingOnlineDot.tag = 1026;
+        outgoingOnlineDot.image = [UIImage imageNamed:@"kate_online_green"];
+        outgoingOnlineDot.hidden = YES;
+        [cell.contentView addSubview:outgoingOnlineDot];
         
         // Стикер (без пузыря)
         UIImageView *stickerIV = [[UIImageView alloc] initWithFrame:CGRectZero];
@@ -2461,10 +2831,18 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         quoteTextLabel.backgroundColor = [UIColor clearColor];
         [quoteView addSubview:quoteTextLabel];
         
+        UIImageView *quoteAvatar = [[UIImageView alloc] initWithFrame:CGRectZero];
+        quoteAvatar.tag = 1015;
+        quoteAvatar.clipsToBounds = YES;
+        quoteAvatar.layer.cornerRadius = 2.5;
+        quoteAvatar.contentMode = UIViewContentModeScaleAspectFill;
+        quoteAvatar.hidden = YES;
+        [quoteView addSubview:quoteAvatar];
+        
         // Текст сообщения
         UILabel *textLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         textLabel.tag = 1002;
-        textLabel.font = [UIFont systemFontOfSize:15];
+        textLabel.font = [UIFont systemFontOfSize:[VKClientDesign messageFontSize]];
         textLabel.numberOfLines = 0;
         textLabel.backgroundColor = [UIColor clearColor];
         [bubble addSubview:textLabel];
@@ -2483,6 +2861,34 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     UIView *servicePill = [cell.contentView viewWithTag:1007];
     UILabel *serviceLabel = (UILabel *)[servicePill viewWithTag:1008];
     VKChatUserButton *authorAvatar = (VKChatUserButton *)[cell.contentView viewWithTag:1005];
+    UIImageView *authorOnlineDot = (UIImageView *)[cell.contentView viewWithTag:1027];
+    if (!authorOnlineDot) {
+        authorOnlineDot = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 10, 10)];
+        authorOnlineDot.tag = 1027;
+        authorOnlineDot.image = [UIImage imageNamed:@"kate_online_green"];
+        authorOnlineDot.hidden = YES;
+        [cell.contentView addSubview:authorOnlineDot];
+    }
+    
+    VKChatUserButton *outgoingAvatar = (VKChatUserButton *)[cell.contentView viewWithTag:1025];
+    if (!outgoingAvatar) {
+        outgoingAvatar = [VKChatUserButton buttonWithType:UIButtonTypeCustom];
+        outgoingAvatar.tag = 1025;
+        outgoingAvatar.clipsToBounds = YES;
+        outgoingAvatar.hidden = YES;
+        [outgoingAvatar addTarget:self action:@selector(userButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [cell.contentView addSubview:outgoingAvatar];
+    }
+    
+    UIImageView *outgoingOnlineDot = (UIImageView *)[cell.contentView viewWithTag:1026];
+    if (!outgoingOnlineDot) {
+        outgoingOnlineDot = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 10, 10)];
+        outgoingOnlineDot.tag = 1026;
+        outgoingOnlineDot.image = [UIImage imageNamed:@"kate_online_green"];
+        outgoingOnlineDot.hidden = YES;
+        [cell.contentView addSubview:outgoingOnlineDot];
+    }
+    
     UIImageView *stickerIV = (UIImageView *)[cell.contentView viewWithTag:1009];
     UILabel *stickerTimeLabel = (UILabel *)[cell.contentView viewWithTag:1010];
     UIImageView *bubble = (UIImageView *)[cell.contentView viewWithTag:1001];
@@ -2493,6 +2899,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     UIView *quoteBar = [quoteView viewWithTag:1012];
     UILabel *quoteAuthorLabel = (UILabel *)[quoteView viewWithTag:1013];
     UILabel *quoteTextLabel = (UILabel *)[quoteView viewWithTag:1014];
+    UIImageView *quoteAvatar = (UIImageView *)[quoteView viewWithTag:1015];
     UILabel *textLabel = (UILabel *)[bubble viewWithTag:1002];
     UILabel *timeLabel = (UILabel *)[bubble viewWithTag:1003];
     
@@ -2518,6 +2925,9 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         checkbox.hidden = YES;
         bubble.hidden = YES;
         authorAvatar.hidden = YES;
+        authorOnlineDot.hidden = YES;
+        outgoingAvatar.hidden = YES;
+        outgoingOnlineDot.hidden = YES;
         stickerIV.hidden = YES;
         stickerTimeLabel.hidden = YES;
         servicePill.hidden = NO;
@@ -2558,6 +2968,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         stickerIV.userInteractionEnabled = NO;
         authorNameLabel.userInteractionEnabled = NO;
         authorAvatar.userInteractionEnabled = NO;
+        outgoingAvatar.userInteractionEnabled = NO;
     } else {
         checkbox.hidden = YES;
         bubble.userInteractionEnabled = YES;
@@ -2565,6 +2976,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         stickerIV.userInteractionEnabled = YES;
         authorNameLabel.userInteractionEnabled = YES;
         authorAvatar.userInteractionEnabled = YES;
+        outgoingAvatar.userInteractionEnabled = YES;
     }
     
     // 2. Стикер
@@ -2573,6 +2985,9 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         bubble.hidden = YES;
         stickerIV.hidden = NO;
         stickerTimeLabel.hidden = NO;
+        outgoingAvatar.hidden = YES;
+        outgoingOnlineDot.hidden = YES;
+        authorOnlineDot.hidden = YES;
         
         VKAttachment *stAtt = (VKAttachment *)msg.attachments[0];
         stickerIV.image = nil;
@@ -2628,6 +3043,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     NSString *authorNameStr = author ? author.displayName : (msg.fromId != 0 ? [NSString stringWithFormat:@"id%ld", (long)msg.fromId] : @"");
     
     BOOL hasReply = (msg.replyMessage != nil || (msg.fwdMessages && msg.fwdMessages.count > 0));
+    NSString *quotedAvatarURL = nil;
     if (hasReply) {
         quoteView.hidden = NO;
         if (msg.replyMessage) {
@@ -2635,24 +3051,41 @@ static UIImage *VKCheckboxImage(BOOL checked) {
             NSString *authorName = ru ? ru.displayName : (msg.replyMessage.fromId > 0 ? [NSString stringWithFormat:@"id%ld", (long)msg.replyMessage.fromId] : @"Сообщение");
             quoteAuthorLabel.text = authorName;
             quoteTextLabel.text = [self previewTextForMessage:msg.replyMessage];
+            quotedAvatarURL = ru.avatarURL;
         } else if (msg.fwdMessages.count > 0) {
             VKMessage *fwd = msg.fwdMessages[0];
             VKUser *fu = [self senderUserForMessage:fwd];
             NSString *fwdAuthor = fu ? fu.displayName : (fwd.fromId > 0 ? [NSString stringWithFormat:@"id%ld", (long)fwd.fromId] : @"Сообщение");
             quoteAuthorLabel.text = msg.fwdMessages.count > 1 ? [NSString stringWithFormat:@"%@ (+%lu)", fwdAuthor, (unsigned long)(msg.fwdMessages.count - 1)] : fwdAuthor;
             quoteTextLabel.text = [self previewTextForMessage:fwd];
+            quotedAvatarURL = fu.avatarURL;
+        }
+        
+        if (quotedAvatarURL.length > 0) {
+            quoteAvatar.hidden = NO;
+            quoteAvatar.image = [UIImage imageNamed:@"user_placeholder"];
+            [[VKImageLoader sharedLoader] loadImageWithURL:quotedAvatarURL completion:^(UIImage *img) {
+                if (img) quoteAvatar.image = img;
+            }];
+        } else {
+            quoteAvatar.hidden = YES;
         }
     } else {
         quoteView.hidden = YES;
+        quoteAvatar.hidden = YES;
     }
     
     NSString *displayText = [self textForMessage:msg];
     textLabel.text = displayText;
+    textLabel.font = [UIFont systemFontOfSize:[VKClientDesign messageFontSize]];
     
-    CGFloat maxTextW = width - (isGroupChat && !msg.isOutgoing ? 46.0 : 10.0) - 50.0 - selOffset;
+    BOOL isKateTheme = [[VKThemeManager sharedManager] isKateTheme];
+    BOOL isDark = [[VKThemeManager sharedManager] isDarkTheme];
+    BOOL groupAvatar = isGroupChat && !msg.isOutgoing && (![VKClientDesign isAndroidClientDesign] || [VKClientDesign chatAvatars]);
+    CGFloat maxTextW = VKClientMessageTextWidth(width, [self usesThemeChatAvatars], groupAvatar, self.isSelectionMode);
     CGSize size = CGSizeZero;
     if (displayText.length > 0) {
-        size = [displayText sizeWithFont:[UIFont systemFontOfSize:15] constrainedToSize:CGSizeMake(maxTextW, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
+        size = [displayText sizeWithFont:[UIFont systemFontOfSize:[VKClientDesign messageFontSize]] constrainedToSize:CGSizeMake(maxTextW, CGFLOAT_MAX) lineBreakMode:NSLineBreakByWordWrapping];
     }
     
     CGFloat attContentW = MAX(200.0, maxTextW - 20.0);
@@ -2664,12 +3097,26 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         bubbleWidth = MAX(bubbleWidth, 220.0);
     }
     if (hasReply) {
-        bubbleWidth = MAX(bubbleWidth, 190.0);
+        bubbleWidth = MAX(bubbleWidth, 210.0);
     }
     
     // Если исходящее однострочное: обеспечиваем место для времени и галочек прочтения
     if (msg.isOutgoing && size.height <= 22.0 && attH == 0) {
         bubbleWidth = MAX(bubbleWidth, ceilf(size.width) + 72.0);
+    }
+    
+    BOOL isAndroid = [[VKThemeManager sharedManager] isAndroidTheme];
+    BOOL isKateBubbles = !isAndroid && (([VKKateSettings isUnlocked] && [VKKateSettings isKateBubblesEnabled]) || isKateTheme);
+    if (isKateBubbles) {
+        NSString *footerStr = nil;
+        if (msg.isOutgoing) {
+            footerStr = [NSString stringWithFormat:@"Я, %@", msg.timeString ?: @""];
+        } else {
+            NSString *authorDisp = authorNameStr.length > 0 ? authorNameStr : (self.peerUser ? self.peerUser.displayName : @"");
+            footerStr = [NSString stringWithFormat:@"%@, %@", authorDisp, msg.timeString ?: @""];
+        }
+        CGSize footSz = [footerStr sizeWithFont:[UIFont systemFontOfSize:11.0]];
+        bubbleWidth = MAX(bubbleWidth, ceilf(footSz.width) + 30.0);
     }
     
     // Учитываем имя автора в беседах с запасом
@@ -2678,22 +3125,63 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         bubbleWidth = MAX(bubbleWidth, ceilf(authorNameSz.width) + 38.0);
     }
     bubbleWidth = MIN(bubbleWidth, maxTextW + 36.0);
-    bubbleWidth = MIN(bubbleWidth, width - 20.0 - (self.isSelectionMode ? 36.0 : 0.0));
+    CGFloat maxBubbleW = [self usesThemeChatAvatars] ? (width - 70.0 - (self.isSelectionMode ? 36.0 : 0.0)) : (width - 20.0 - (self.isSelectionMode ? 36.0 : 0.0));
+    bubbleWidth = MIN(bubbleWidth, maxBubbleW);
     
     CGFloat authorHeaderH = showAuthor ? 18.0 : 0.0;
-    CGFloat replyExtraH = hasReply ? 34.0 : 0.0;
+    CGFloat replyExtraH = hasReply ? (isKateBubbles ? 42.0 : 34.0) : 0.0;
     CGFloat textH = displayText.length > 0 ? ceilf(size.height) : 0.0;
-    CGFloat bubbleHeight = textH + 22.0 + (attH > 0 ? attH + 8.0 : 0.0) + authorHeaderH + replyExtraH;
+    CGFloat bubbleHeight = textH + (isKateBubbles ? 26.0 : 22.0) + (attH > 0 ? attH + 8.0 : 0.0) + authorHeaderH + replyExtraH;
     
     if (msg.isOutgoing) {
         authorAvatar.hidden = YES;
+        authorOnlineDot.hidden = YES;
         authorNameLabel.hidden = YES;
-        bubble.frame = CGRectMake(width - bubbleWidth - 10.0, 2.0, bubbleWidth, bubbleHeight);
+        
+        if ([self usesThemeChatAvatars]) {
+            outgoingAvatar.hidden = NO;
+            CGFloat avY = 2.0;
+            outgoingAvatar.frame = CGRectMake(width - 46.0 - 6.0, avY, 46.0, 46.0);
+            outgoingAvatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:46.0];
+            VKUser *curUser = [[VKAuthService sharedService] currentUserModel];
+            outgoingAvatar.user = curUser;
+            [self loadAvatarForButton:outgoingAvatar url:curUser.avatarURL];
+            
+            if (![VKKateSettings isOfflineModeEnabled]) {
+                outgoingOnlineDot.hidden = NO;
+                outgoingOnlineDot.frame = CGRectMake(width - 6.0 - 11.0, avY + 46.0 - 11.0, 10.0, 10.0);
+            } else {
+                outgoingOnlineDot.hidden = YES;
+            }
+            
+            bubble.frame = CGRectMake(width - 46.0 - 12.0 - bubbleWidth, 2.0, bubbleWidth, bubbleHeight);
+        } else {
+            outgoingAvatar.hidden = YES;
+            outgoingOnlineDot.hidden = YES;
+            bubble.frame = CGRectMake(width - bubbleWidth - 10.0, 2.0, bubbleWidth, bubbleHeight);
+        }
         if (self.isSelectionMode) {
             checkbox.frame = CGRectMake(8.0, 2.0 + (bubbleHeight - 22.0) / 2.0, 22.0, 22.0);
         }
         
-        if (isModern) {
+        if (isAndroid) {
+            bubble.image = nil;
+            bubble.layer.mask = nil;
+            bubble.layer.cornerRadius = 4;
+            bubble.clipsToBounds = YES;
+            bubble.backgroundColor = msg.isOutgoing ? [UIColor colorWithRed:0.84 green:0.93 blue:1 alpha:1] : [UIColor whiteColor];
+            textLabel.textColor = [UIColor colorWithWhite:0.12 alpha:1];
+            timeLabel.textColor = [UIColor colorWithWhite:0.45 alpha:1];
+        } else if (isKateBubbles) {
+            bubble.image = nil;
+            bubble.layer.mask = nil;
+            bubble.layer.cornerRadius = 4.0;
+            bubble.clipsToBounds = YES;
+            VKKateTheme *kt = [VKKateTheme currentTheme];
+            bubble.backgroundColor = kt.outgoingBubbleColor;
+            textLabel.textColor = kt.outgoingBubbleTextColor;
+            timeLabel.textColor = kt.outgoingBubbleTimeColor;
+        } else if (isModern) {
             bubble.image = nil;
             bubble.layer.cornerRadius = 0.0;
             bubble.clipsToBounds = YES;
@@ -2745,19 +3233,43 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         
         CGFloat topY = 6.0;
         if (hasReply) {
-            if (isModern) {
+            CGFloat quoteH = (isKateBubbles && quotedAvatarURL.length > 0) ? 36.0 : 30.0;
+            CGFloat quoteW = bubbleWidth - 24.0;
+            quoteView.frame = CGRectMake(12, topY, quoteW, quoteH);
+            quoteBar.frame = CGRectMake(0, 1, 2.5, quoteH - 2);
+            
+            if (isKateBubbles) {
+                VKKateTheme *kt = [VKKateTheme currentTheme];
+                quoteBar.backgroundColor = kt.tabIndicatorColor ?: [UIColor colorWithRed:185.0/255.0 green:199.0/255.0 blue:213.0/255.0 alpha:1.0];
+                quoteAuthorLabel.textColor = kt.secondaryTextColor;
+                quoteTextLabel.textColor = kt.primaryTextColor;
+                
+                if (quotedAvatarURL.length > 0) {
+                    quoteAvatar.hidden = NO;
+                    quoteAvatar.frame = CGRectMake(8, 3, 30, 30);
+                    quoteTextLabel.frame = CGRectMake(44, 2, quoteW - 48, 15);
+                    quoteAuthorLabel.frame = CGRectMake(44, 18, quoteW - 48, 13);
+                } else {
+                    quoteAvatar.hidden = YES;
+                    quoteTextLabel.frame = CGRectMake(8, 2, quoteW - 12, 15);
+                    quoteAuthorLabel.frame = CGRectMake(8, 18, quoteW - 12, 13);
+                }
+            } else if (isModern) {
+                quoteAvatar.hidden = YES;
                 quoteBar.backgroundColor = [UIColor whiteColor];
                 quoteAuthorLabel.textColor = [UIColor whiteColor];
                 quoteTextLabel.textColor = [UIColor colorWithWhite:0.92 alpha:1.0];
+                quoteAuthorLabel.frame = CGRectMake(7, 0, quoteW - 10, 14);
+                quoteTextLabel.frame = CGRectMake(7, 14, quoteW - 10, 14);
             } else {
+                quoteAvatar.hidden = YES;
                 quoteBar.backgroundColor = isSkeuomorph ? [UIColor whiteColor] : [UIColor colorWithRed:80.0/255.0 green:140.0/255.0 blue:210.0/255.0 alpha:1.0];
                 quoteAuthorLabel.textColor = isSkeuomorph ? [UIColor whiteColor] : [UIColor colorWithRed:80.0/255.0 green:140.0/255.0 blue:210.0/255.0 alpha:1.0];
                 quoteTextLabel.textColor = isSkeuomorph ? [UIColor colorWithWhite:0.9 alpha:1.0] : [UIColor colorWithWhite:0.35 alpha:1.0];
+                quoteAuthorLabel.frame = CGRectMake(7, 0, quoteW - 10, 14);
+                quoteTextLabel.frame = CGRectMake(7, 14, quoteW - 10, 14);
             }
-            quoteView.frame = CGRectMake(12, topY, bubbleWidth - 24, 30);
-            quoteAuthorLabel.frame = CGRectMake(7, 0, bubbleWidth - 32, 14);
-            quoteTextLabel.frame = CGRectMake(7, 14, bubbleWidth - 32, 14);
-            topY += 34.0;
+            topY += quoteH + 4.0;
         }
         
         if (attH > 0) {
@@ -2774,42 +3286,100 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         if (displayText.length > 0) {
             textLabel.hidden = NO;
             textLabel.frame = CGRectMake(12, topY, ceilf(size.width), ceilf(size.height));
+            UIColor *outTextColor = textLabel.textColor ?: [UIColor whiteColor];
+            UIColor *outLinkColor = isKateBubbles ? [[VKKateTheme currentTheme] postLinkColor] : ((isModern || isSkeuomorph) ? [UIColor colorWithWhite:1.0 alpha:0.9] : [[VKThemeManager sharedManager] accentColor]);
+            textLabel.attributedText = [VKTextParser attributedStringForText:msg.text
+                                                                       font:[UIFont systemFontOfSize:[VKClientDesign messageFontSize]]
+                                                                  textColor:outTextColor
+                                                                  linkColor:outLinkColor];
         } else {
             textLabel.hidden = YES;
             textLabel.frame = CGRectZero;
+            textLabel.attributedText = nil;
         }
         
-        // Время и статус прочтения (достаточная ширина 54pt для «16:18 ✓✓»)
-        timeLabel.text = [NSString stringWithFormat:@"%@ %@", msg.timeString ?: @"", (msg.isRead ? @"✓✓" : @"✓")];
-        timeLabel.textAlignment = NSTextAlignmentRight;
-        timeLabel.frame = CGRectMake(bubbleWidth - 60, bubbleHeight - 16, 54, 13);
+        // Время и статус прочтения (в Kate Mobile: "Я, 28 сен 15:46" слева снизу)
+        if (isKateBubbles) {
+            timeLabel.text = [NSString stringWithFormat:@"Я, %@", msg.timeString ?: @""];
+            timeLabel.textAlignment = NSTextAlignmentLeft;
+            timeLabel.textColor = isDark ? [UIColor colorWithRed:138.0/255.0 green:150.0/255.0 blue:164.0/255.0 alpha:1.0] : [UIColor colorWithRed:126.0/255.0 green:139.0/255.0 blue:153.0/255.0 alpha:1.0];
+            timeLabel.font = [UIFont systemFontOfSize:11.0];
+            timeLabel.frame = CGRectMake(12, bubbleHeight - 16, bubbleWidth - 24, 13);
+        } else {
+            timeLabel.text = [NSString stringWithFormat:@"%@ %@", msg.timeString ?: @"", (msg.isRead ? @"✓✓" : @"✓")];
+            timeLabel.textAlignment = NSTextAlignmentRight;
+            timeLabel.font = [UIFont systemFontOfSize:10.5];
+            timeLabel.frame = CGRectMake(bubbleWidth - 60, bubbleHeight - 16, 54, 13);
+        }
         
     } else {
         // Входящие сообщения
-        CGFloat bubbleX = 10.0 + selOffset;
-        if (isGroupChat) {
-            if (!joinsNext) {
-                authorAvatar.hidden = NO;
-                CGFloat avatarY = bubbleHeight + 2.0 - 32.0;
-                authorAvatar.frame = CGRectMake(8.0 + selOffset, avatarY, 32.0, 32.0);
-                authorAvatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:32.0];
-                VKUser *author = [self senderUserForMessage:msg];
-                authorAvatar.user = author;
-                [self loadAvatarForButton:authorAvatar url:author.avatarURL];
+        outgoingAvatar.hidden = YES;
+        outgoingOnlineDot.hidden = YES;
+        
+        if ([self usesThemeChatAvatars]) {
+            CGFloat avY = 2.0;
+            authorAvatar.hidden = NO;
+            authorAvatar.frame = CGRectMake(6.0 + selOffset, avY, 46.0, 46.0);
+            authorAvatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:46.0];
+            
+            VKUser *authorUser = [self senderUserForMessage:msg] ?: self.peerUser;
+            authorAvatar.user = authorUser;
+            [self loadAvatarForButton:authorAvatar url:authorUser.avatarURL ?: self.peerUser.avatarURL];
+            
+            BOOL isAuthorOnline = authorUser ? authorUser.isOnline : (self.peerUser ? self.peerUser.isOnline : NO);
+            if (isAuthorOnline) {
+                authorOnlineDot.hidden = NO;
+                authorOnlineDot.frame = CGRectMake(6.0 + selOffset + 46.0 - 11.0, avY + 46.0 - 11.0, 10.0, 10.0);
+            } else {
+                authorOnlineDot.hidden = YES;
+            }
+            
+            bubble.frame = CGRectMake(58.0 + selOffset, 2.0, bubbleWidth, bubbleHeight);
+        } else {
+            authorOnlineDot.hidden = YES;
+            CGFloat bubbleX = 10.0 + selOffset;
+            if (isGroupChat && (![VKClientDesign isAndroidClientDesign] || [VKClientDesign chatAvatars])) {
+                if (!joinsNext) {
+                    authorAvatar.hidden = NO;
+                    CGFloat avatarY = bubbleHeight + 2.0 - 32.0;
+                    authorAvatar.frame = CGRectMake(8.0 + selOffset, avatarY, 32.0, 32.0);
+                    authorAvatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:32.0];
+                    VKUser *author = [self senderUserForMessage:msg];
+                    authorAvatar.user = author;
+                    [self loadAvatarForButton:authorAvatar url:author.avatarURL];
+                } else {
+                    authorAvatar.hidden = YES;
+                }
+                bubbleX = 46.0 + selOffset;
             } else {
                 authorAvatar.hidden = YES;
             }
-            bubbleX = 46.0 + selOffset;
-        } else {
-            authorAvatar.hidden = YES;
+            bubble.frame = CGRectMake(bubbleX, 2.0, bubbleWidth, bubbleHeight);
         }
         
-        bubble.frame = CGRectMake(bubbleX, 2.0, bubbleWidth, bubbleHeight);
         if (self.isSelectionMode) {
             checkbox.frame = CGRectMake(8.0, 2.0 + (bubbleHeight - 22.0) / 2.0, 22.0, 22.0);
         }
         
-        if (isModern) {
+        if (isAndroid) {
+            bubble.image = nil;
+            bubble.layer.mask = nil;
+            bubble.layer.cornerRadius = 4;
+            bubble.clipsToBounds = YES;
+            bubble.backgroundColor = msg.isOutgoing ? [UIColor colorWithRed:0.84 green:0.93 blue:1 alpha:1] : [UIColor whiteColor];
+            textLabel.textColor = [UIColor colorWithWhite:0.12 alpha:1];
+            timeLabel.textColor = [UIColor colorWithWhite:0.45 alpha:1];
+        } else if (isKateBubbles) {
+            bubble.image = nil;
+            bubble.layer.mask = nil;
+            bubble.layer.cornerRadius = 4.0;
+            bubble.clipsToBounds = YES;
+            VKKateTheme *kt = [VKKateTheme currentTheme];
+            bubble.backgroundColor = kt.incomingBubbleColor;
+            textLabel.textColor = kt.incomingBubbleTextColor;
+            timeLabel.textColor = kt.incomingBubbleTimeColor;
+        } else if (isModern) {
             bubble.image = nil;
             bubble.layer.cornerRadius = 0.0;
             bubble.clipsToBounds = YES;
@@ -2872,14 +3442,37 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         }
         
         if (hasReply) {
-            UIColor *quoteColor = isModern ? [UIColor colorWithRed:39.0/255.0 green:135.0/255.0 blue:245.0/255.0 alpha:1.0] : [[VKThemeManager sharedManager] accentColor];
-            quoteBar.backgroundColor = quoteColor;
-            quoteAuthorLabel.textColor = quoteColor;
-            quoteTextLabel.textColor = [UIColor colorWithWhite:0.35 alpha:1.0];
-            quoteView.frame = CGRectMake(14, topY, bubbleWidth - 28, 30);
-            quoteAuthorLabel.frame = CGRectMake(7, 0, bubbleWidth - 36, 14);
-            quoteTextLabel.frame = CGRectMake(7, 14, bubbleWidth - 36, 14);
-            topY += 34.0;
+            CGFloat quoteH = (isKateBubbles && quotedAvatarURL.length > 0) ? 36.0 : 30.0;
+            CGFloat quoteW = bubbleWidth - 28.0;
+            quoteView.frame = CGRectMake(14, topY, quoteW, quoteH);
+            quoteBar.frame = CGRectMake(0, 1, 2.5, quoteH - 2);
+            
+            if (isKateBubbles) {
+                VKKateTheme *kt = [VKKateTheme currentTheme];
+                quoteBar.backgroundColor = kt.tabIndicatorColor ?: [UIColor colorWithRed:185.0/255.0 green:199.0/255.0 blue:213.0/255.0 alpha:1.0];
+                quoteAuthorLabel.textColor = kt.secondaryTextColor;
+                quoteTextLabel.textColor = kt.primaryTextColor;
+                
+                if (quotedAvatarURL.length > 0) {
+                    quoteAvatar.hidden = NO;
+                    quoteAvatar.frame = CGRectMake(8, 3, 30, 30);
+                    quoteTextLabel.frame = CGRectMake(44, 2, quoteW - 48, 15);
+                    quoteAuthorLabel.frame = CGRectMake(44, 18, quoteW - 48, 13);
+                } else {
+                    quoteAvatar.hidden = YES;
+                    quoteTextLabel.frame = CGRectMake(8, 2, quoteW - 12, 15);
+                    quoteAuthorLabel.frame = CGRectMake(8, 18, quoteW - 12, 13);
+                }
+            } else {
+                quoteAvatar.hidden = YES;
+                UIColor *quoteColor = isModern ? [UIColor colorWithRed:39.0/255.0 green:135.0/255.0 blue:245.0/255.0 alpha:1.0] : [[VKThemeManager sharedManager] accentColor];
+                quoteBar.backgroundColor = quoteColor;
+                quoteAuthorLabel.textColor = quoteColor;
+                quoteTextLabel.textColor = [UIColor colorWithWhite:0.35 alpha:1.0];
+                quoteAuthorLabel.frame = CGRectMake(7, 0, quoteW - 10, 14);
+                quoteTextLabel.frame = CGRectMake(7, 14, quoteW - 10, 14);
+            }
+            topY += quoteH + 4.0;
         }
         
         if (attH > 0) {
@@ -2896,14 +3489,31 @@ static UIImage *VKCheckboxImage(BOOL checked) {
         if (displayText.length > 0) {
             textLabel.hidden = NO;
             textLabel.frame = CGRectMake(16, topY, ceilf(size.width), ceilf(size.height));
+            UIColor *inTextColor = textLabel.textColor ?: [UIColor blackColor];
+            UIColor *inLinkColor = isKateBubbles ? [[VKKateTheme currentTheme] postLinkColor] : (isModern ? [UIColor colorWithRed:39.0/255.0 green:135.0/255.0 blue:245.0/255.0 alpha:1.0] : [UIColor colorWithRed:43.0/255.0 green:88.0/255.0 blue:122.0/255.0 alpha:1.0]);
+            textLabel.attributedText = [VKTextParser attributedStringForText:msg.text
+                                                                       font:[UIFont systemFontOfSize:[VKClientDesign messageFontSize]]
+                                                                  textColor:inTextColor
+                                                                  linkColor:inLinkColor];
         } else {
             textLabel.hidden = YES;
             textLabel.frame = CGRectZero;
+            textLabel.attributedText = nil;
         }
         
-        timeLabel.text = msg.timeString ?: @"";
-        timeLabel.textAlignment = NSTextAlignmentRight;
-        timeLabel.frame = CGRectMake(bubbleWidth - 46, bubbleHeight - 16, 38, 12);
+        if (isKateBubbles) {
+            NSString *authorDisp = authorNameStr.length > 0 ? authorNameStr : (self.peerUser ? self.peerUser.displayName : @"");
+            timeLabel.text = [NSString stringWithFormat:@"%@, %@", authorDisp, msg.timeString ?: @""];
+            timeLabel.textAlignment = NSTextAlignmentLeft;
+            timeLabel.textColor = [[VKKateTheme currentTheme] incomingBubbleTimeColor];
+            timeLabel.font = [UIFont systemFontOfSize:11.0];
+            timeLabel.frame = CGRectMake(16, bubbleHeight - 16, bubbleWidth - 28, 13);
+        } else {
+            timeLabel.text = msg.timeString ?: @"";
+            timeLabel.textAlignment = NSTextAlignmentRight;
+            timeLabel.font = [UIFont systemFontOfSize:10.5];
+            timeLabel.frame = CGRectMake(bubbleWidth - 46, bubbleHeight - 16, 38, 12);
+        }
     }
     
     // Настраиваем жест Swipe-to-Reply
@@ -3034,7 +3644,7 @@ static UIImage *VKCheckboxImage(BOOL checked) {
     NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
     if (now - self.lastTypingTime > 5.0) {
         self.lastTypingTime = now;
-        [[VKAPIClient sharedClient] callMethod:@"messages.setActivity" parameters:@{@"peer_id": @(self.peerId), @"type": @"typing"} completionHandler:nil];
+        [[VKMessagesService sharedService] setTypingForPeerId:self.peerId completion:nil];
     }
     return YES;
 }

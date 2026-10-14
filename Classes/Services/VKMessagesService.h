@@ -34,6 +34,10 @@
                     peerId:(NSInteger)peerId
                 completion:(void (^)(NSString *attachmentString, NSError *error))completion;
 
+- (void)uploadMessagePhotos:(NSArray<UIImage *> *)images
+                     peerId:(NSInteger)peerId
+                 completion:(void (^)(NSArray<NSString *> *attachmentStrings, NSError *error))completion;
+
 - (void)pinMessageWithPeerId:(NSInteger)peerId
                    messageId:(NSInteger)messageId
                   completion:(void (^)(BOOL success, NSError *error))completion;
@@ -101,5 +105,9 @@
 - (void)markAsReadForPeerId:(NSInteger)peerId
              startMessageId:(NSInteger)startMessageId
                  completion:(void (^)(BOOL success))completion;
+
+- (void)forceMarkAsReadForPeerId:(NSInteger)peerId
+                  startMessageId:(NSInteger)startMessageId
+                      completion:(void (^)(BOOL success))completion;
 
 @end

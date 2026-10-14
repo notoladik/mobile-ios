@@ -15,89 +15,12 @@
 #import "VKLongPollService.h"
 #import "VKBackgroundVisualizerManager.h"
 #import "VKPresetManager.h"
+#import "VKKateSettings.h"
+#import "VKKateMainViewController.h"
+#import "VKNavigationController.h"
 
-@interface VKNavigationController : UINavigationController <UIGestureRecognizerDelegate>
-- (void)updateNavBarTheme;
-@end
-
-@implementation VKNavigationController
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    if ([self respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
-        self.interactivePopGestureRecognizer.delegate = self;
-    }
-    [self updateNavBarTheme];
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(updateNavBarTheme) name:VKThemeDidChangeNotification object:nil];
-}
-
-- (void)dealloc {
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-}
-
-- (void)viewWillAppear:(BOOL)animated {
-    [super viewWillAppear:animated];
-    [self updateNavBarTheme];
-}
-
-- (void)updateNavBarTheme {
-    VKThemeManager *tm = [VKThemeManager sharedManager];
-    UINavigationBar *bar = self.navigationBar;
-    if (!bar) return;
-    
-    BOOL hasBarTintColor = [bar respondsToSelector:@selector(setBarTintColor:)];
-    if ([tm isSkeuomorphic]) {
-        bar.barStyle = UIBarStyleBlack;
-        UIImage *navImg = [tm navBarBackgroundImageForHeight:64.0];
-        [bar setBackgroundImage:navImg forBarMetrics:UIBarMetricsDefault];
-        bar.tintColor = [UIColor whiteColor];
-        
-        NSShadow *navShadow = [[NSShadow alloc] init];
-        navShadow.shadowColor = [UIColor colorWithWhite:0.0 alpha:0.65];
-        navShadow.shadowOffset = CGSizeMake(0, -1);
-        bar.titleTextAttributes = @{
-            NSForegroundColorAttributeName: [UIColor whiteColor],
-            NSFontAttributeName: [UIFont boldSystemFontOfSize:18],
-            NSShadowAttributeName: navShadow
-        };
-    } else if ([tm isClassicFlat]) {
-        bar.barStyle = UIBarStyleDefault;
-        [bar setBackgroundImage:nil forBarMetrics:UIBarMetricsDefault];
-        if (hasBarTintColor) {
-            bar.barTintColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
-            bar.tintColor = [UIColor whiteColor];
-        } else {
-            bar.tintColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
-        }
-        if ([bar respondsToSelector:@selector(setTranslucent:)]) {
-            bar.translucent = NO;
-        }
-        bar.titleTextAttributes = @{
-            NSForegroundColorAttributeName: [UIColor whiteColor],
-            NSFontAttributeName: [UIFont boldSystemFontOfSize:17]
-        };
-    } else {
-        // Modern Swift
-        bar.barStyle = UIBarStyleDefault;
-        [bar setBackgroundImage:nil forBarMetrics:UIBarMetricsDefault];
-        if (hasBarTintColor) {
-            bar.barTintColor = [UIColor whiteColor];
-            bar.tintColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
-        } else {
-            bar.tintColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0];
-        }
-        if ([bar respondsToSelector:@selector(setTranslucent:)]) {
-            bar.translucent = NO;
-        }
-        bar.titleTextAttributes = @{
-            NSForegroundColorAttributeName: [UIColor colorWithRed:20.0/255.0 green:20.0/255.0 blue:20.0/255.0 alpha:1.0],
-            NSFontAttributeName: [UIFont boldSystemFontOfSize:17]
-        };
-    }
-}
-
-- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
-    return self.viewControllers.count > 1;
-}
+@interface VKAppDelegate ()
+@property (nonatomic, assign) VKThemeType renderedRootTheme;
 @end
 
 @implementation VKAppDelegate
@@ -110,6 +33,11 @@
     
     // Инициализация темы оформления
     [[VKThemeManager sharedManager] applyTheme:[[VKThemeManager sharedManager] currentTheme]];
+    
+    // Синхронизация невидимки Kate Mobile
+    if ([VKKateSettings isUnlocked] && [VKKateSettings isOfflineModeEnabled]) {
+        [VKKateSettings sendSetOfflineIfEnabled];
+    }
     
     self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
     self.window.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
@@ -178,7 +106,7 @@
         if ([self.window respondsToSelector:@selector(setTintColor:)]) {
             self.window.tintColor = [[VKThemeManager sharedManager] accentColor];
         }
-        [self updateRootViewController];
+        if (self.renderedRootTheme != [VKThemeManager sharedManager].currentTheme) [self updateRootViewController];
     });
 }
 
@@ -209,10 +137,18 @@
 }
 
 - (void)updateRootViewController {
+    self.renderedRootTheme = [VKThemeManager sharedManager].currentTheme;
     if ([[VKAuthService sharedService] isAuthenticated]) {
+        BOOL isKate = [[VKThemeManager sharedManager] isKateTheme];
         BOOL isSideEnabled = [[VKSideMenuManager sharedManager] isSideMenuEnabled];
         
-        if (isSideEnabled) {
+        if (isKate) {
+            // Режим Kate Mobile: аутентичные верхние вкладки (Профиль | Новости | Сообщения) + Kate Action Bar
+            self.tabBarController = nil;
+            VKKateMainViewController *kateMainVC = [[VKKateMainViewController alloc] init];
+            VKNavigationController *nav = [[VKNavigationController alloc] initWithRootViewController:kateMainVC];
+            self.window.rootViewController = nav;
+        } else if (isSideEnabled) {
             // Режим бокового меню: чистый полноэкранный стек без таббара
             self.tabBarController = nil;
             VKFeedViewController *feedVC = [[VKFeedViewController alloc] init];
@@ -310,6 +246,12 @@
 
 - (BOOL)application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey,id> *)options {
     return [self application:app openURL:url sourceApplication:@"" annotation:@{}];
+}
+
+- (void)applicationDidBecomeActive:(UIApplication *)application {
+    if ([VKKateSettings isUnlocked] && [VKKateSettings isOfflineModeEnabled]) {
+        [VKKateSettings sendSetOfflineIfEnabled];
+    }
 }
 
 @end

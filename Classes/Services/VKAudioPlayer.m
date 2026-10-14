@@ -4,18 +4,23 @@
 #import <AudioToolbox/AudioToolbox.h>
 #import <MediaPlayer/MediaPlayer.h>
 #import <stdint.h>
+#import <QuartzCore/QuartzCore.h>
+#import "VKPCMBuffer.h"
 
 NSString *const VKAudioPlayerStateDidChangeNotification = @"VKAudioPlayerStateDidChangeNotification";
 NSString *const VKAudioPlayerProgressNotification = @"VKAudioPlayerProgressNotification";
 
+typedef struct {
+    __unsafe_unretained VKAudioPlayer *player;
+    VKPCMFormat format;
+    double sampleRate;
+    unsigned generation;
+    BOOL supported;
+} VKAudioTapStorage;
+
 @interface VKAudioPlayer () {
-    float _pcmRingBuffer[4096];
-    NSUInteger _pcmRingWriteIndex;
-    BOOL _hasCapturedRealPCM;
-    NSTimeInterval _lastPCMTime;
-    AudioStreamBasicDescription _processingFormat;
-    BOOL _hasProcessingFormat;
-    NSUInteger _tapProcessCount;
+    VKPCMBuffer _pcm;
+    unsigned _playbackGeneration;
 }
 @property (nonatomic, strong) AVPlayer *player;
 @property (nonatomic, strong, readwrite) VKAudioTrack *currentTrack;
@@ -26,42 +31,50 @@ NSString *const VKAudioPlayerProgressNotification = @"VKAudioPlayerProgressNotif
 @property (nonatomic, assign, readwrite) NSTimeInterval duration;
 @property (nonatomic, strong) id timeObserver;
 
-- (void)handleAudioBufferList:(AudioBufferList *)bufferList frames:(CMItemCount)frames;
-- (void)configureProcessingFormat:(const AudioStreamBasicDescription *)format;
+@property (nonatomic, copy) NSString *tapStatus;
 - (void)resetPCMBuffer;
-- (void)recordTapProcess;
+- (unsigned)pcmGeneration;
+- (void)handleAudioBufferList:(AudioBufferList *)buffers frames:(CMItemCount)frames storage:(VKAudioTapStorage *)storage;
 @end
 
-static void tap_Init(MTAudioProcessingTapRef tap, void *clientInfo, void **tapStorageOut) {
-    *tapStorageOut = clientInfo;
+static void tap_Init(MTAudioProcessingTapRef tap, void *clientInfo, void **storageOut) {
+    VKAudioPlayer *player = (__bridge VKAudioPlayer *)clientInfo;
+    VKAudioTapStorage *storage = calloc(1, sizeof(*storage));
+    if (storage) {
+        storage->player = player;
+        storage->generation = [player pcmGeneration];
+    }
+    *storageOut = storage;
 }
-
 static void tap_Finalize(MTAudioProcessingTapRef tap) {
+    free(MTAudioProcessingTapGetStorage(tap));
 }
-
-static void tap_Prepare(MTAudioProcessingTapRef tap, CMItemCount maxFrames, const AudioStreamBasicDescription *processingFormat) {
-    VKAudioPlayer *player = (__bridge VKAudioPlayer *)MTAudioProcessingTapGetStorage(tap);
-    [player configureProcessingFormat:processingFormat];
-    if (processingFormat) {
-        NSLog(@"[VKAudioPlayer] PCM tap prepared: %.0f Hz, %u channel(s), flags=0x%X",
-              processingFormat->mSampleRate,
-              (unsigned int)processingFormat->mChannelsPerFrame,
-              (unsigned int)processingFormat->mFormatFlags);
-    }
+static void tap_Prepare(MTAudioProcessingTapRef tap, CMItemCount maxFrames, const AudioStreamBasicDescription *asbd) {
+    VKAudioTapStorage *s = MTAudioProcessingTapGetStorage(tap);
+    if (!s || !asbd) return;
+    unsigned channelsInBuffer = (asbd->mFormatFlags & kAudioFormatFlagIsNonInterleaved) ? 1 : asbd->mChannelsPerFrame;
+    s->format = (VKPCMFormat){
+        channelsInBuffer ? asbd->mBytesPerFrame / channelsInBuffer : 0,
+        asbd->mBitsPerChannel, asbd->mBytesPerFrame,
+        (asbd->mFormatFlags & kAudioFormatFlagIsFloat) != 0,
+        (asbd->mFormatFlags & kAudioFormatFlagIsBigEndian) != 0,
+        (asbd->mFormatFlags & kAudioFormatFlagIsAlignedHigh) != 0
+    };
+    s->sampleRate = asbd->mSampleRate;
+    s->supported = asbd->mFormatID == kAudioFormatLinearPCM &&
+        ((asbd->mFormatFlags & kAudioFormatFlagIsFloat) || (asbd->mFormatFlags & kAudioFormatFlagIsSignedInteger)) &&
+        VKPCMFormatSupported(s->format);
 }
-
 static void tap_Unprepare(MTAudioProcessingTapRef tap) {
+    VKAudioTapStorage *s = MTAudioProcessingTapGetStorage(tap);
+    if (s) s->supported = NO;
 }
-
-static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MTAudioProcessingTapFlags flags, AudioBufferList *bufferListInOut, CMItemCount *numberFramesOut, MTAudioProcessingTapFlags *flagsOut) {
-    OSStatus status = MTAudioProcessingTapGetSourceAudio(tap, numberFrames, bufferListInOut, flagsOut, NULL, numberFramesOut);
-    if (status == noErr && numberFramesOut && *numberFramesOut > 0) {
-        VKAudioPlayer *player = (__bridge VKAudioPlayer *)MTAudioProcessingTapGetStorage(tap);
-        if (player) {
-            [player recordTapProcess];
-            [player handleAudioBufferList:bufferListInOut frames:*numberFramesOut];
-        }
-    }
+static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount frames, MTAudioProcessingTapFlags flags,
+                        AudioBufferList *buffers, CMItemCount *framesOut, MTAudioProcessingTapFlags *flagsOut) {
+    OSStatus status = MTAudioProcessingTapGetSourceAudio(tap, frames, buffers, flagsOut, NULL, framesOut);
+    VKAudioTapStorage *s = MTAudioProcessingTapGetStorage(tap);
+    if (status == noErr && s && s->supported && framesOut && *framesOut > 0)
+        [s->player handleAudioBufferList:buffers frames:*framesOut storage:s];
 }
 
 @implementation VKAudioPlayer
@@ -80,12 +93,8 @@ static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount numberFrames, M
     if (self) {
         _playlist = @[];
         _currentIndex = -1;
-        _pcmRingWriteIndex = 0;
-        _hasCapturedRealPCM = NO;
-        _lastPCMTime = 0;
-        _hasProcessingFormat = NO;
-        _tapProcessCount = 0;
-        
+        VKPCMInit(&_pcm);
+        [self resetPCMBuffer];
         // Настройка фонового воспроизведения в iOS
         NSError *categoryError = nil;
         [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:&categoryError];
@@ -104,112 +113,40 @@ static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount numberFrames, M
     return self;
 }
 
-- (void)handleAudioBufferList:(AudioBufferList *)bufferList frames:(CMItemCount)frames {
-    if (!bufferList || bufferList->mNumberBuffers == 0 || frames == 0) return;
-
-    @synchronized (self) {
-        NSUInteger toCopy = MIN((NSUInteger)frames, (NSUInteger)512);
-        NSUInteger channels = _hasProcessingFormat ? _processingFormat.mChannelsPerFrame : bufferList->mNumberBuffers;
-        if (channels == 0) channels = 1;
-        BOOL nonInterleaved = bufferList->mNumberBuffers > 1;
-        BOOL isFloat = !_hasProcessingFormat || (_processingFormat.mFormatFlags & kAudioFormatFlagIsFloat) != 0;
-        NSUInteger bytesPerSample = _hasProcessingFormat ? (_processingFormat.mBitsPerChannel / 8) : sizeof(float);
-
-        for (NSUInteger frame = 0; frame < toCopy; frame++) {
-            double sample = 0.0;
-            NSUInteger samplesRead = 0;
-            if (nonInterleaved) {
-                NSUInteger bufferCount = MIN((NSUInteger)bufferList->mNumberBuffers, channels);
-                for (NSUInteger channel = 0; channel < bufferCount; channel++) {
-                    uint8_t *base = (uint8_t *)bufferList->mBuffers[channel].mData;
-                    if (!base) continue;
-                    if (isFloat && bytesPerSample >= sizeof(float)) {
-                        sample += ((float *)base)[frame];
-                    } else if (bytesPerSample == sizeof(int16_t)) {
-                        sample += ((int16_t *)base)[frame] / 32768.0;
-                    } else {
-                        continue;
-                    }
-                    samplesRead += 1;
-                }
-            } else {
-                uint8_t *base = (uint8_t *)bufferList->mBuffers[0].mData;
-                if (base) {
-                    NSUInteger sampleIndex = frame * channels;
-                    for (NSUInteger channel = 0; channel < channels; channel++) {
-                        if (isFloat && bytesPerSample >= sizeof(float)) {
-                            sample += ((float *)base)[sampleIndex + channel];
-                        } else if (bytesPerSample == sizeof(int16_t)) {
-                            sample += ((int16_t *)base)[sampleIndex + channel] / 32768.0;
-                        } else {
-                            continue;
-                        }
-                        samplesRead += 1;
-                    }
-                }
-            }
-            _pcmRingBuffer[(_pcmRingWriteIndex + frame) % 4096] = samplesRead > 0 ? (float)(sample / samplesRead) : 0.0f;
-        }
-        _pcmRingWriteIndex = (_pcmRingWriteIndex + toCopy) % 4096;
-        _hasCapturedRealPCM = YES;
-        _lastPCMTime = [NSDate timeIntervalSinceReferenceDate];
-    }
+- (unsigned)pcmGeneration {
+    pthread_mutex_lock(&_pcm.lock);
+    unsigned generation = _pcm.generation;
+    pthread_mutex_unlock(&_pcm.lock);
+    return generation;
 }
-
-- (void)configureProcessingFormat:(const AudioStreamBasicDescription *)format {
-    if (!format) return;
-    @synchronized (self) {
-        _processingFormat = *format;
-        _hasProcessingFormat = YES;
-    }
+- (void)handleAudioBufferList:(AudioBufferList *)buffers frames:(CMItemCount)frames storage:(VKAudioTapStorage *)storage {
+    if (!buffers || frames <= 0 || buffers->mNumberBuffers > VK_PCM_MAX_BUFFERS) return;
+    VKPCMSamples samples[VK_PCM_MAX_BUFFERS];
+    for (unsigned i = 0; i < buffers->mNumberBuffers; ++i)
+        samples[i] = (VKPCMSamples){buffers->mBuffers[i].mData, buffers->mBuffers[i].mDataByteSize, buffers->mBuffers[i].mNumberChannels};
+    VKPCMPush(&_pcm, storage->generation, storage->format, samples, buffers->mNumberBuffers,
+              (size_t)frames, storage->sampleRate, CACurrentMediaTime());
 }
-
-- (void)recordTapProcess {
-    @synchronized (self) {
-        _tapProcessCount += 1;
-        if (_tapProcessCount == 1) {
-            NSLog(@"[VKAudioPlayer] First PCM buffer received from tap");
-        }
-    }
-}
-
 - (void)resetPCMBuffer {
-    @synchronized (self) {
-        memset(_pcmRingBuffer, 0, sizeof(_pcmRingBuffer));
-        _pcmRingWriteIndex = 0;
-        _hasCapturedRealPCM = NO;
-        _lastPCMTime = 0;
-        _hasProcessingFormat = NO;
-        _tapProcessCount = 0;
-    }
+    _playbackGeneration = VKPCMReset(&_pcm);
+    self.tapStatus = @"Ожидание аудиодорожки";
 }
-
 - (void)getLatestPCMData:(float *)outBuffer count:(NSUInteger)count {
-    if (!outBuffer || count == 0) return;
-    
-    if (!self.isPlaying) {
-        memset(outBuffer, 0, count * sizeof(float));
-        return;
-    }
-    
-    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-    @synchronized (self) {
-        if (_hasCapturedRealPCM && (now - _lastPCMTime < 0.5)) {
-            // Читаем из захваченного кольцевого буфера
-            NSUInteger readCount = MIN(count, (NSUInteger)4096);
-            NSUInteger startIdx = (_pcmRingWriteIndex + 4096 - readCount) % 4096;
-            if (readCount < count) {
-                memset(outBuffer, 0, (count - readCount) * sizeof(float));
-            }
-            for (NSUInteger i = 0; i < readCount; i++) {
-                outBuffer[count - readCount + i] = _pcmRingBuffer[(startIdx + i) % 4096];
-            }
-            return;
-        }
-    }
-    // No tap data means silence. Do not invent a beat: projectM should react
-    // to the actual track or remain still while the stream is unavailable.
-    memset(outBuffer, 0, count * sizeof(float));
+    if (!outBuffer || !count) return;
+    if (!self.isPlaying) { memset(outBuffer, 0, sizeof(float) * count); return; }
+    VKPCMRead(&_pcm, outBuffer, count, CACurrentMediaTime());
+}
+- (NSString *)pcmDiagnosticText {
+    pthread_mutex_lock(&_pcm.lock);
+    uint64_t captured = _pcm.framesCaptured;
+    double rate = _pcm.sampleRate;
+    BOOL fresh = _pcm.validCount && CACurrentMediaTime() - _pcm.lastTime <= 0.5;
+    pthread_mutex_unlock(&_pcm.lock);
+    if (!self.currentTrack) return @"Нет воспроизводимой музыки";
+    if (!self.player) return self.tapStatus ?: @"Нет доступного аудиофайла";
+    if (!self.isPlaying) return @"Пауза — PCM не выводится";
+    if (captured) return [NSString stringWithFormat:@"PCM %@ · %.0f Гц · %llu кадров", fresh ? @"поступает" : @"ожидается", rate, (unsigned long long)captured];
+    return self.tapStatus ?: @"PCM пока не поступает";
 }
 
 - (void)playPlaylist:(NSArray<VKAudioTrack *> *)tracks startIndex:(NSInteger)index {
@@ -227,7 +164,9 @@ static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount numberFrames, M
 }
 
 - (void)playTrackInternal:(VKAudioTrack *)track {
+    if (self.player.currentItem) self.player.currentItem.audioMix = nil;
     [self resetPCMBuffer];
+    unsigned generation = _playbackGeneration;
     self.currentTrack = track;
     self.currentTime = 0;
     self.duration = (track.durationSeconds > 0) ? (NSTimeInterval)track.durationSeconds : 180.0;
@@ -253,73 +192,59 @@ static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount numberFrames, M
         AVURLAsset *asset = [AVURLAsset URLAssetWithURL:url options:nil];
         AVPlayerItem *item = [AVPlayerItem playerItemWithAsset:asset];
         
-        __weak typeof(self) weakSelf = self;
-        void (^attachTap)(AVAssetTrack *) = ^(AVAssetTrack *trackObj) {
-            if (!trackObj) return;
-            AVMutableAudioMixInputParameters *inputParams = [AVMutableAudioMixInputParameters audioMixInputParametersWithTrack:trackObj];
-            
-            MTAudioProcessingTapCallbacks callbacks;
-            callbacks.version = 1;
-            callbacks.clientInfo = (__bridge void *)(self);
-            callbacks.init = tap_Init;
-            callbacks.finalize = tap_Finalize;
-            callbacks.prepare = tap_Prepare;
-            callbacks.unprepare = tap_Unprepare;
-            callbacks.process = tap_Process;
-            
-            MTAudioProcessingTapRef tap = NULL;
-            OSStatus err = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PreEffects, &tap);
-            if (err == noErr && tap) {
-                inputParams.audioTapProcessor = tap;
-                CFRelease(tap);
-                
-                AVMutableAudioMix *audioMix = [AVMutableAudioMix audioMix];
-                audioMix.inputParameters = @[inputParams];
-                // Attach to the exact item captured above. Previously this block
-                // ran before self.player was assigned and silently skipped the tap.
-                item.audioMix = audioMix;
-                NSLog(@"[VKAudioPlayer] PCM tap attached to audio item");
-            } else {
-                NSLog(@"[VKAudioPlayer] Could not create PCM tap (status=%d)", (int)err);
-            }
-        };
-
-        // Create the player before loading tracks asynchronously. The tap is
-        // still attached to `item`, never to whichever currentItem happens to
-        // be installed when the callback returns.
+        // Install an audio tap only after async track loading succeeds.
+        // AVPlayer can play network assets before their tracks are synchronously visible.
         self.player = [AVPlayer playerWithPlayerItem:item];
-        
-        NSArray *audioTracks = [asset tracksWithMediaType:AVMediaTypeAudio];
-        if (audioTracks.count > 0) {
-            attachTap(audioTracks[0]);
-            [self.player play];
-            self.isPlaying = YES;
-        } else {
-            [asset loadValuesAsynchronouslyForKeys:@[@"tracks"] completionHandler:^{
-                NSArray *tracksAsync = [asset tracksWithMediaType:AVMediaTypeAudio];
-                if (tracksAsync.count > 0) {
-                    attachTap(tracksAsync[0]);
-                    // For remote assets the audio track appears asynchronously.
-                    // Start playback only after the mix is installed, otherwise
-                    // old AVPlayer implementations may never invoke the tap.
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        if (weakSelf && weakSelf.player.currentItem == item) {
-                            [weakSelf.player play];
-                            weakSelf.isPlaying = YES;
-                        }
-                    });
-                } else {
-                    NSLog(@"[VKAudioPlayer] Audio track was not found in asset");
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        if (weakSelf && weakSelf.player.currentItem == item) {
-                            [weakSelf.player play];
-                            weakSelf.isPlaying = YES;
-                        }
-                    });
+        self.isPlaying = YES; // Playback intent; pause during loading is respected below.
+        __weak typeof(self) weakSelf = self;
+        __weak typeof(self) weakPlayer = self;
+        [item.asset loadValuesAsynchronouslyForKeys:@[@"tracks"] completionHandler:^{
+            NSError *error = nil;
+            AVKeyValueStatus status = [item.asset statusOfValueForKey:@"tracks" error:&error];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                VKAudioPlayer *strongSelf = weakPlayer;
+                if (!strongSelf || strongSelf->_playbackGeneration != generation || strongSelf.player.currentItem != item) return;
+                if (status != AVKeyValueStatusLoaded) {
+                    strongSelf.tapStatus = @"Не удалось загрузить аудиодорожку для PCM";
+                    NSLog(@"[VKAudioPlayer] Audio tracks unavailable: %@", error);
+                    if (strongSelf.isPlaying) [strongSelf.player play];
+                    return;
                 }
-            }];
-        }
-        
+                NSArray *tracks = [item.asset tracksWithMediaType:AVMediaTypeAudio];
+                if (!tracks.count) {
+                    strongSelf.tapStatus = @"Поток не предоставляет audio tap; попробуйте сохранённый трек";
+                    NSLog(@"[VKAudioPlayer] No audio track for PCM tap");
+                    if (strongSelf.isPlaying) [strongSelf.player play];
+                    return;
+                }
+                MTAudioProcessingTapCallbacks callbacks = {0};
+                // The SDK explicitly requires version 0, not literal 1.
+                callbacks.version = kMTAudioProcessingTapCallbacksVersion_0;
+                callbacks.clientInfo = (__bridge void *)strongSelf;
+                callbacks.init = tap_Init;
+                callbacks.finalize = tap_Finalize;
+                callbacks.prepare = tap_Prepare;
+                callbacks.unprepare = tap_Unprepare;
+                callbacks.process = tap_Process;
+                MTAudioProcessingTapRef tap = NULL;
+                OSStatus tapStatus = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PreEffects, &tap);
+                if (tapStatus != noErr || !tap) {
+                    strongSelf.tapStatus = [NSString stringWithFormat:@"Не удалось создать audio tap (%d)", (int)tapStatus];
+                    NSLog(@"[VKAudioPlayer] Audio tap creation failed: %d", (int)tapStatus);
+                    if (strongSelf.isPlaying) [strongSelf.player play];
+                    return;
+                }
+                AVMutableAudioMixInputParameters *parameters = [AVMutableAudioMixInputParameters audioMixInputParametersWithTrack:tracks.firstObject];
+                parameters.audioTapProcessor = tap;
+                AVMutableAudioMix *mix = [AVMutableAudioMix audioMix];
+                mix.inputParameters = @[parameters];
+                item.audioMix = mix;
+                CFRelease(tap);
+                strongSelf.tapStatus = @"Audio tap подключён; ожидание PCM";
+                if (strongSelf.isPlaying) [strongSelf.player play];
+            });
+        }];
+
         self.timeObserver = [self.player addPeriodicTimeObserverForInterval:CMTimeMake(1, 2)
                                                                       queue:dispatch_get_main_queue()
                                                                  usingBlock:^(CMTime time) {
@@ -329,8 +254,8 @@ static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount numberFrames, M
             }
         }];
     } else {
-        // Симуляция воспроизведения для демо/треков без прямого потока
-        self.isPlaying = YES;
+        self.isPlaying = NO;
+        self.tapStatus = @"У трека нет доступного аудиофайла";
     }
     
     [self updateNowPlayingInfo];
@@ -346,6 +271,7 @@ static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount numberFrames, M
 }
 
 - (void)play {
+    if (!self.player) return;
     if (self.player) {
         [self.player play];
     }
@@ -367,6 +293,13 @@ static void tap_Process(MTAudioProcessingTapRef tap, CMItemCount numberFrames, M
     if (self.player) {
         [self.player pause];
     }
+    self.player.currentItem.audioMix = nil;
+    [self resetPCMBuffer];
+    if (self.player && self.timeObserver) {
+        [self.player removeTimeObserver:self.timeObserver];
+        self.timeObserver = nil;
+    }
+    self.player = nil;
     self.isPlaying = NO;
     self.currentTrack = nil;
     [self updateNowPlayingInfo];

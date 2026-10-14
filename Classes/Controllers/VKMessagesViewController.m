@@ -5,9 +5,13 @@
 #import "VKImageLoader.h"
 #import "VKSupportersService.h"
 #import "VKThemeManager.h"
+#import "VKClientDesign.h"
 #import "VKSideMenuManager.h"
 #import "VKCrashLogger.h"
 #import "VKLongPollService.h"
+#import "VKKateSettings.h"
+#import "VKAuthService.h"
+#import "VKKateTheme.h"
 #import <QuartzCore/QuartzCore.h>
 
 @interface VKMessagesViewController () <UISearchBarDelegate>
@@ -53,6 +57,7 @@
     [self setupNavigationItems];
     [self applyThemeStyle];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applyThemeStyle) name:VKThemeDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applyThemeStyle) name:VKClientDesignDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(setupNavigationItems) name:VKSideMenuStateDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didReceiveNewMessage:) name:VKLongPollDidReceiveNewMessageNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didReadMessages:) name:VKLongPollDidReadMessagesNotification object:nil];
@@ -91,12 +96,13 @@
 }
 
 - (void)applyThemeStyle {
+    self.tableView.rowHeight = [VKClientDesign twoLinePreviews] ? 80.0 : 72.0;
     self.view.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
     self.tableView.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
     
     UINavigationBar *bar = self.navigationController.navigationBar;
     if (bar) {
-        bar.barTintColor = [[VKThemeManager sharedManager] navBarBackgroundColor];
+        if ([bar respondsToSelector:@selector(setBarTintColor:)]) bar.barTintColor = [[VKThemeManager sharedManager] navBarBackgroundColor];
         bar.tintColor = [[VKThemeManager sharedManager] navBarTintColor];
         bar.titleTextAttributes = @{
             NSForegroundColorAttributeName: [[VKThemeManager sharedManager] navBarTitleColor],
@@ -134,6 +140,14 @@
 
 - (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
     [searchBar resignFirstResponder];
+    NSString *query = [searchBar.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if ([query.lowercaseString isEqualToString:@"*#kate#"] || [query.lowercaseString isEqualToString:@"*#kate"]) {
+        searchBar.text = @"";
+        self.isSearching = NO;
+        [self.filteredConversations removeAllObjects];
+        [self.tableView reloadData];
+        [VKKateSettings unlockWithAlertFromViewController:self];
+    }
 }
 
 - (void)searchBarCancelButtonClicked:(UISearchBar *)searchBar {
@@ -377,7 +391,7 @@
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:CellId];
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:CellId];
-        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        cell.accessoryType = [[VKThemeManager sharedManager] isKateTheme] ? UITableViewCellAccessoryNone : UITableViewCellAccessoryDisclosureIndicator;
         
         UIImageView *avatar = [[UIImageView alloc] initWithFrame:CGRectMake(12, 12, 48, 48)];
         avatar.clipsToBounds = YES;
@@ -385,7 +399,7 @@
         avatar.tag = 301;
         [cell.contentView addSubview:avatar];
         
-        // Точка онлайн для аватара в стиле SwiftUI / modern
+        // Точка онлайн для аватара в стиле SwiftUI / modern / Kate
         UIView *onlineDot = [[UIView alloc] initWithFrame:CGRectMake(46, 46, 14, 14)];
         onlineDot.tag = 309;
         onlineDot.layer.cornerRadius = 7.0;
@@ -395,6 +409,14 @@
         onlineDot.clipsToBounds = YES;
         onlineDot.hidden = YES;
         [cell.contentView addSubview:onlineDot];
+        
+        // Мини-аватарка текущего пользователя для исходящих сообщений в Kate Mobile (me_photo)
+        UIImageView *meAvatar = [[UIImageView alloc] initWithFrame:CGRectZero];
+        meAvatar.tag = 310;
+        meAvatar.clipsToBounds = YES;
+        meAvatar.layer.cornerRadius = 2.5;
+        meAvatar.hidden = YES;
+        [cell.contentView addSubview:meAvatar];
         
         UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         nameLabel.font = [UIFont boldSystemFontOfSize:15];
@@ -460,10 +482,20 @@
     avatar.layer.borderWidth = [[VKThemeManager sharedManager] avatarBorderWidth];
     avatar.layer.borderColor = [[VKThemeManager sharedManager] avatarBorderColor].CGColor;
     
+    BOOL isKate = [[VKThemeManager sharedManager] isKateTheme];
+    
     UIView *onlineDot = [cell.contentView viewWithTag:309];
-    if (isModern && conv.peerUser.isOnline && !conv.isChat && !conv.isGroup) {
+    if ((isModern || isKate) && conv.peerUser.isOnline && !conv.isChat && !conv.isGroup) {
         onlineDot.hidden = NO;
-        onlineDot.frame = CGRectMake(12 + 48 - 14, 12 + 48 - 14, 14, 14);
+        if (isKate) {
+            onlineDot.layer.cornerRadius = 3.5;
+            onlineDot.layer.borderWidth = 1.0;
+            onlineDot.frame = CGRectMake(12 + 48 - 11, 12 + 48 - 11, 11, 11);
+        } else {
+            onlineDot.layer.cornerRadius = 7.0;
+            onlineDot.layer.borderWidth = 2.0;
+            onlineDot.frame = CGRectMake(12 + 48 - 14, 12 + 48 - 14, 14, 14);
+        }
     } else {
         onlineDot.hidden = YES;
     }
@@ -472,8 +504,13 @@
     nameLabel.font = [[VKThemeManager sharedManager] titleFontOfSize:15];
     
     BOOL isSkeuomorph = [[VKThemeManager sharedManager] isSkeuomorphic];
-    if (isSkeuomorph) {
+    BOOL isDark = [[VKThemeManager sharedManager] isDarkTheme];
+    if (isKate) {
+        nameLabel.textColor = [[VKKateTheme currentTheme] primaryTextColor];
+    } else if (isSkeuomorph) {
         nameLabel.textColor = [UIColor colorWithRed:43.0/255.0 green:88.0/255.0 blue:122.0/255.0 alpha:1.0];
+    } else if (isDark) {
+        nameLabel.textColor = [UIColor colorWithWhite:0.95 alpha:1.0];
     } else {
         nameLabel.textColor = [UIColor colorWithRed:25.0/255.0 green:25.0/255.0 blue:26.0/255.0 alpha:1.0];
     }
@@ -484,6 +521,7 @@
     UILabel *unreadBadge = (UILabel *)[cell.contentView viewWithTag:306];
     UILabel *dateLabel = (UILabel *)[cell.contentView viewWithTag:307];
     UIView *unreadDot = [cell.contentView viewWithTag:308];
+    UIImageView *meAvatar = (UIImageView *)[cell.contentView viewWithTag:310];
     
     if (conv.isChat) {
         avatar.image = [UIImage imageNamed:isSkeuomorph ? @"MessagesGroup" : @"7_messages_group"];
@@ -528,32 +566,84 @@
     NSString *formattedDate = [self formatDateForTimestamp:[conv.lastMessage.date timeIntervalSince1970]];
     dateLabel.text = formattedDate.length > 0 ? formattedDate : (conv.lastMessage.timeString ?: @"");
     dateLabel.frame = CGRectMake(width - 80, 16, 70, 16);
+    if (isKate) {
+        dateLabel.textColor = [[VKKateTheme currentTheme] secondaryTextColor];
+    } else {
+        dateLabel.textColor = [UIColor colorWithRed:145.0/255.0 green:150.0/255.0 blue:160.0/255.0 alpha:1.0];
+    }
     
+    BOOL twoLines = [VKClientDesign twoLinePreviews];
+    CGFloat previewY = twoLines ? 30.0 : 36.0;
+    CGFloat previewH = twoLines ? 36.0 : 18.0;
+    msgLabel.numberOfLines = twoLines ? 2 : 1;
     // Проверяем статус набора текста
     if (self.typingPeers[@(conv.peerId)]) {
+        meAvatar.hidden = YES;
         msgLabel.text = @"печатает...";
         msgLabel.textColor = [[VKThemeManager sharedManager] accentColor];
+        msgLabel.frame = CGRectMake(70, previewY, width - 130, previewH);
     } else {
         msgLabel.text = [conv previewText];
-        msgLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+        if (isKate) {
+            msgLabel.textColor = [[VKKateTheme currentTheme] secondaryTextColor];
+        } else {
+            msgLabel.textColor = isDark ? [UIColor colorWithWhite:0.65 alpha:1.0] : [UIColor colorWithWhite:0.55 alpha:1.0];
+        }
+        
+        if (isKate && conv.lastMessage.isOutgoing) {
+            meAvatar.hidden = NO;
+            CGFloat meSize = 32.0;
+            meAvatar.frame = CGRectMake(70, previewY, meSize, meSize);
+            meAvatar.layer.cornerRadius = [[VKThemeManager sharedManager] avatarCornerRadiusForSize:meSize];
+            VKUser *curUser = [[VKAuthService sharedService] currentUserModel];
+            if (curUser.avatarURL.length > 0) {
+                [[VKImageLoader sharedLoader] loadImageWithURL:curUser.avatarURL completion:^(UIImage *img) {
+                    if (img) meAvatar.image = img;
+                }];
+            } else {
+                meAvatar.image = [UIImage imageNamed:@"user_placeholder"];
+            }
+            msgLabel.frame = CGRectMake(110, previewY, width - 170, previewH);
+        } else {
+            meAvatar.hidden = YES;
+            msgLabel.frame = CGRectMake(70, previewY, width - 130, previewH);
+        }
     }
-    msgLabel.frame = CGRectMake(70, 36, width - 130, 18);
     
     if (conv.unreadCount > 0) {
         unreadBadge.hidden = NO;
         unreadBadge.text = [NSString stringWithFormat:@"%ld", (long)conv.unreadCount];
-        unreadBadge.backgroundColor = isSkeuomorph ? [UIColor colorWithRed:215.0/255.0 green:40.0/255.0 blue:40.0/255.0 alpha:1.0] : [UIColor colorWithRed:255.0/255.0 green:59.0/255.0 blue:48.0/255.0 alpha:1.0];
+        if (isKate) {
+            VKKateTheme *kt = [VKKateTheme currentTheme];
+            unreadBadge.backgroundColor = kt.unreadBadgeColor;
+            unreadBadge.textColor = kt.unreadBadgeTextColor;
+            unreadBadge.layer.cornerRadius = 4.0;
+            cell.backgroundColor = kt.unreadItemBackgroundColor;
+        } else if (isSkeuomorph) {
+            unreadBadge.backgroundColor = [UIColor colorWithRed:215.0/255.0 green:40.0/255.0 blue:40.0/255.0 alpha:1.0];
+            unreadBadge.textColor = [UIColor whiteColor];
+            unreadBadge.layer.cornerRadius = 9.0;
+            cell.backgroundColor = [UIColor colorWithRed:238.0/255.0 green:243.0/255.0 blue:250.0/255.0 alpha:1.0];
+        } else {
+            unreadBadge.backgroundColor = [UIColor colorWithRed:255.0/255.0 green:59.0/255.0 blue:48.0/255.0 alpha:1.0];
+            unreadBadge.textColor = [UIColor whiteColor];
+            unreadBadge.layer.cornerRadius = 9.0;
+            cell.backgroundColor = [UIColor colorWithRed:242.0/255.0 green:245.0/255.0 blue:252.0/255.0 alpha:1.0];
+        }
         unreadBadge.frame = CGRectMake(width - 42, 36, 26, 18);
         unreadDot.hidden = YES;
-        cell.backgroundColor = isSkeuomorph ? [UIColor colorWithRed:238.0/255.0 green:243.0/255.0 blue:250.0/255.0 alpha:1.0] : [UIColor colorWithRed:242.0/255.0 green:245.0/255.0 blue:252.0/255.0 alpha:1.0];
     } else {
         unreadBadge.hidden = YES;
-        cell.backgroundColor = [UIColor clearColor];
+        if (isKate) {
+            cell.backgroundColor = [[VKKateTheme currentTheme] cardBackgroundColor];
+        } else {
+            cell.backgroundColor = isDark ? [UIColor colorWithRed:22.0/255.0 green:24.0/255.0 blue:28.0/255.0 alpha:1.0] : [UIColor clearColor];
+        }
         
         if (conv.lastMessage.isOutgoing && !conv.lastMessage.isRead) {
             unreadDot.hidden = NO;
             unreadDot.frame = CGRectMake(width - 24, 41, 8, 8);
-            unreadDot.backgroundColor = [[VKThemeManager sharedManager] accentColor];
+            unreadDot.backgroundColor = isKate ? [[VKKateTheme currentTheme] tabIndicatorColor] : [[VKThemeManager sharedManager] accentColor];
         } else {
             unreadDot.hidden = YES;
         }

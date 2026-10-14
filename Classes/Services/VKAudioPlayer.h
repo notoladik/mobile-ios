@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import "VKAudioTrack.h"
 
@@ -30,6 +31,7 @@ extern NSString *const VKAudioPlayerProgressNotification;
 
 // Извлечение PCM аудиоданных в реальном времени для визуализатора
 - (void)getLatestPCMData:(float *)outBuffer count:(NSUInteger)count;
+- (NSString *)pcmDiagnosticText;
 
 // Дистанционное управление и системный экран блокировки (Now Playing)
 - (void)handleRemoteControlEvent:(UIEvent *)event;

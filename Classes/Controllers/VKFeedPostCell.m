@@ -6,6 +6,8 @@
 #import "VKAudioPlayer.h"
 #import "VKAPIClient.h"
 #import "VKAnimatedImageView.h"
+#import "VKTextParser.h"
+#import "VKKateTheme.h"
 #import <QuartzCore/QuartzCore.h>
 
 @interface VKFeedPostCell ()
@@ -871,12 +873,13 @@ static UIImage *platformImageForString(NSString *platform) {
     
     // Текст
     if (post.text.length > 0) {
-        CGSize textSize = [post.text sizeWithFont:[UIFont systemFontOfSize:15]
+        NSString *cleanText = [VKTextParser cleanTextForDisplay:post.text];
+        CGSize textSize = [cleanText sizeWithFont:[UIFont systemFontOfSize:15]
                                constrainedToSize:CGSizeMake(contentWidth, CGFLOAT_MAX)
                                    lineBreakMode:NSLineBreakByWordWrapping];
         CGFloat fullH = ceilf(textSize.height);
         CGFloat maxHeight = [UIFont systemFontOfSize:15].lineHeight * 6.0;
-        BOOL isLongText = (fullH > maxHeight + 4.0) || post.text.length > 250 || [post.text componentsSeparatedByString:@"\n"].count > 5;
+        BOOL isLongText = (fullH > maxHeight + 4.0) || cleanText.length > 250 || [cleanText componentsSeparatedByString:@"\n"].count > 5;
         if (isLongText) {
             CGFloat collapsedH = MIN(fullH, maxHeight);
             CGFloat textH = post.isTextExpanded ? fullH : collapsedH;
@@ -923,11 +926,12 @@ static UIImage *platformImageForString(NSString *platform) {
         CGFloat repContentW = contentWidth - 16.0;
         CGFloat repH = 46.0; // Header: avatar 30pt, author + date
         if (rep.text.length > 0) {
-            CGSize repTextSize = [rep.text sizeWithFont:[UIFont systemFontOfSize:13]
+            NSString *cleanRep = [VKTextParser cleanTextForDisplay:rep.text];
+            CGSize repTextSize = [cleanRep sizeWithFont:[UIFont systemFontOfSize:13]
                                       constrainedToSize:CGSizeMake(repContentW, CGFLOAT_MAX)
                                           lineBreakMode:NSLineBreakByWordWrapping];
             CGFloat fullRepH = ceilf(repTextSize.height);
-            BOOL isLongRep = rep.text.length > 250 || [rep.text componentsSeparatedByString:@"\n"].count > 5;
+            BOOL isLongRep = cleanRep.length > 250 || [cleanRep componentsSeparatedByString:@"\n"].count > 5;
             if (isLongRep) {
                 CGFloat collapsedRepH = MIN(fullRepH, [UIFont systemFontOfSize:13].lineHeight * 6.0);
                 CGFloat repTextH = rep.isRepostTextExpanded ? fullRepH : collapsedRepH;
@@ -1010,6 +1014,8 @@ static UIImage *platformImageForString(NSString *platform) {
         self.authorNameLabel.textColor = [UIColor colorWithRed:43.0/255.0 green:88.0/255.0 blue:122.0/255.0 alpha:1.0]; // #2B587A
     } else if (isFlat) {
         self.authorNameLabel.textColor = [UIColor colorWithRed:74.0/255.0 green:118.0/255.0 blue:168.0/255.0 alpha:1.0]; // #4A76A8
+    } else if ([[VKThemeManager sharedManager] isKateTheme]) {
+        self.authorNameLabel.textColor = [[VKKateTheme currentTheme] postLinkColor];
     } else {
         self.authorNameLabel.textColor = [UIColor colorWithRed:20.0/255.0 green:20.0/255.0 blue:20.0/255.0 alpha:1.0];
     }
@@ -1036,6 +1042,11 @@ static UIImage *platformImageForString(NSString *platform) {
         }
         self.wallOwnerNoteLabel.hidden = NO;
         self.wallOwnerNoteLabel.text = [NSString stringWithFormat:@"на стене %@", post.wallOwner.displayName ?: @""];
+        if ([[VKThemeManager sharedManager] isKateTheme]) {
+            self.wallOwnerNoteLabel.textColor = [[VKKateTheme currentTheme] secondaryTextColor];
+        } else {
+            self.wallOwnerNoteLabel.textColor = [UIColor colorWithWhite:0.5 alpha:1.0];
+        }
     } else {
         self.wallOwnerAvatarImageView.hidden = YES;
         self.wallOwnerNoteLabel.hidden = YES;
@@ -1050,6 +1061,11 @@ static UIImage *platformImageForString(NSString *platform) {
         dateText = [NSString stringWithFormat:@"[Архив] %@", dateText];
     }
     self.dateAndPlatformLabel.text = dateText;
+    if ([[VKThemeManager sharedManager] isKateTheme]) {
+        self.dateAndPlatformLabel.textColor = [[VKKateTheme currentTheme] secondaryTextColor];
+    } else {
+        self.dateAndPlatformLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+    }
     
     UIImage *platImg = nil;
     NSString *plat = [post.platform lowercaseString];
@@ -1077,7 +1093,7 @@ static UIImage *platformImageForString(NSString *platform) {
     self.cardBackgroundView.layer.cornerRadius = cornerRadius;
     self.cardBackgroundView.backgroundColor = [[VKThemeManager sharedManager] cardBackgroundColor];
     
-    if (isSkeuomorph || isFlat) {
+    if (isSkeuomorph || isFlat || [[VKThemeManager sharedManager] isKateTheme]) {
         self.cardBackgroundView.layer.borderWidth = 0.5;
         self.cardBackgroundView.layer.borderColor = [[VKThemeManager sharedManager] cardBorderColor].CGColor;
     } else {
@@ -1089,10 +1105,14 @@ static UIImage *platformImageForString(NSString *platform) {
     self.cardBackgroundView.frame = CGRectMake(margin, (margin > 0 ? 4.0 : 0.0), cardWidth, totalHeight - bottomSpacing);
     
     UIView *bottomSep = [self.contentView viewWithTag:999];
-    if (isSkeuomorph || isFlat) {
+    if (isSkeuomorph || isFlat || [[VKThemeManager sharedManager] isKateTheme]) {
         bottomSep.hidden = NO;
         bottomSep.frame = CGRectMake(0, totalHeight - bottomSpacing, width, bottomSpacing);
-        bottomSep.backgroundColor = isSkeuomorph ? [UIColor colorWithRed:226.0/255.0 green:229.0/255.0 blue:235.0/255.0 alpha:1.0] : [UIColor colorWithRed:235.0/255.0 green:237.0/255.0 blue:240.0/255.0 alpha:1.0];
+        if ([[VKThemeManager sharedManager] isKateTheme]) {
+            bottomSep.backgroundColor = [[VKThemeManager sharedManager] backgroundColor];
+        } else {
+            bottomSep.backgroundColor = isSkeuomorph ? [UIColor colorWithRed:226.0/255.0 green:229.0/255.0 blue:235.0/255.0 alpha:1.0] : [UIColor colorWithRed:235.0/255.0 green:237.0/255.0 blue:240.0/255.0 alpha:1.0];
+        }
     } else {
         bottomSep.hidden = YES;
     }
@@ -1166,37 +1186,54 @@ static UIImage *platformImageForString(NSString *platform) {
         
         // Текст поста
         if (post.text.length > 0) {
-        self.postTextLabel.hidden = NO;
-        self.postTextLabel.text = post.text;
-        CGSize textSize = [post.text sizeWithFont:[UIFont systemFontOfSize:15]
-                               constrainedToSize:CGSizeMake(contentW, CGFLOAT_MAX)
-                                   lineBreakMode:NSLineBreakByWordWrapping];
-        CGFloat fullH = ceilf(textSize.height);
-        CGFloat maxHeight = [UIFont systemFontOfSize:15].lineHeight * 6.0;
-        BOOL isLongText = (fullH > maxHeight + 4.0) || post.text.length > 250 || [post.text componentsSeparatedByString:@"\n"].count > 5;
-        
-        if (isLongText) {
-            self.expandTextButton.hidden = NO;
-            [self.expandTextButton setTitle:(post.isTextExpanded ? @"Свернуть" : @"Показать полностью...") forState:UIControlStateNormal];
+            self.postTextLabel.hidden = NO;
+            NSString *cleanText = [VKTextParser cleanTextForDisplay:post.text];
+            UIColor *textColor;
+            UIColor *linkColor;
+            if ([[VKThemeManager sharedManager] isKateTheme]) {
+                textColor = [[VKKateTheme currentTheme] primaryTextColor];
+                linkColor = [[VKKateTheme currentTheme] postLinkColor];
+            } else if ([[VKThemeManager sharedManager] isDarkTheme]) {
+                textColor = [UIColor colorWithRed:235.0/255.0 green:238.0/255.0 blue:242.0/255.0 alpha:1.0];
+                linkColor = [[VKThemeManager sharedManager] accentColor];
+            } else {
+                textColor = [UIColor colorWithRed:20.0/255.0 green:20.0/255.0 blue:24.0/255.0 alpha:1.0];
+                linkColor = [[VKThemeManager sharedManager] accentColor];
+            }
+            self.postTextLabel.attributedText = [VKTextParser attributedStringForText:post.text
+                                                                               font:[UIFont systemFontOfSize:15]
+                                                                          textColor:textColor
+                                                                          linkColor:linkColor];
+            CGSize textSize = [cleanText sizeWithFont:[UIFont systemFontOfSize:15]
+                                   constrainedToSize:CGSizeMake(contentW, CGFLOAT_MAX)
+                                       lineBreakMode:NSLineBreakByWordWrapping];
+            CGFloat fullH = ceilf(textSize.height);
+            CGFloat maxHeight = [UIFont systemFontOfSize:15].lineHeight * 6.0;
+            BOOL isLongText = (fullH > maxHeight + 4.0) || cleanText.length > 250 || [cleanText componentsSeparatedByString:@"\n"].count > 5;
             
-            CGFloat collapsedH = MIN(fullH, maxHeight);
-            CGFloat textH = post.isTextExpanded ? fullH : collapsedH;
-            self.postTextLabel.numberOfLines = post.isTextExpanded ? 0 : 6;
-            self.postTextLabel.frame = CGRectMake(0, currentY, contentW, textH);
-            currentY += textH;
-            
-            self.expandTextButton.frame = CGRectMake(0, currentY, 200, 24);
-            currentY += 24.0 + 10.0;
+            if (isLongText) {
+                self.expandTextButton.hidden = NO;
+                [self.expandTextButton setTitle:(post.isTextExpanded ? @"Свернуть" : @"Показать полностью...") forState:UIControlStateNormal];
+                
+                CGFloat collapsedH = MIN(fullH, maxHeight);
+                CGFloat textH = post.isTextExpanded ? fullH : collapsedH;
+                self.postTextLabel.numberOfLines = post.isTextExpanded ? 0 : 6;
+                self.postTextLabel.frame = CGRectMake(0, currentY, contentW, textH);
+                currentY += textH;
+                
+                self.expandTextButton.frame = CGRectMake(0, currentY, 200, 24);
+                currentY += 24.0 + 10.0;
+            } else {
+                self.expandTextButton.hidden = YES;
+                self.postTextLabel.numberOfLines = 0;
+                self.postTextLabel.frame = CGRectMake(0, currentY, contentW, fullH);
+                currentY += fullH + 10.0;
+            }
         } else {
+            self.postTextLabel.hidden = YES;
+            self.postTextLabel.attributedText = nil;
             self.expandTextButton.hidden = YES;
-            self.postTextLabel.numberOfLines = 0;
-            self.postTextLabel.frame = CGRectMake(0, currentY, contentW, fullH);
-            currentY += fullH + 10.0;
         }
-    } else {
-        self.postTextLabel.hidden = YES;
-        self.expandTextButton.hidden = YES;
-    }
     
     // Сетка медиавложений (Фотографии и Видео)
     NSMutableArray<VKAttachment *> *mediaItems = [NSMutableArray array];
@@ -1636,6 +1673,22 @@ static UIImage *platformImageForString(NSString *platform) {
             self.repostAuthorLabel.textColor = [UIColor colorWithRed:43.0/255.0 green:88.0/255.0 blue:122.0/255.0 alpha:1.0];
             self.repostAuthorLabel.font = [UIFont boldSystemFontOfSize:13];
             self.repostTextLabel.textColor = [UIColor colorWithRed:40.0/255.0 green:40.0/255.0 blue:40.0/255.0 alpha:1.0];
+        } else if ([[VKThemeManager sharedManager] isKateTheme]) {
+            VKKateTheme *kt = [VKKateTheme currentTheme];
+            self.repostContainerView.backgroundColor = kt.isDark ? [UIColor colorWithWhite:0.18 alpha:1.0] : [UIColor colorWithWhite:0.95 alpha:1.0];
+            self.repostContainerView.layer.cornerRadius = 2.0;
+            self.repostContainerView.layer.borderWidth = 0.5;
+            self.repostContainerView.layer.borderColor = kt.separatorColor.CGColor;
+            
+            self.repostLeftBarView.backgroundColor = kt.tabIndicatorColor ?: [UIColor colorWithRed:185.0/255.0 green:199.0/255.0 blue:213.0/255.0 alpha:1.0];
+            self.repostLeftBarView.layer.cornerRadius = 0.0;
+            
+            self.repostAvatarImageView.layer.cornerRadius = 2.0;
+            self.repostAvatarImageView.layer.borderWidth = 0.0;
+            
+            self.repostAuthorLabel.textColor = kt.postLinkColor;
+            self.repostAuthorLabel.font = [UIFont boldSystemFontOfSize:13];
+            self.repostTextLabel.textColor = kt.primaryTextColor;
         } else if (isFlat) {
             // UIKit Classic Flat (iOS 7-10): сплошной серый фон, скругление 0, круглая аватарка, синий #4A76A8
             self.repostContainerView.backgroundColor = [UIColor colorWithRed:240.0/255.0 green:242.0/255.0 blue:245.0/255.0 alpha:1.0];
@@ -1708,12 +1761,28 @@ static UIImage *platformImageForString(NSString *platform) {
         
         if (rep.text.length > 0) {
             self.repostTextLabel.hidden = NO;
-            self.repostTextLabel.text = rep.text;
-            CGSize repTextSize = [rep.text sizeWithFont:[UIFont systemFontOfSize:13]
+            NSString *cleanRep = [VKTextParser cleanTextForDisplay:rep.text];
+            UIColor *repTextColor;
+            UIColor *repLinkColor;
+            if ([[VKThemeManager sharedManager] isKateTheme]) {
+                repTextColor = [[VKKateTheme currentTheme] primaryTextColor];
+                repLinkColor = [[VKKateTheme currentTheme] postLinkColor];
+            } else if ([[VKThemeManager sharedManager] isDarkTheme]) {
+                repTextColor = [UIColor colorWithRed:235.0/255.0 green:238.0/255.0 blue:242.0/255.0 alpha:1.0];
+                repLinkColor = [[VKThemeManager sharedManager] accentColor];
+            } else {
+                repTextColor = [UIColor colorWithRed:20.0/255.0 green:20.0/255.0 blue:24.0/255.0 alpha:1.0];
+                repLinkColor = [[VKThemeManager sharedManager] accentColor];
+            }
+            self.repostTextLabel.attributedText = [VKTextParser attributedStringForText:rep.text
+                                                                                  font:[UIFont systemFontOfSize:13]
+                                                                             textColor:repTextColor
+                                                                             linkColor:repLinkColor];
+            CGSize repTextSize = [cleanRep sizeWithFont:[UIFont systemFontOfSize:13]
                                       constrainedToSize:CGSizeMake(repInnerW, CGFLOAT_MAX)
                                           lineBreakMode:NSLineBreakByWordWrapping];
             CGFloat fullRepH = ceilf(repTextSize.height);
-            BOOL isLongRep = rep.text.length > 250 || [rep.text componentsSeparatedByString:@"\n"].count > 5;
+            BOOL isLongRep = cleanRep.length > 250 || [cleanRep componentsSeparatedByString:@"\n"].count > 5;
             
             if (isLongRep) {
                 self.expandRepostTextButton.hidden = NO;
@@ -1735,6 +1804,7 @@ static UIImage *platformImageForString(NSString *platform) {
             }
         } else {
             self.repostTextLabel.hidden = YES;
+            self.repostTextLabel.attributedText = nil;
             self.expandRepostTextButton.hidden = YES;
         }
         
@@ -1966,61 +2036,108 @@ static UIImage *platformImageForString(NSString *platform) {
     
     CGFloat btnH = 28.0;
     
-    // 1. Комментарии (СЛЕВА)
-    NSString *commText = [NSString stringWithFormat:@"%ld", (long)post.commentsCount];
-    if (isSkeuomorph) {
-        [self.commentsButton setImage:[[VKThemeManager sharedManager] reactionCommentIconWithColor:defIconColor] forState:UIControlStateNormal];
-    } else {
-        [self.commentsButton setImage:[UIImage imageNamed:@"7_post_btn_comment"] forState:UIControlStateNormal];
-        [self.commentsButton setImage:[UIImage imageNamed:@"7_post_btn_comment_pressed"] forState:UIControlStateHighlighted];
-    }
-    [self.commentsButton setTitle:commText forState:UIControlStateNormal];
-    self.commentsButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-    self.commentsButton.imageEdgeInsets = UIEdgeInsetsMake(0, 0, 0, 5);
-    self.commentsButton.titleEdgeInsets = UIEdgeInsetsMake(0, 5, 0, 0);
-    CGSize commTextSize = [commText sizeWithFont:[UIFont systemFontOfSize:13]];
-    CGFloat commWidth = MAX(44.0, ceilf(commTextSize.width) + 24.0);
-    self.commentsButton.frame = CGRectMake(0, 0, commWidth, btnH);
+    BOOL isKate = [[VKThemeManager sharedManager] isKateTheme];
     
-    // 2. Репост (СЛЕВА, РЯДОМ С КОММЕНТАРИЯМИ)
-    NSString *repText = (post.repostsCount > 0) ? [NSString stringWithFormat:@"%ld", (long)post.repostsCount] : @"";
-    if (isSkeuomorph) {
-        [self.repostButton setImage:[[VKThemeManager sharedManager] reactionMegaphoneIconWithColor:defIconColor] forState:UIControlStateNormal];
+    if (isKate) {
+        // Kate Mobile (Screenshot 1 & posts_news_item.xml):
+        // Actions are right-aligned in order: [💬 Comments] [📢 Repost] [❤️ Like]
+        // If count == 0, show icon only without number.
+        NSString *commText = post.commentsCount > 0 ? [NSString stringWithFormat:@"%ld", (long)post.commentsCount] : @"";
+        [self.commentsButton setImage:[UIImage imageNamed:@"kate_comments"] forState:UIControlStateNormal];
+        [self.commentsButton setTitle:commText forState:UIControlStateNormal];
+        self.commentsButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+        self.commentsButton.imageEdgeInsets = (commText.length > 0) ? UIEdgeInsetsMake(0, 0, 0, 4) : UIEdgeInsetsZero;
+        self.commentsButton.titleEdgeInsets = (commText.length > 0) ? UIEdgeInsetsMake(0, 4, 0, 0) : UIEdgeInsetsZero;
+        CGSize commTextSize = [commText sizeWithFont:[UIFont systemFontOfSize:12.5]];
+        CGFloat commWidth = (commText.length > 0) ? (ceilf(commTextSize.width) + 26.0) : 26.0;
+        
+        NSString *repText = post.repostsCount > 0 ? [NSString stringWithFormat:@"%ld", (long)post.repostsCount] : @"";
+        [self.repostButton setImage:[UIImage imageNamed:@"kate_repost"] forState:UIControlStateNormal];
+        [self.repostButton setTitle:repText forState:UIControlStateNormal];
+        self.repostButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+        self.repostButton.imageEdgeInsets = (repText.length > 0) ? UIEdgeInsetsMake(0, 0, 0, 4) : UIEdgeInsetsZero;
+        self.repostButton.titleEdgeInsets = (repText.length > 0) ? UIEdgeInsetsMake(0, 4, 0, 0) : UIEdgeInsetsZero;
+        CGSize repTextSize = [repText sizeWithFont:[UIFont systemFontOfSize:12.5]];
+        CGFloat repWidth = (repText.length > 0) ? (ceilf(repTextSize.width) + 26.0) : 26.0;
+        
+        NSString *likeText = post.likesCount > 0 ? [NSString stringWithFormat:@"%ld", (long)post.likesCount] : @"";
+        UIImage *kLikeImg = [UIImage imageNamed:post.isLiked ? @"kate_heart_active" : @"kate_heart"];
+        [self.likeButton setImage:kLikeImg forState:UIControlStateNormal];
+        [self.likeButton setTitle:likeText forState:UIControlStateNormal];
+        self.likeButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+        self.likeButton.imageEdgeInsets = (likeText.length > 0) ? UIEdgeInsetsMake(0, 0, 0, 4) : UIEdgeInsetsZero;
+        self.likeButton.titleEdgeInsets = (likeText.length > 0) ? UIEdgeInsetsMake(0, 4, 0, 0) : UIEdgeInsetsZero;
+        CGSize likeTextSize = [likeText sizeWithFont:[UIFont systemFontOfSize:12.5]];
+        CGFloat likeWidth = (likeText.length > 0) ? (ceilf(likeTextSize.width) + 26.0) : 26.0;
+        
+        CGFloat gap = 12.0;
+        CGFloat rightX = contentW - 6.0;
+        self.likeButton.frame = CGRectMake(rightX - likeWidth, 0, likeWidth, btnH);
+        self.repostButton.frame = CGRectMake(self.likeButton.frame.origin.x - gap - repWidth, 0, repWidth, btnH);
+        self.commentsButton.frame = CGRectMake(self.repostButton.frame.origin.x - gap - commWidth, 0, commWidth, btnH);
     } else {
-        [self.repostButton setImage:[UIImage imageNamed:@"7_post_btn_repost"] forState:UIControlStateNormal];
-        [self.repostButton setImage:[UIImage imageNamed:@"7_post_btn_repost_pressed"] forState:UIControlStateHighlighted];
+        // 1. Комментарии (СЛЕВА)
+        NSString *commText = [NSString stringWithFormat:@"%ld", (long)post.commentsCount];
+        if (isSkeuomorph) {
+            [self.commentsButton setImage:[[VKThemeManager sharedManager] reactionCommentIconWithColor:defIconColor] forState:UIControlStateNormal];
+        } else {
+            [self.commentsButton setImage:[UIImage imageNamed:@"7_post_btn_comment"] forState:UIControlStateNormal];
+            [self.commentsButton setImage:[UIImage imageNamed:@"7_post_btn_comment_pressed"] forState:UIControlStateHighlighted];
+        }
+        [self.commentsButton setTitle:commText forState:UIControlStateNormal];
+        self.commentsButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        self.commentsButton.imageEdgeInsets = UIEdgeInsetsMake(0, 0, 0, 5);
+        self.commentsButton.titleEdgeInsets = UIEdgeInsetsMake(0, 5, 0, 0);
+        CGSize commTextSize = [commText sizeWithFont:[UIFont systemFontOfSize:13]];
+        CGFloat commWidth = MAX(44.0, ceilf(commTextSize.width) + 24.0);
+        self.commentsButton.frame = CGRectMake(0, 0, commWidth, btnH);
+        
+        // 2. Репост (СЛЕВА, РЯДОМ С КОММЕНТАРИЯМИ)
+        NSString *repText = (post.repostsCount > 0) ? [NSString stringWithFormat:@"%ld", (long)post.repostsCount] : @"";
+        if (isSkeuomorph) {
+            [self.repostButton setImage:[[VKThemeManager sharedManager] reactionMegaphoneIconWithColor:defIconColor] forState:UIControlStateNormal];
+        } else {
+            [self.repostButton setImage:[UIImage imageNamed:@"7_post_btn_repost"] forState:UIControlStateNormal];
+            [self.repostButton setImage:[UIImage imageNamed:@"7_post_btn_repost_pressed"] forState:UIControlStateHighlighted];
+        }
+        [self.repostButton setTitle:repText forState:UIControlStateNormal];
+        self.repostButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        self.repostButton.imageEdgeInsets = (repText.length > 0) ? UIEdgeInsetsMake(0, 0, 0, 5) : UIEdgeInsetsZero;
+        self.repostButton.titleEdgeInsets = (repText.length > 0) ? UIEdgeInsetsMake(0, 5, 0, 0) : UIEdgeInsetsZero;
+        CGSize repTextSize = [repText sizeWithFont:[UIFont systemFontOfSize:13]];
+        CGFloat repWidth = (repText.length > 0) ? MAX(44.0, ceilf(repTextSize.width) + 24.0) : 32.0;
+        self.repostButton.frame = CGRectMake(commWidth + 18.0, 0, repWidth, btnH);
+        
+        // 3. Лайк (СПРАВА)
+        NSString *likeText = [NSString stringWithFormat:@"%ld", (long)post.likesCount];
+        if (isSkeuomorph) {
+            [self.likeButton setImage:[[VKThemeManager sharedManager] reactionHeartIconWithColor:likeIconColor filled:post.isLiked] forState:UIControlStateNormal];
+        } else {
+            UIImage *likeImg = [UIImage imageNamed:post.isLiked ? @"7_post_btn_blue_like" : @"7_post_btn_like"];
+            UIImage *likePressImg = [UIImage imageNamed:post.isLiked ? @"7_post_btn_blue_like_pressed" : @"7_post_btn_like_pressed"];
+            [self.likeButton setImage:likeImg forState:UIControlStateNormal];
+            [self.likeButton setImage:likePressImg forState:UIControlStateHighlighted];
+        }
+        [self.likeButton setTitle:likeText forState:UIControlStateNormal];
+        self.likeButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentRight;
+        self.likeButton.imageEdgeInsets = UIEdgeInsetsMake(0, 0, 0, 5);
+        self.likeButton.titleEdgeInsets = UIEdgeInsetsMake(0, 5, 0, 0);
+        CGSize likeTextSize = [likeText sizeWithFont:[UIFont systemFontOfSize:13]];
+        CGFloat likeWidth = MAX(44.0, ceilf(likeTextSize.width) + 24.0);
+        self.likeButton.frame = CGRectMake(contentW - likeWidth, 0, likeWidth, btnH);
     }
-    [self.repostButton setTitle:repText forState:UIControlStateNormal];
-    self.repostButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-    self.repostButton.imageEdgeInsets = (repText.length > 0) ? UIEdgeInsetsMake(0, 0, 0, 5) : UIEdgeInsetsZero;
-    self.repostButton.titleEdgeInsets = (repText.length > 0) ? UIEdgeInsetsMake(0, 5, 0, 0) : UIEdgeInsetsZero;
-    CGSize repTextSize = [repText sizeWithFont:[UIFont systemFontOfSize:13]];
-    CGFloat repWidth = (repText.length > 0) ? MAX(44.0, ceilf(repTextSize.width) + 24.0) : 32.0;
-    self.repostButton.frame = CGRectMake(commWidth + 18.0, 0, repWidth, btnH);
-    
-    // 3. Лайк (СПРАВА)
-    NSString *likeText = [NSString stringWithFormat:@"%ld", (long)post.likesCount];
-    if (isSkeuomorph) {
-        [self.likeButton setImage:[[VKThemeManager sharedManager] reactionHeartIconWithColor:likeIconColor filled:post.isLiked] forState:UIControlStateNormal];
-    } else {
-        UIImage *likeImg = [UIImage imageNamed:post.isLiked ? @"7_post_btn_blue_like" : @"7_post_btn_like"];
-        UIImage *likePressImg = [UIImage imageNamed:post.isLiked ? @"7_post_btn_blue_like_pressed" : @"7_post_btn_like_pressed"];
-        [self.likeButton setImage:likeImg forState:UIControlStateNormal];
-        [self.likeButton setImage:likePressImg forState:UIControlStateHighlighted];
-    }
-    [self.likeButton setTitle:likeText forState:UIControlStateNormal];
-    self.likeButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentRight;
-    self.likeButton.imageEdgeInsets = UIEdgeInsetsMake(0, 0, 0, 5);
-    self.likeButton.titleEdgeInsets = UIEdgeInsetsMake(0, 5, 0, 0);
-    CGSize likeTextSize = [likeText sizeWithFont:[UIFont systemFontOfSize:13]];
-    CGFloat likeWidth = MAX(44.0, ceilf(likeTextSize.width) + 24.0);
-    self.likeButton.frame = CGRectMake(contentW - likeWidth, 0, likeWidth, btnH);
     
     if (isSkeuomorph) {
         // 1. iOS 6: Прямоугольные кнопки со скруглением 3.5pt, рельефным градиентом и рамкой!
         CGFloat sBtnH = 28.0;
+        NSString *sCommText = [NSString stringWithFormat:@"%ld", (long)post.commentsCount];
+        NSString *sRepText = (post.repostsCount > 0) ? [NSString stringWithFormat:@"%ld", (long)post.repostsCount] : @"";
+        NSString *sLikeText = [NSString stringWithFormat:@"%ld", (long)post.likesCount];
+        CGSize commTextSize = [sCommText sizeWithFont:[UIFont systemFontOfSize:13]];
+        CGSize repTextSize = [sRepText sizeWithFont:[UIFont systemFontOfSize:13]];
+        CGSize likeTextSize = [sLikeText sizeWithFont:[UIFont systemFontOfSize:13]];
         CGFloat sCommW = MAX(56.0, ceilf(commTextSize.width) + 34.0);
-        CGFloat sRepW = (repText.length > 0) ? MAX(46.0, ceilf(repTextSize.width) + 30.0) : 38.0;
+        CGFloat sRepW = (sRepText.length > 0) ? MAX(46.0, ceilf(repTextSize.width) + 30.0) : 38.0;
         CGFloat sLikeW = MAX(54.0, ceilf(likeTextSize.width) + 32.0);
         
         self.commentsButton.frame = CGRectMake(0, 0, sCommW, sBtnH);
@@ -2067,8 +2184,39 @@ static UIImage *platformImageForString(NSString *platform) {
         self.likeButton.titleLabel.shadowOffset = CGSizeMake(0, 1);
         [self.likeButton setTitleColor:likeIconColor forState:UIControlStateNormal];
         
+    } else if (isKate) {
+        VKKateTheme *kt = [VKKateTheme currentTheme];
+        UIColor *kActionColor = kt.isDark ? [UIColor colorWithRed:187.0/255.0 green:187.0/255.0 blue:187.0/255.0 alpha:1.0] : kt.secondaryTextColor;
+        
+        self.commentsButton.layer.cornerRadius = 0.0;
+        self.commentsButton.clipsToBounds = NO;
+        self.commentsButton.backgroundColor = [UIColor clearColor];
+        [self.commentsButton setBackgroundImage:nil forState:UIControlStateNormal];
+        [self.commentsButton setBackgroundImage:nil forState:UIControlStateHighlighted];
+        self.commentsButton.titleLabel.shadowColor = nil;
+        self.commentsButton.titleLabel.font = [UIFont systemFontOfSize:12.5];
+        [self.commentsButton setTitleColor:kActionColor forState:UIControlStateNormal];
+        
+        self.repostButton.layer.cornerRadius = 0.0;
+        self.repostButton.clipsToBounds = NO;
+        self.repostButton.backgroundColor = [UIColor clearColor];
+        [self.repostButton setBackgroundImage:nil forState:UIControlStateNormal];
+        [self.repostButton setBackgroundImage:nil forState:UIControlStateHighlighted];
+        self.repostButton.titleLabel.shadowColor = nil;
+        self.repostButton.titleLabel.font = [UIFont systemFontOfSize:12.5];
+        [self.repostButton setTitleColor:kActionColor forState:UIControlStateNormal];
+        
+        self.likeButton.layer.cornerRadius = 0.0;
+        self.likeButton.clipsToBounds = NO;
+        self.likeButton.backgroundColor = [UIColor clearColor];
+        [self.likeButton setBackgroundImage:nil forState:UIControlStateNormal];
+        [self.likeButton setBackgroundImage:nil forState:UIControlStateHighlighted];
+        self.likeButton.titleLabel.shadowColor = nil;
+        self.likeButton.titleLabel.font = [UIFont systemFontOfSize:12.5];
+        UIColor *kLikeColor = post.isLiked ? [UIColor colorWithRed:229.0/255.0 green:28.0/255.0 blue:35.0/255.0 alpha:1.0] : kActionColor;
+        [self.likeButton setTitleColor:kLikeColor forState:UIControlStateNormal];
     } else {
-        // 2. UIKit Classic Flat & Modern Swift: чистые плоские кнопки без рамок и без капсул
+        // 3. UIKit Classic Flat & Modern Swift: чистые плоские кнопки без рамок и без капсул
         self.commentsButton.layer.cornerRadius = 0.0;
         self.commentsButton.clipsToBounds = NO;
         self.commentsButton.backgroundColor = [UIColor clearColor];
