@@ -1,3 +1,4 @@
+#import <UIKit/UIKit.h>
 #import "VKMessagesService.h"
 #import "VKAPIClient.h"
 #import "VKAuthService.h"

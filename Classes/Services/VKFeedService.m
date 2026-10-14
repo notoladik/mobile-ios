@@ -1,3 +1,4 @@
+#import <UIKit/UIKit.h>
 #import "VKFeedService.h"
 #import "VKAPIClient.h"
 

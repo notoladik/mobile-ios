@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 #import "VKPost.h"
 
 @interface VKFeedService : NSObject
