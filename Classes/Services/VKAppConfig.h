@@ -1,3 +1,5 @@
+#import <Foundation/Foundation.h>
+
 extern NSString *const VKNSFWSettingDidChangeNotification;
 
 typedef NS_ENUM(NSInteger, VKNSFWDisplayMode) {
